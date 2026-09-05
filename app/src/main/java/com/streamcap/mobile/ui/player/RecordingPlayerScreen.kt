@@ -130,6 +130,11 @@ private fun Playback(recording: RecordingSession, container: AppContainer, paddi
 private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, live: Boolean,
                          modifier: Modifier, onReady: () -> Unit, onError: (String) -> Unit) {
     val context = LocalContext.current
+    DisposableEffect(Unit) {
+        onDispose {
+            (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
     // Recreate the data source when a live retry returns different request headers.
     val player = remember(headers) {
         val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(headers)
