@@ -57,6 +57,9 @@ adb shell am instrument -w -e class com.streamcap.mobile.RecordingAcceptanceTest
 adb shell am instrument -w -e class com.streamcap.mobile.PlaybackAcceptanceTest -e playbackRecordingId RECORDING_ID com.streamcap.mobile.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
+默认录制验收要求至少 10 分钟。长时稳定性测试可将 `recordingSeconds` 设为
+`1800`（30 分钟）或 `3600`（1 小时）；测试必须连接真实直播源，不能用空房间替代。
+
 ## Dependencies And Publication
 
 The application source retains the upstream Apache-2.0 license. Third-party
