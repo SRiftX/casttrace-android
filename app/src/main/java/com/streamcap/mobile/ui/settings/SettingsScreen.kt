@@ -3,6 +3,7 @@ package com.streamcap.mobile.ui.settings
 import android.content.Intent
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -100,6 +101,18 @@ fun SettingsScreen(
                     value = settings.language,
                     modifier = Modifier.clickable { showLanguageDialog = true },
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                )
+                HorizontalDivider()
+                val notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+                SettingsRow(
+                    title = "录制通知",
+                    value = if (notificationsEnabled) "已开启" else "未开启，建议打开",
+                    modifier = Modifier.clickable {
+                        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        })
+                    },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开通知设置") },
                 )
             }
         }
