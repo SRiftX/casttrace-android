@@ -755,12 +755,29 @@ class RecordingService : Service() {
         serviceScope.launch {
             val sessions = repository.activeSessions()
             sessions.forEach { session ->
+                val preservedMedia = session.temporaryPath?.let { path ->
+                    java.io.File(path).let { file ->
+                        file.exists() && file.length() > 1024L
+                    }
+                } == true || session.outputUri != null || session.outputUris.isNotEmpty()
+                val recoveryMessage = if (preservedMedia) {
+                    "应用进程中断，已保留已录内容，可直接预览"
+                } else {
+                    "应用进程中断，未发现可恢复的媒体文件"
+                }
                 repository.updateSession(
                     session.copy(
                         status = TaskStatus.FAILED,
                         endedAt = System.currentTimeMillis(),
-                        errorMessage = "应用进程中断，已创建恢复任务",
+                        errorMessage = recoveryMessage,
                     ),
+                )
+                repository.log(
+                    session.roomId,
+                    session.id,
+                    if (preservedMedia) "WARN" else "ERROR",
+                    "INTERRUPTED_RECORDING_RECOVERED",
+                    recoveryMessage,
                 )
                 val remainingStopAt = session.stopAtMillis?.takeIf { it > System.currentTimeMillis() }
                 startRecording(session.roomId, remainingStopAt)
