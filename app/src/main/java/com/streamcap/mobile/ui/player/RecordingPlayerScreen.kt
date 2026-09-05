@@ -156,7 +156,14 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             override fun onRenderedFirstFrame() { onReady() }
             override fun onPlayerError(error: PlaybackException) {
                 android.util.Log.e("StreamCapPlayer", "Playback failed", error)
-                onError("播放失败：${error.errorCodeName}")
+                if (!live && player.hasNextMediaItem()) {
+                    android.util.Log.w("StreamCapPlayer", "当前分段失败，自动切换下一段")
+                    player.seekToNextMediaItem()
+                    player.prepare()
+                    player.playWhenReady = true
+                } else {
+                    onError("播放失败：${error.errorCodeName}")
+                }
             }
         }
         player.addListener(listener)
