@@ -27,6 +27,7 @@ import com.streamcap.mobile.recording.hls.HlsSourceSelector
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -126,7 +127,8 @@ private fun Playback(recording: RecordingSession, container: AppContainer, paddi
 private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, live: Boolean,
                          modifier: Modifier, onReady: () -> Unit, onError: (String) -> Unit) {
     val context = LocalContext.current
-    val player = remember {
+    // Recreate the data source when a live retry returns different request headers.
+    val player = remember(headers) {
         val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(headers)
             .setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15000).setReadTimeoutMs(20000)
         ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
@@ -149,13 +151,17 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             }
         }
         player.addListener(listener)
-        player.setMediaItems(items)
-        player.prepare()
-        player.playWhenReady = true
         onDispose { player.removeListener(listener); player.release() }
     }
+    // Items can change while this composable stays in the slot (for example after
+    // a failed preview retry), so loading them belongs in an effect keyed by items.
+    LaunchedEffect(player, items) {
+        player.setMediaItems(items, /* resetPosition = */ true)
+        player.prepare()
+        player.playWhenReady = true
+    }
     LaunchedEffect(player) {
-        while (true) {
+        while (isActive) {
             position = player.currentPosition.coerceAtLeast(0)
             duration = player.duration.takeIf { it > 0 } ?: 0L
             playing = player.isPlaying
