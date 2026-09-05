@@ -1,6 +1,8 @@
 package com.streamcap.mobile.ui.recordings
 
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.VideoFile
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
@@ -252,6 +255,14 @@ private fun RecordingRow(
                     }, "分享录制文件")) }
                 }, enabled = shareUri != null) {
                     Icon(Icons.Outlined.Share, contentDescription = "分享录制文件")
+                }
+                IconButton(onClick = {
+                    shareUri?.let { value ->
+                        context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("录制文件路径", value))
+                        android.widget.Toast.makeText(context, "路径已复制", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }, enabled = shareUri != null) {
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = "复制文件路径")
                 }
             }
         }
