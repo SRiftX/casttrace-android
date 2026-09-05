@@ -160,6 +160,7 @@ private fun RecordingRow(
     val canOpen = recording.status in setOf(
         TaskStatus.COMPLETED,
         TaskStatus.PAUSED,
+        TaskStatus.FAILED,
         TaskStatus.STARTING,
         TaskStatus.RECORDING,
         TaskStatus.RECONNECTING,
@@ -224,6 +225,8 @@ private fun RecordingRow(
                 Text(
                     if (recording.status in setOf(TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING, TaskStatus.FINALIZING)) {
                         "预览"
+                    } else if (recording.status == TaskStatus.FAILED && canOpen) {
+                        "已保存片段"
                     } else {
                         recording.status.displayName()
                     },
