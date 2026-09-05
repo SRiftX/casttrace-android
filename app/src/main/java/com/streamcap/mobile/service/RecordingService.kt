@@ -442,6 +442,10 @@ class RecordingService : Service() {
         val terminal = recording.recorder.observe(recording.handle)
             .onEach { progress ->
                 val now = System.currentTimeMillis()
+                if (progress.state == RecorderState.RECORDING && container.recordingStorage.recordingRoot().usableSpace < MIN_RUNTIME_FREE_BYTES) {
+                    repository.log(recording.roomId, recording.sessionId, "WARN", "STORAGE_LOW", "可用空间低于 128 MB，正在停止并保存已有内容")
+                    recording.recorder.stop(recording.handle, StopReason.STORAGE_LOW)
+                }
                 if (recording.notificationsEnabled) {
                     notifications.notifyRoom(
                         recording.roomId,
@@ -892,6 +896,7 @@ class RecordingService : Service() {
 
     companion object {
         private const val MIN_FREE_BYTES = 512L * 1_048_576L
+        private const val MIN_RUNTIME_FREE_BYTES = 128L * 1_048_576L
         private const val ACTION_START = "com.streamcap.mobile.action.START_RECORDING"
         private const val ACTION_STOP = "com.streamcap.mobile.action.STOP_RECORDING"
         private const val ACTION_PAUSE = "com.streamcap.mobile.action.PAUSE_RECORDING"

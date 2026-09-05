@@ -36,6 +36,7 @@ enum class StopReason {
     USER,
     PAUSE,
     TIMER,
+    STORAGE_LOW,
     SERVICE_DESTROYED,
 }
 
