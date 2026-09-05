@@ -1,0 +1,15 @@
+CastTrace Android
+
+This Android application is based on and adapted from StreamCap:
+https://github.com/ihmily/StreamCap
+
+Upstream project: StreamCap, by ihmily and contributors.
+Upstream license: Apache License, Version 2.0 (see LICENSE).
+
+This repository contains Android-specific development and modifications,
+including Kotlin/Compose UI, local recording services, Android storage,
+platform resolvers, playback and device tests. It does not contain the desktop
+application or claim to be an official upstream Android distribution.
+
+Huya source resolution was compared with the streamget implementation used by
+the desktop application. Third-party dependencies retain their own licenses.
