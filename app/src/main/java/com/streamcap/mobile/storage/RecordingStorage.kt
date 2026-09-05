@@ -12,6 +12,7 @@ import java.io.File
 import java.io.FileInputStream
 
 class RecordingStorage(private val context: Context) {
+    fun recordingRoot(): File = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
     data class DeleteResult(val deleted: Int, val failed: List<String>) {
         val successful: Boolean get() = failed.isEmpty()
     }

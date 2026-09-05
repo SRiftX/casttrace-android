@@ -247,6 +247,11 @@ class RecordingService : Service() {
             var sessionCreated = false
             try {
                 val settings = container.preferences.settings.first()
+                val storageRoot = container.recordingStorage.recordingRoot()
+                val freeBytes = storageRoot.usableSpace
+                check(freeBytes >= MIN_FREE_BYTES) {
+                    "可用存储空间不足（至少需要 ${MIN_FREE_BYTES / 1_073_741_824} GB），已取消录制"
+                }
                 val availableSources = repository.streams(roomId)
                 val requestedFormat = room.outputFormat.uppercase()
                 val preferHuyaFlv = requestedFormat == "MP4" && room.platform in setOf("huya", "虎牙直播") &&
@@ -886,6 +891,7 @@ class RecordingService : Service() {
     )
 
     companion object {
+        private const val MIN_FREE_BYTES = 512L * 1_048_576L
         private const val ACTION_START = "com.streamcap.mobile.action.START_RECORDING"
         private const val ACTION_STOP = "com.streamcap.mobile.action.STOP_RECORDING"
         private const val ACTION_PAUSE = "com.streamcap.mobile.action.PAUSE_RECORDING"
