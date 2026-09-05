@@ -148,6 +148,7 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     var playing by remember { mutableStateOf(false) }
     var seekable by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
+    var volume by remember { mutableFloatStateOf(1f) }
     var speedMenu by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf<Float?>(null) }
     var fullscreen by remember { mutableStateOf(false) }
@@ -195,6 +196,14 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             onValueChange = { dragging = it }, onValueChangeFinished = {
                 dragging?.let { player.seekTo(it.toLong()) }; dragging = null
             }, valueRange = 0f..duration.coerceAtLeast(1).toFloat(), enabled = !live && seekable && duration > 0)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.VolumeDown, contentDescription = "音量")
+            Slider(value = volume, onValueChange = {
+                volume = it
+                player.volume = it
+            }, valueRange = 0f..1f, modifier = Modifier.weight(1f))
+            Icon(Icons.Outlined.VolumeUp, contentDescription = null)
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly) {
             IconButton(onClick = { player.seekToPreviousMediaItem() }, enabled = player.hasPreviousMediaItem()) {
