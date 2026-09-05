@@ -476,6 +476,23 @@ class RecordingService : Service() {
         recording.timerJob?.cancel()
         repository.setRoomTaskStatus(recording.roomId, LiveStatus.LIVE, TaskStatus.FINALIZING)
         val session = repository.session(recording.sessionId) ?: return finishActive(recording.roomId)
+        repository.updateSession(
+            session.copy(
+                status = TaskStatus.FINALIZING,
+                errorMessage = "正在保存录制文件并修复索引",
+            ),
+        )
+        if (recording.notificationsEnabled) {
+            notifications.notifyRoom(
+                recording.roomId,
+                notifications.recordingNotification(
+                    recording.roomId,
+                    recording.roomName,
+                    "正在保存录制文件并修复索引",
+                    ongoing = true,
+                ),
+            )
+        }
         val paused = pauseRequested.contains(recording.roomId) && terminal.state == RecorderState.STOPPED
         if (paused && terminal.bytesWritten == 0L) {
             repository.updateSession(
