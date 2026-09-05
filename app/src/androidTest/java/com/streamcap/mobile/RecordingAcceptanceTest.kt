@@ -17,6 +17,8 @@ class RecordingAcceptanceTest {
     @Test fun recordTenMinutesAndPublish() = runBlocking {
         val roomId = InstrumentationRegistry.getArguments().getString("recordingRoomId")?.toLongOrNull()
         assumeTrue("Requires explicit live room ID", roomId != null)
+        val requestedSeconds = InstrumentationRegistry.getArguments().getString("recordingSeconds")
+            ?.toLongOrNull()?.coerceIn(600L, 3600L) ?: 600L
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val app = context.applicationContext as StreamCapApplication
         val repository = app.container.repository
@@ -35,7 +37,7 @@ class RecordingAcceptanceTest {
                 }
             }
             val start = SystemClock.elapsedRealtime()
-            while (SystemClock.elapsedRealtime() - start < 620000) {
+            while (SystemClock.elapsedRealtime() - start < (requestedSeconds + 20L) * 1000L) {
                 delay(10000)
                 val session = repository.session(sessionId)!!
                 android.util.Log.i("RecordingAcceptance", "session=$sessionId elapsed=${(SystemClock.elapsedRealtime()-start)/1000} bytes=${session.totalBytes} mediaSeconds=${session.durationSeconds} status=${session.status}")
@@ -48,7 +50,7 @@ class RecordingAcceptanceTest {
             repository.observeRecording(sessionId).first { it?.status in setOf(TaskStatus.PAUSED, TaskStatus.COMPLETED, TaskStatus.FAILED) }!!
         }
         assertEquals(completed.errorMessage, TaskStatus.PAUSED, completed.status)
-        assertTrue("Actual published media must exceed ten minutes", completed.durationSeconds >= 600)
+        assertTrue("Actual published media did not meet requested duration", completed.durationSeconds >= requestedSeconds)
         assertTrue(completed.outputUris.isNotEmpty())
         android.util.Log.i("RecordingAcceptance", "PASS session=$sessionId duration=${completed.durationSeconds} uris=${completed.outputUris}")
         Unit
