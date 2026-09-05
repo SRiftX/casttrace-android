@@ -223,12 +223,14 @@ private fun RecordingRow(
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    if (recording.status in setOf(TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING, TaskStatus.FINALIZING)) {
+                    if (recording.status == TaskStatus.FINALIZING) {
+                        "正在保存"
+                    } else if (recording.status in setOf(TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING)) {
                         "预览"
                     } else if (recording.status == TaskStatus.FAILED && canOpen) {
                         "已保存片段"
                     } else {
-                        recording.status.displayName()
+                        recording.status.displayName(recording.errorMessage)
                     },
                     style = MaterialTheme.typography.labelSmall,
                 )
@@ -249,4 +251,13 @@ private fun RecordingRow(
             dismissButton = { TextButton(onClick = { showDelete = false }) { Text("取消") } },
         )
     }
+}
+
+private fun TaskStatus.displayName(error: String?): String = when {
+    this != TaskStatus.FAILED -> displayName()
+    error?.contains("空间", true) == true -> "空间不足"
+    error?.contains("进程", true) == true || error?.contains("中断", true) == true -> "进程中断"
+    error?.contains("文件", true) == true || error?.contains("封装", true) == true -> "文件损坏"
+    error?.contains("网络", true) == true || error?.contains("连接", true) == true || error?.contains("直播地址", true) == true -> "网络中断"
+    else -> displayName()
 }

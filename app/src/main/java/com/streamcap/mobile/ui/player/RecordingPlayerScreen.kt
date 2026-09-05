@@ -196,7 +196,7 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             Box {
                 TextButton(onClick = { speedMenu = true }) { Text("${speed}x") }
                 DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
-                    listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEach { rate ->
+                    listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f).forEach { rate ->
                         DropdownMenuItem(text = { Text("${rate}x") }, onClick = {
                             player.setPlaybackSpeed(rate); speed = rate; speedMenu = false
                         })
