@@ -112,9 +112,12 @@ fun LogsScreen(container: AppContainer, onBack: () -> Unit) {
             item {
                 val failed = recordings.count { it.status == com.streamcap.mobile.domain.model.TaskStatus.FAILED }
                 val playable = recordings.count { it.outputUri != null || it.outputUris.isNotEmpty() || it.temporaryPath?.let { path -> java.io.File(path).exists() } == true }
+                val freeBytes = container.recordingStorage.recordingRoot().usableSpace
+                val storageAdvice = if (freeBytes < 512L * 1_048_576L) "存储空间不足，建议先清理录制文件" else "存储空间正常"
                 Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("诊断摘要", style = MaterialTheme.typography.titleMedium)
                     Text("录制会话：${recordings.size} · 可预览：$playable · 异常：$failed")
+                    Text("可用空间：${formatDiagnosticStorage(freeBytes)} · $storageAdvice", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(if (failed == 0) "当前没有录制异常" else "请查看下方异常日志；有媒体文件的异常记录仍可尝试预览", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider()
@@ -129,6 +132,12 @@ fun LogsScreen(container: AppContainer, onBack: () -> Unit) {
             }
         }
     }
+}
+
+private fun formatDiagnosticStorage(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> "%.0f MB".format(bytes / 1_048_576.0)
+    else -> "%.0f KB".format(bytes / 1024.0)
 }
 
 @Composable
