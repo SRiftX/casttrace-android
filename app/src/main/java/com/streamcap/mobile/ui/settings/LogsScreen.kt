@@ -52,6 +52,7 @@ fun LogsScreen(container: AppContainer, onBack: () -> Unit) {
         factory = ViewModelFactory { SettingsViewModel(container.preferences, container.repository) },
     )
     val logs by viewModel.logs.collectAsStateWithLifecycle()
+    val recordings by container.repository.recordings.collectAsStateWithLifecycle(emptyList())
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val errorLogs = logs.filter { it.level.equals("ERROR", ignoreCase = true) }
@@ -108,6 +109,16 @@ fun LogsScreen(container: AppContainer, onBack: () -> Unit) {
                 .padding(padding),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
         ) {
+            item {
+                val failed = recordings.count { it.status == com.streamcap.mobile.domain.model.TaskStatus.FAILED }
+                val playable = recordings.count { it.outputUri != null || it.outputUris.isNotEmpty() || it.temporaryPath?.let { path -> java.io.File(path).exists() } == true }
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("诊断摘要", style = MaterialTheme.typography.titleMedium)
+                    Text("录制会话：${recordings.size} · 可预览：$playable · 异常：$failed")
+                    Text(if (failed == 0) "当前没有录制异常" else "请查看下方异常日志；有媒体文件的异常记录仍可尝试预览", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                HorizontalDivider()
+            }
             if (logs.isEmpty()) {
                 item { Text("暂无任务日志", modifier = Modifier.padding(vertical = 48.dp)) }
             } else {
