@@ -1,6 +1,8 @@
 package com.streamcap.mobile.ui.settings
 
 import android.content.Intent
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -104,6 +106,11 @@ fun SettingsScreen(
         item {
             SettingsSection("录制") {
                 SettingsRow(
+                    title = "可用存储空间",
+                    value = formatStorage(container.recordingStorage.recordingRoot().usableSpace),
+                )
+                HorizontalDivider()
+                SettingsRow(
                     icon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
                     title = "保存目录",
                     value = settings.storageDirectoryUri?.let { "已选择自定义目录" } ?: "Movies/StreamCap",
@@ -129,6 +136,22 @@ fun SettingsScreen(
                     value = settings.defaultQuality,
                     modifier = Modifier.clickable { showQualityDialog = true },
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                )
+            }
+        }
+        item {
+            SettingsSection("后台运行") {
+                val power = context.getSystemService(PowerManager::class.java)
+                val unrestricted = power?.isIgnoringBatteryOptimizations(context.packageName) == true
+                SettingsRow(
+                    title = "电池优化",
+                    value = if (unrestricted) "不受限制" else "可能限制后台录制",
+                    modifier = Modifier.clickable {
+                        context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = android.net.Uri.parse("package:${context.packageName}")
+                        })
+                    },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开电池设置") },
                 )
             }
         }
@@ -285,6 +308,12 @@ fun SettingsScreen(
             },
         )
     }
+}
+
+private fun formatStorage(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> "%.0f MB".format(bytes / 1_048_576.0)
+    else -> "%.0f KB".format(bytes / 1024.0)
 }
 
 private fun toggleTemplateToken(template: String, token: String): String {
