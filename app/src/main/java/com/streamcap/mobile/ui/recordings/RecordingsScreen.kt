@@ -1,5 +1,7 @@
 package com.streamcap.mobile.ui.recordings
 
+import android.content.Intent
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.VideoFile
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
@@ -34,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -60,6 +64,7 @@ fun RecordingsScreen(
     contentPadding: PaddingValues,
     onOpenRecording: (Long) -> Unit,
 ) {
+    val context = LocalContext.current
     val viewModel: RecordingsViewModel = viewModel(
         factory = ViewModelFactory { RecordingsViewModel(container.repository, container) },
     )
@@ -157,6 +162,7 @@ private fun RecordingRow(
     onDelete: (RecordingSession) -> Unit,
 ) {
     var showDelete by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val canOpen = recording.status in setOf(
         TaskStatus.COMPLETED,
         TaskStatus.PAUSED,
@@ -236,6 +242,16 @@ private fun RecordingRow(
                 )
                 IconButton(onClick = { showDelete = true }, enabled = canDelete) {
                     Icon(Icons.Outlined.Delete, contentDescription = "删除录制文件")
+                }
+                val shareUri = recording.outputUri ?: recording.outputUris.firstOrNull()
+                IconButton(onClick = {
+                    shareUri?.let { value -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "video/*"
+                        putExtra(Intent.EXTRA_STREAM, android.net.Uri.parse(value))
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }, "分享录制文件")) }
+                }, enabled = shareUri != null) {
+                    Icon(Icons.Outlined.Share, contentDescription = "分享录制文件")
                 }
             }
         }
