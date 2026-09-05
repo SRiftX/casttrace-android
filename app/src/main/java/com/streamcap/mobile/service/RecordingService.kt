@@ -274,6 +274,23 @@ class RecordingService : Service() {
                         availableSources.firstOrNull { it.type == StreamType.FLV } ?: throw failure
                     }
                 } else initialSource
+                if (room.quality == "原画" && source.quality != "原画") {
+                    repository.log(
+                        roomId,
+                        null,
+                        "WARN",
+                        "QUALITY_FALLBACK",
+                        "请求原画但平台返回 ${source.quality} 线路${source.bitrate?.let { "（${it / 1000} kbps）" } ?: ""}，将按实际线路无损保存",
+                    )
+                } else {
+                    repository.log(
+                        roomId,
+                        null,
+                        "INFO",
+                        "QUALITY_SELECTED",
+                        "已选择 ${source.quality} 线路${source.bitrate?.let { "（${it / 1000} kbps）" } ?: ""}，录制阶段不会转码",
+                    )
+                }
                 val actualFormat = when {
                     requestedFormat == "MP4" -> "MP4"
                     source.type == StreamType.FLV -> "FLV"
