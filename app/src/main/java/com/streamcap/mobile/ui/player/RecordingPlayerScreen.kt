@@ -1,5 +1,8 @@
 package com.streamcap.mobile.ui.player
 
+import android.app.Activity
+import android.content.pm.ActivityInfo
+
 import androidx.annotation.OptIn as AndroidXOptIn
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -142,6 +145,7 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     var speed by remember { mutableFloatStateOf(1f) }
     var speedMenu by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf<Float?>(null) }
+    var fullscreen by remember { mutableStateOf(false) }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() { onReady() }
@@ -193,6 +197,12 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                 Icon(Icons.Outlined.SkipNext, "下一段")
             }
             Text(if (live) "直播" else "${timeLabel(position)} / ${timeLabel(duration)}")
+            IconButton(onClick = {
+                fullscreen = !fullscreen
+                (context as? Activity)?.requestedOrientation = if (fullscreen) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }) {
+                Icon(if (fullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen, if (fullscreen) "退出全屏" else "全屏")
+            }
             Box {
                 TextButton(onClick = { speedMenu = true }) { Text("${speed}x") }
                 DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
