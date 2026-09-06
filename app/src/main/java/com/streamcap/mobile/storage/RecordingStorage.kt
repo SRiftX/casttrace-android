@@ -10,8 +10,42 @@ import android.content.ContentUris
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.FileInputStream
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 
 class RecordingStorage(private val context: Context) {
+    suspend fun exportCopy(source: Uri, destination: Uri, onProgress: (Long) -> Unit = {}): Long =
+        withContext(Dispatchers.IO) {
+            require(source != destination) { "导出位置不能是原文件" }
+            try {
+                var copied = 0L
+                val input = requireNotNull(context.contentResolver.openInputStream(source)) { "原文件不可读取" }
+                input.use {
+                    val output = requireNotNull(context.contentResolver.openOutputStream(destination, "w")) { "导出位置不可写入" }
+                    output.use {
+                        val buffer = ByteArray(256 * 1024)
+                        while (true) {
+                            coroutineContext.ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            copied += count
+                            onProgress(copied)
+                        }
+                    }
+                }
+                check(copied > 0) { "原文件为空" }
+                copied
+            } catch (failure: Throwable) {
+                // The picker creates a new destination; never delete or rewrite the source.
+                runCatching { deletePublished(destination.toString()) }
+                throw failure
+            }
+        }
+
     fun recordingRoot(): File = context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir
     data class DeleteResult(val deleted: Int, val failed: List<String>) {
         val successful: Boolean get() = failed.isEmpty()

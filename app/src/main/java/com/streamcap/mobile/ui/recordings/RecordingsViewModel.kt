@@ -9,12 +9,51 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import android.net.Uri
+import com.streamcap.mobile.ui.common.formatBytes
 import java.io.File
 
 class RecordingsViewModel(
     private val repository: StreamCapRepository,
     private val container: AppContainer,
 ) : ViewModel() {
+    private val _exportProgress = MutableStateFlow<String?>(null)
+    val exportProgress = _exportProgress.asStateFlow()
+    private val _fileMessage = MutableStateFlow<String?>(null)
+    val fileMessage = _fileMessage.asStateFlow()
+    private var exportJob: Job? = null
+
+    fun dismissFileMessage() { _fileMessage.value = null }
+    fun cancelExport() { exportJob?.cancel() }
+
+    fun export(source: String, destination: Uri) {
+        if (exportJob?.isActive == true) return
+        _exportProgress.value = "正在导出"
+        exportJob = viewModelScope.launch {
+            try {
+                var lastReported = 0L
+                container.recordingStorage.exportCopy(Uri.parse(source), destination) { bytes ->
+                    if (bytes - lastReported >= 1_048_576L) {
+                        _exportProgress.value = "正在导出 ${formatBytes(bytes)}"
+                        lastReported = bytes
+                    }
+                }
+                _fileMessage.value = "导出完成"
+            } catch (cancelled: CancellationException) {
+                _fileMessage.value = "导出已取消"
+                throw cancelled
+            } catch (failure: Exception) {
+                _fileMessage.value = "导出失败：${failure.message}"
+            } finally {
+                _exportProgress.value = null
+            }
+        }
+    }
+
     val recordings: StateFlow<List<RecordingSession>> = repository.recordings.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),

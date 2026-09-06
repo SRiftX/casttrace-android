@@ -3,6 +3,11 @@ package com.streamcap.mobile.ui.recordings
 import android.content.Intent
 import android.content.ClipData
 import android.content.ClipboardManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material3.LinearProgressIndicator
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -72,6 +77,14 @@ fun RecordingsScreen(
         factory = ViewModelFactory { RecordingsViewModel(container.repository, container) },
     )
     val recordings by viewModel.recordings.collectAsStateWithLifecycle()
+    val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
+    val fileMessage by viewModel.fileMessage.collectAsStateWithLifecycle()
+    var exportSource by rememberSaveable { mutableStateOf<String?>(null) }
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
+        val source = exportSource
+        exportSource = null
+        if (destination != null && source != null) viewModel.export(source, destination)
+    }
     var selectedFilter by remember { mutableStateOf(RecordingFilter.ALL) }
     var deleteError by remember { mutableStateOf<String?>(null) }
     val filteredRecordings = recordings.filter { recording ->
@@ -142,9 +155,13 @@ fun RecordingsScreen(
             }
         } else {
             items(filteredRecordings, key = { it.id }) { recording ->
-                RecordingRow(recording, onOpenRecording) { target ->
-                    viewModel.delete(target) { error -> deleteError = error }
-                }
+                RecordingRow(recording, onOpenRecording,
+                    onExport = { source, name ->
+                        exportSource = source
+                        exportPicker.launch(name)
+                    },
+                    onDelete = { target -> viewModel.delete(target) { error -> deleteError = error } },
+                )
             }
         }
     }
@@ -156,15 +173,29 @@ fun RecordingsScreen(
             confirmButton = { TextButton(onClick = { deleteError = null }) { Text("确定") } },
         )
     }
+    exportProgress?.let { progress ->
+        AlertDialog(onDismissRequest = {}, title = { Text(progress) },
+            text = { LinearProgressIndicator(Modifier.fillMaxWidth()) },
+            confirmButton = { TextButton(onClick = viewModel::cancelExport) { Text("取消导出") } })
+    }
+    fileMessage?.let { message ->
+        AlertDialog(onDismissRequest = viewModel::dismissFileMessage, title = { Text("文件导出") },
+            text = { Text(message) }, confirmButton = {
+                TextButton(onClick = viewModel::dismissFileMessage) { Text("确定") }
+            })
+    }
 }
 
 @Composable
 private fun RecordingRow(
     recording: RecordingSession,
     onOpenRecording: (Long) -> Unit,
+    onExport: (String, String) -> Unit,
     onDelete: (RecordingSession) -> Unit,
 ) {
     var showDelete by remember { mutableStateOf(false) }
+    var showExportParts by remember { mutableStateOf(false) }
+    val published = recording.outputUris.ifEmpty { listOfNotNull(recording.outputUri) }.distinct()
     val context = LocalContext.current
     val canOpen = recording.status in setOf(
         TaskStatus.COMPLETED,
@@ -247,6 +278,9 @@ private fun RecordingRow(
                     Icon(Icons.Outlined.Delete, contentDescription = "删除录制文件")
                 }
                 val shareUri = recording.outputUri ?: recording.outputUris.firstOrNull()
+                IconButton(onClick = { showExportParts = true }, enabled = canDelete && published.isNotEmpty()) {
+                    Icon(Icons.Outlined.Download, contentDescription = "导出录制文件")
+                }
                 IconButton(onClick = {
                     shareUri?.let { value -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                         type = "video/*"
@@ -277,6 +311,20 @@ private fun RecordingRow(
             },
             dismissButton = { TextButton(onClick = { showDelete = false }) { Text("取消") } },
         )
+    }
+    if (showExportParts) {
+        AlertDialog(onDismissRequest = { showExportParts = false }, title = { Text("选择导出分段") },
+            text = {
+                LazyColumn {
+                    items(published.size) { index ->
+                        TextButton(onClick = {
+                            showExportParts = false
+                            val base = recording.roomName.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(80)
+                            onExport(published[index], "${base}_${recording.id}_${index + 1}.${recording.containerFormat}")
+                        }) { Text("第 ${index + 1} 段") }
+                    }
+                }
+            }, confirmButton = { TextButton(onClick = { showExportParts = false }) { Text("取消") } })
     }
 }
 
