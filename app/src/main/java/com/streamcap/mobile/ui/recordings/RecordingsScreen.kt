@@ -35,6 +35,8 @@ import androidx.compose.material.icons.outlined.VideoFile
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -126,25 +128,47 @@ fun RecordingsScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Text("录制文件", style = MaterialTheme.typography.headlineLarge)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "${filteredRecordings.size} / ${recordings.size} 个录制会话",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             if (selectedIds.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(onClick = {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = { selectedIds = emptySet() }) {
+                            Icon(Icons.Outlined.Close, contentDescription = "退出多选")
+                        }
+                        Text("已选 ${selectedIds.size} 项", style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f))
+                        IconButton(onClick = { selectedIds = filteredRecordings.map { it.id }.toSet() }) {
+                            Icon(Icons.Outlined.SelectAll, contentDescription = "全选当前筛选结果")
+                        }
+                        IconButton(onClick = {
                         val targets = recordings.filter { it.id in selectedIds }
                         val uris = targets.flatMap { it.outputUris.ifEmpty { listOfNotNull(it.outputUri) } }.map(Uri::parse)
                         runCatching { context.startActivity(Intent.createChooser(RecordingStorage(context).shareIntent(uris), "分享录制文件")) }
                             .onFailure { deleteError = "分享失败：${it.message}" }
-                    }) { Text("分享") }
-                    TextButton(onClick = {
+                        }) { Icon(Icons.Outlined.Share, contentDescription = "分享已选文件") }
+                        IconButton(onClick = {
                         val targets = recordings.filter { it.id in selectedIds }
                         viewModel.deleteMany(targets) { error -> deleteError = error ?: "已删除 ${targets.size} 个录制会话" }
                         selectedIds = emptySet()
-                    }) { Text("删除 (${selectedIds.size})") }
+                        }) { Icon(Icons.Outlined.Delete, contentDescription = "删除已选文件") }
+                    }
+                }
+            } else {
+                Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("录制文件", style = MaterialTheme.typography.headlineLarge)
+                        Spacer(Modifier.height(4.dp))
+                        Text("${filteredRecordings.size} / ${recordings.size} 个录制会话",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text("长按卡片可多选", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Spacer(Modifier.height(12.dp))
