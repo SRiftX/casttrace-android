@@ -87,6 +87,8 @@ $device = '<ANDROID_DEVICE_SERIAL>'
 - 已完成一次真实 MuMu 录制验收：约 625 秒，生成发布文件，状态为 `PAUSED`。
 - 已通过 `testDebugUnitTest`、`assembleDebug`、`assembleDebugAndroidTest`。
 - 最近一次 APK 已安装到 MuMu 测试设备（serial 不写入仓库）。
+- 2026-09-06 在 MuMu `127.0.0.1:7555` 完成复验：Debug APK 和 AndroidTest APK 安装成功，应用启动进程正常，未发现 `FATAL EXCEPTION`；`am instrument` 返回 `OK (14 tests)`，其中 10 项实际通过，4 项因未传入直播间或录制参数按测试设计跳过。
+- 本次复验使用的命令为 `.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`；单元测试共 26 项，失败 0、错误 0、跳过 0。
 - 尚未完成 30 分钟或 1 小时真实直播源验收；不能把构建通过当作长时间录制验收。
 - 之前直接运行 Gradle 时未按本文件设置 `TEMP`、`TMP` 和 `ANDROID_HOME`，出现的 Java loopback 连接失败属于本机启动环境问题，不能作为项目本身的测试失败结论。按文档设置环境变量后，构建和单元测试均已通过。
 
