@@ -63,6 +63,7 @@ class RecordingService : Service() {
     )
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val retries = RecordingRetryScheduler(serviceScope)
     private val serviceCreatedAt = System.currentTimeMillis()
     private val active = ConcurrentHashMap<Long, ActiveRecording>()
     private val starting = ConcurrentHashMap.newKeySet<Long>()
@@ -109,6 +110,7 @@ class RecordingService : Service() {
                 val roomId = intent.getLongExtra(EXTRA_ROOM_ID, -1)
                 val stopAt = intent.getLongExtra(EXTRA_STOP_AT, -1).takeIf { it > 0 }
                 if (roomId > 0) {
+                    retries.cancel(roomId)
                     stopRequested.remove(roomId)
                     pauseRequested.remove(roomId)
                     sourceAttempts.remove(roomId)
@@ -161,10 +163,10 @@ class RecordingService : Service() {
                         ),
                     )
                     rooms.forEach { room ->
-                        if (room.taskStatus == TaskStatus.PAUSED || active.containsKey(room.id) || starting.contains(room.id)) {
+                        if (room.taskStatus == TaskStatus.PAUSED || stopRequested.contains(room.id) || pauseRequested.contains(room.id) || retries.isPending(room.id) || active.containsKey(room.id) || starting.contains(room.id)) {
                             return@forEach
                         }
-                        val checkIntervalMillis = MIN_MONITOR_INTERVAL_SECONDS * 1_000L
+                        val checkIntervalMillis = room.checkIntervalSeconds.coerceAtLeast(MIN_MONITOR_INTERVAL_SECONDS) * 1_000L
                         val checkDue = room.lastCheckAt?.let { System.currentTimeMillis() - it >= checkIntervalMillis } ?: true
                         if (!checkDue) return@forEach
                         runCatching { repository.refresh(room.id) }
@@ -221,7 +223,7 @@ class RecordingService : Service() {
 
     private suspend fun scanMonitoredRoomsNow() {
         repository.monitoredRooms().forEach { room ->
-            if (room.taskStatus == TaskStatus.PAUSED || active.containsKey(room.id) || starting.contains(room.id)) return@forEach
+            if (room.taskStatus == TaskStatus.PAUSED || retries.isPending(room.id) || active.containsKey(room.id) || starting.contains(room.id)) return@forEach
             runCatching { repository.refresh(room.id) }
                 .onSuccess { status ->
                     if (status == LiveStatus.LIVE) startRecording(room.id, null)
@@ -234,6 +236,8 @@ class RecordingService : Service() {
 
     private fun startRecording(roomId: Long, stopAtMillis: Long?) {
         if (stopRequested.contains(roomId) || pauseRequested.contains(roomId)) return
+        if (retries.isPending(roomId)) return
+        if (stopAtMillis != null && stopAtMillis <= System.currentTimeMillis()) return
         if (active.containsKey(roomId) || !starting.add(roomId)) return
         serviceScope.launch {
             val room = repository.room(roomId) ?: run {
@@ -246,6 +250,7 @@ class RecordingService : Service() {
             }
             var sessionCreated = false
             try {
+                repository.setRoomTaskStatus(roomId, room.liveStatus, TaskStatus.STARTING)
                 val settings = container.preferences.settings.first()
                 val storageRoot = container.recordingStorage.recordingRoot()
                 val freeBytes = storageRoot.usableSpace
@@ -386,7 +391,10 @@ class RecordingService : Service() {
                 repository.setRoomTaskStatus(roomId, LiveStatus.LIVE, TaskStatus.RECORDING)
                 observeRecording(recording)
             } catch (error: Throwable) {
-                starting.remove(roomId)
+                if (error is kotlinx.coroutines.CancellationException) {
+                    starting.remove(roomId)
+                    throw error
+                }
                 val errorMessage = error.message ?: "启动录制失败"
                 val retryCount = retryCounts[roomId] ?: 0
                 if (!sessionCreated && retryCount == 0) {
@@ -426,9 +434,10 @@ class RecordingService : Service() {
                         "RECORDING_RETRY",
                         "录制启动异常，将在刷新直播地址后进行第 ${retryCount + 1} 次重试",
                     )
-                    delay(retryDelayMillis(retryCount))
-                    startRecording(roomId, stopAtMillis)
+                    scheduleRetry(roomId, stopAtMillis, retryCount)
+                    starting.remove(roomId)
                 } else {
+                    starting.remove(roomId)
                     retryCounts.remove(roomId)
                     sourceAttempts.remove(roomId)
                     stopIfIdle()
@@ -509,7 +518,9 @@ class RecordingService : Service() {
             return
         }
         val currentRoom = repository.room(recording.roomId)
-        val roomStillLive = terminal.bytesWritten > 0L && confirmRoomStillLive(recording.roomId)
+        val roomStillLive = terminal.state == RecorderState.COMPLETED &&
+            !stopRequested.contains(recording.roomId) && !pauseRequested.contains(recording.roomId) &&
+            terminal.bytesWritten > 0L && confirmRoomStillLive(recording.roomId)
         val segmentSeconds = currentRoom?.let { room ->
             room.segmentSeconds.coerceIn(MIN_SEGMENT_SECONDS, MAX_SEGMENT_SECONDS)
                 .takeIf { room.segmentEnabled }
@@ -561,13 +572,8 @@ class RecordingService : Service() {
                 repository.deleteSession(session)
                 terminal.outputFiles.forEach { it.delete() }
                 recording.temporaryFile.delete()
-                delay(retryDelayMillis(retryCount))
+                scheduleRetry(recording.roomId, recording.stopAtMillis, retryCount)
                 active.remove(recording.roomId)
-                if (stopRequested.contains(recording.roomId) || repository.room(recording.roomId)?.enabled != true) {
-                    finishActive(recording.roomId)
-                } else {
-                    startRecording(recording.roomId, recording.stopAtMillis)
-                }
                 return
             }
             if (publishBeforeRetry) {
@@ -731,13 +737,8 @@ class RecordingService : Service() {
             retryCounts[recording.roomId] = 0
             sourceAttempts[recording.roomId] = (sourceAttempts[recording.roomId] ?: 0) + 1
             repository.setRoomTaskStatus(recording.roomId, LiveStatus.LIVE, TaskStatus.RECONNECTING)
-            delay(retryDelayMillis(retryCounts[recording.roomId] ?: 0))
+            scheduleRetry(recording.roomId, recording.stopAtMillis, retryCounts[recording.roomId] ?: 0)
             active.remove(recording.roomId)
-            if (stopRequested.contains(recording.roomId) || repository.room(recording.roomId)?.enabled != true) {
-                finishActive(recording.roomId)
-            } else {
-                startRecording(recording.roomId, recording.stopAtMillis)
-            }
             return
         }
         if (paused) pauseRequested.remove(recording.roomId)
@@ -756,14 +757,41 @@ class RecordingService : Service() {
     }
 
     private suspend fun confirmRoomStillLive(roomId: Long): Boolean {
-        repeat(3) { attempt ->
-            if (runCatching { repository.refresh(roomId) == LiveStatus.LIVE }.getOrDefault(false)) return true
-            if (attempt < 2) delay(1_000L)
+        return try {
+            repository.refresh(roomId) == LiveStatus.LIVE
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
         }
-        return false
+    }
+
+    private suspend fun scheduleRetry(roomId: Long, stopAtMillis: Long?, retryCount: Int) {
+        val room = repository.room(roomId)
+        if (stopRequested.contains(roomId) || pauseRequested.contains(roomId) || room?.enabled != true ||
+            (stopAtMillis != null && stopAtMillis <= System.currentTimeMillis())) {
+            if (room != null) repository.setRoomTaskStatus(roomId, room.liveStatus,
+                if (pauseRequested.contains(roomId)) TaskStatus.PAUSED else roomTaskStatus(roomId))
+            finishActive(roomId)
+            return
+        }
+        repository.log(roomId, null, "INFO", "RECONNECT_WAIT",
+            "第 ${retryCount + 1} 次重连，等待 ${RecordingRetryScheduler.delayMillis(retryCount) / 1000} 秒后重新解析直播源")
+        retries.schedule(roomId, retryCount) {
+            val latest = repository.room(roomId)
+            if (stopRequested.contains(roomId) || pauseRequested.contains(roomId) || latest?.enabled != true ||
+                (stopAtMillis != null && stopAtMillis <= System.currentTimeMillis())) {
+                if (latest != null) repository.setRoomTaskStatus(roomId, latest.liveStatus,
+                    if (pauseRequested.contains(roomId)) TaskStatus.PAUSED else roomTaskStatus(roomId))
+                finishActive(roomId)
+            } else {
+                startRecording(roomId, stopAtMillis)
+            }
+        }
     }
 
     private fun stopRecording(roomId: Long, reason: StopReason) {
+        retries.cancel(roomId)
         stopRequested.add(roomId)
         pauseRequested.remove(roomId)
         retryCounts.remove(roomId)
@@ -772,11 +800,15 @@ class RecordingService : Service() {
         if (recording != null) {
             serviceScope.launch { recording.recorder.stop(recording.handle, reason) }
         } else {
-            stopIfIdle()
+            serviceScope.launch {
+                repository.room(roomId)?.let { repository.setRoomTaskStatus(roomId, it.liveStatus, roomTaskStatus(roomId)) }
+                stopIfIdle()
+            }
         }
     }
 
     private fun pauseRecording(roomId: Long) {
+        retries.cancel(roomId)
         pauseRequested.add(roomId)
         retryCounts.remove(roomId)
         sourceAttempts.remove(roomId)
@@ -788,7 +820,6 @@ class RecordingService : Service() {
             serviceScope.launch {
                 val room = repository.room(roomId) ?: return@launch
                 repository.setRoomTaskStatus(roomId, room.liveStatus, TaskStatus.PAUSED)
-                pauseRequested.remove(roomId)
                 stopIfIdle()
             }
         }
@@ -831,7 +862,7 @@ class RecordingService : Service() {
 
     private fun finishActive(roomId: Long) {
         active.remove(roomId)
-        if (active.isEmpty()) {
+        if (active.isEmpty() && starting.isEmpty() && !retries.hasPending()) {
             wakeLockRefreshJob?.cancel()
             wakeLockRefreshJob = null
             if (wakeLock.isHeld) wakeLock.release()
@@ -851,7 +882,7 @@ class RecordingService : Service() {
             )
             return
         }
-        if (active.isEmpty()) {
+        if (active.isEmpty() && starting.isEmpty() && !retries.hasPending()) {
             wakeLockRefreshJob?.cancel()
             wakeLockRefreshJob = null
             if (wakeLock.isHeld) wakeLock.release()
@@ -895,10 +926,6 @@ class RecordingService : Service() {
         RecorderState.FAILED -> TaskStatus.FAILED
     }
 
-    private fun retryDelayMillis(retryCount: Int): Long =
-        (INITIAL_RETRY_DELAY_MILLIS * (1L shl retryCount.coerceIn(0, 4)))
-            .coerceAtMost(MAX_RETRY_DELAY_MILLIS)
-
     private fun formatBytes(bytes: Long): String = when {
         bytes >= 1_073_741_824 -> "%.2f GB".format(bytes / 1_073_741_824.0)
         bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
@@ -923,8 +950,6 @@ class RecordingService : Service() {
         private const val EXTRA_STOP_AT = "stop_at"
         private const val WAKE_LOCK_TIMEOUT_MILLIS = 10 * 60 * 1_000L
         private const val WAKE_LOCK_REFRESH_MILLIS = 8 * 60 * 1_000L
-        private const val INITIAL_RETRY_DELAY_MILLIS = 2_000L
-        private const val MAX_RETRY_DELAY_MILLIS = 30_000L
         private const val MAX_START_RETRIES = 4
         private const val MONITOR_POLL_MILLIS = 15_000L
         private const val MIN_MONITOR_INTERVAL_SECONDS = 15

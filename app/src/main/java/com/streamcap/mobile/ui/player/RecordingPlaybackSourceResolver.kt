@@ -14,13 +14,14 @@ import kotlin.coroutines.coroutineContext
 
 internal class RecordingPlaybackSourceResolver(private val context: Context) : AutoCloseable {
     private val snapshots = java.util.Collections.synchronizedList(mutableListOf<File>())
-    override fun close() { synchronized(snapshots) { snapshots.forEach(File::delete); snapshots.clear() } }
+    private var closed = false
+    override fun close() { synchronized(snapshots) { closed = true; snapshots.forEach(File::delete); snapshots.clear() } }
 
     suspend fun resolve(outputUri: String?, outputUris: List<String>, temporaryPath: String?, containerFormat: String): List<Uri> {
         val explicit = outputUris.mapNotNull { runCatching { Uri.parse(it) }.getOrNull() }
             .filter(::hasReadableMedia)
         if (explicit.isNotEmpty()) {
-            return if (containerFormat.equals("flv", ignoreCase = true)) explicit.filter(::hasPlayableFlv) else explicit
+            return preparePublished(explicit, containerFormat)
         }
         if (outputUri.isNullOrBlank() || !hasReadableMedia(Uri.parse(outputUri))) {
             return temporaryPath?.let { temporaryParts(File(it)) }?.map { snapshot(it) }.orEmpty()
@@ -28,8 +29,14 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
         val current = Uri.parse(outputUri)
         if (!hasReadableMedia(current)) return emptyList()
         val parts = mediaStoreParts(current)
-        if (!containerFormat.equals("flv", ignoreCase = true)) return parts.ifEmpty { listOf(current) }
-        return parts.filter(::hasPlayableFlv).ifEmpty { listOf(current) }
+        return preparePublished(parts.ifEmpty { listOf(current) }, containerFormat)
+    }
+
+    private suspend fun preparePublished(uris: List<Uri>, format: String): List<Uri> = when (format.lowercase()) {
+        // Raw TS/FLV can lack a seek map. Build an indexed playback copy without changing the recording.
+        "ts" -> uris.map { snapshot(it) }
+        "flv" -> uris.filter(::hasPlayableFlv).map { snapshot(it) }
+        else -> uris
     }
 
     private fun temporaryParts(first: File): List<File> {
@@ -41,26 +48,38 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
         }.sortedBy { it.first }.map { it.second }
     }
 
-    private suspend fun snapshot(source: File): Uri {
+    private suspend fun snapshot(source: File): Uri = snapshot(Uri.fromFile(source), source.length())
+
+    private suspend fun snapshot(source: Uri, frozenLength: Long? = null): Uri {
         val copy = File.createTempFile("recording-preview-", ".part", context.cacheDir)
         val target = File.createTempFile("recording-preview-", ".mp4", context.cacheDir)
         try {
             // Freeze the length before copying a file that the recorder is still appending.
-            val length = source.length()
-            source.inputStream().use { input -> copy.outputStream().use { output ->
+            val length = frozenLength ?: context.contentResolver.openAssetFileDescriptor(source, "r")?.use {
+                it.length.takeIf { size -> size >= 0 }
+            }
+            if (length != null) check(length <= (context.cacheDir.usableSpace - 32L * 1024 * 1024) / 2) {
+                "空间不足，无法为此录制建立可快进的播放副本"
+            }
+            requireNotNull(context.contentResolver.openInputStream(source)) { "无法读取录制文件" }.use { input -> copy.outputStream().use { output ->
                 val buffer = ByteArray(64 * 1024)
-                var remaining = length
+                var remaining = length ?: Long.MAX_VALUE
                 while (remaining > 0) {
                     coroutineContext.ensureActive()
+                    check(context.cacheDir.usableSpace > 32L * 1024 * 1024) { "空间不足，无法准备播放" }
                     val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
                     if (read < 0) break
                     output.write(buffer, 0, read)
                     remaining -= read
                 }
             } }
+            check(copy.length() <= context.cacheDir.usableSpace - 32L * 1024 * 1024) { "空间不足，无法建立播放索引" }
             FfmpegMp4Muxer.convert(copy, target)
             coroutineContext.ensureActive()
-            snapshots.add(target)
+            synchronized(snapshots) {
+                check(!closed) { "播放页面已关闭" }
+                snapshots.add(target)
+            }
             return Uri.fromFile(target)
         } catch (failure: Exception) {
             target.delete()

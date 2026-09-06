@@ -73,6 +73,7 @@ data class RecordingSession(
     val id: Long,
     val roomId: Long,
     val roomName: String,
+    val roomTitle: String?,
     val status: TaskStatus,
     val startedAt: Long?,
     val endedAt: Long?,

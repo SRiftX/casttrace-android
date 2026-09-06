@@ -8,9 +8,25 @@ import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class HlsSourceSelectorTest {
+    @Test fun reportsForbiddenPlaylistInsteadOfGenericRetryError() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(403))
+            try {
+                HlsSourceSelector(OkHttpClient()).select(listOf(
+                    StreamSource(server.url("live.m3u8").toString(), StreamType.HLS, "original"),
+                ))
+                fail("Expected unavailable source")
+            } catch (error: IllegalStateException) {
+                assertTrue(error.message.orEmpty().contains("HTTP 403"))
+            }
+        }
+    }
+
     @Test fun skipsForbiddenCdnAndResolvesRelativeMaster() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(403))

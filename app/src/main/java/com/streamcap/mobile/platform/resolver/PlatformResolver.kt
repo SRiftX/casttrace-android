@@ -8,6 +8,8 @@ import com.streamcap.mobile.domain.model.StreamSource
 import com.streamcap.mobile.platform.AndroidSupportStatus
 import com.streamcap.mobile.platform.PlatformCatalog
 
+data class RoomCheckResult(val status: LiveStatus, val info: LiveRoomInfo? = null)
+
 interface PlatformResolver {
     val platformId: String
 
@@ -19,6 +21,9 @@ interface PlatformResolver {
         room: LiveRoom,
         credential: PlatformCredential? = null,
     ): LiveStatus
+
+    suspend fun checkRoom(room: LiveRoom, credential: PlatformCredential? = null): RoomCheckResult =
+        RoomCheckResult(checkLive(room, credential))
 
     suspend fun getStreams(
         room: LiveRoom,

@@ -7,12 +7,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.LinearProgressIndicator
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +33,9 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.VideoFile
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.AlertDialog
@@ -42,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +65,10 @@ import com.streamcap.mobile.ui.common.displayName
 import com.streamcap.mobile.ui.common.formatBytes
 import com.streamcap.mobile.ui.common.formatDateTime
 import com.streamcap.mobile.ui.common.formatDuration
+import com.streamcap.mobile.storage.RecordingStorage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class RecordingFilter(val label: String) {
     ALL("全部"),
@@ -156,6 +167,7 @@ fun RecordingsScreen(
         } else {
             items(filteredRecordings, key = { it.id }) { recording ->
                 RecordingRow(recording, onOpenRecording,
+                    onRename = { source, name -> viewModel.rename(recording.id, source, name) },
                     onExport = { source, name ->
                         exportSource = source
                         exportPicker.launch(name)
@@ -176,10 +188,12 @@ fun RecordingsScreen(
     exportProgress?.let { progress ->
         AlertDialog(onDismissRequest = {}, title = { Text(progress) },
             text = { LinearProgressIndicator(Modifier.fillMaxWidth()) },
-            confirmButton = { TextButton(onClick = viewModel::cancelExport) { Text("取消导出") } })
+            confirmButton = {
+                if (progress.startsWith("正在导出")) TextButton(onClick = viewModel::cancelExport) { Text("取消导出") }
+            })
     }
     fileMessage?.let { message ->
-        AlertDialog(onDismissRequest = viewModel::dismissFileMessage, title = { Text("文件导出") },
+        AlertDialog(onDismissRequest = viewModel::dismissFileMessage, title = { Text("文件操作") },
             text = { Text(message) }, confirmButton = {
                 TextButton(onClick = viewModel::dismissFileMessage) { Text("确定") }
             })
@@ -191,10 +205,16 @@ private fun RecordingRow(
     recording: RecordingSession,
     onOpenRecording: (Long) -> Unit,
     onExport: (String, String) -> Unit,
+    onRename: (String, String) -> Unit,
     onDelete: (RecordingSession) -> Unit,
 ) {
     var showDelete by remember { mutableStateOf(false) }
     var showExportParts by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
+    var showActions by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var renamePart by remember { mutableStateOf(0) }
+    var renameBase by remember { mutableStateOf("") }
     val published = recording.outputUris.ifEmpty { listOfNotNull(recording.outputUri) }.distinct()
     val context = LocalContext.current
     val canOpen = recording.status in setOf(
@@ -240,6 +260,11 @@ private fun RecordingRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                recording.roomTitle?.takeIf(String::isNotBlank)?.let { title ->
+                    Text(title, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 Spacer(Modifier.height(5.dp))
                 Text(
                     "${recording.containerFormat.uppercase()} · ${formatDuration(recording.durationSeconds)} · ${formatBytes(recording.totalBytes)}",
@@ -274,29 +299,43 @@ private fun RecordingRow(
                     },
                     style = MaterialTheme.typography.labelSmall,
                 )
-                IconButton(onClick = { showDelete = true }, enabled = canDelete) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "删除录制文件")
-                }
                 val shareUri = recording.outputUri ?: recording.outputUris.firstOrNull()
-                IconButton(onClick = { showExportParts = true }, enabled = canDelete && published.isNotEmpty()) {
-                    Icon(Icons.Outlined.Download, contentDescription = "导出录制文件")
-                }
-                IconButton(onClick = {
-                    shareUri?.let { value -> context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                        type = "video/*"
-                        putExtra(Intent.EXTRA_STREAM, android.net.Uri.parse(value))
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }, "分享录制文件")) }
-                }, enabled = shareUri != null) {
-                    Icon(Icons.Outlined.Share, contentDescription = "分享录制文件")
-                }
-                IconButton(onClick = {
-                    shareUri?.let { value ->
-                        context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("录制文件路径", value))
-                        android.widget.Toast.makeText(context, "路径已复制", android.widget.Toast.LENGTH_SHORT).show()
+                Box {
+                    IconButton(onClick = { showActions = true }) {
+                        Icon(Icons.Outlined.MoreVert, contentDescription = "更多文件操作")
                     }
-                }, enabled = shareUri != null) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = "复制文件路径")
+                    DropdownMenu(expanded = showActions, onDismissRequest = { showActions = false }) {
+                        DropdownMenuItem(text = { Text("分享") }, leadingIcon = { Icon(Icons.Outlined.Share, null) },
+                            enabled = shareUri != null, onClick = {
+                                showActions = false
+                                scope.launch {
+                                    try {
+                                        val intent = withContext(Dispatchers.IO) {
+                                            RecordingStorage(context).shareIntent(android.net.Uri.parse(requireNotNull(shareUri)))
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, "分享录制文件"))
+                                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                        throw cancelled
+                                    } catch (error: Exception) {
+                                        android.widget.Toast.makeText(context, "分享失败：${error.message}", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            })
+                        DropdownMenuItem(text = { Text("重命名") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                            enabled = canDelete && published.isNotEmpty(), onClick = {
+                                showActions = false; renamePart = 0; renameBase = ""; showRename = true
+                            })
+                        DropdownMenuItem(text = { Text("导出") }, leadingIcon = { Icon(Icons.Outlined.Download, null) },
+                            enabled = canDelete && published.isNotEmpty(), onClick = { showActions = false; showExportParts = true })
+                        DropdownMenuItem(text = { Text("复制路径") }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) },
+                            enabled = shareUri != null, onClick = {
+                                showActions = false
+                                context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("录制文件路径", shareUri))
+                                android.widget.Toast.makeText(context, "路径已复制", android.widget.Toast.LENGTH_SHORT).show()
+                            })
+                        DropdownMenuItem(text = { Text("删除") }, leadingIcon = { Icon(Icons.Outlined.Delete, null) },
+                            enabled = canDelete, onClick = { showActions = false; showDelete = true })
+                    }
                 }
             }
         }
@@ -325,6 +364,27 @@ private fun RecordingRow(
                     }
                 }
             }, confirmButton = { TextButton(onClick = { showExportParts = false }) { Text("取消") } })
+    }
+    if (showRename) {
+        AlertDialog(onDismissRequest = { showRename = false }, title = { Text("重命名录制文件") },
+            text = {
+                Column {
+                    LazyRow {
+                        items(published.size) { index ->
+                            FilterChip(selected = renamePart == index, onClick = { renamePart = index },
+                                label = { Text("第 ${index + 1} 段") })
+                        }
+                    }
+                    OutlinedTextField(value = renameBase, onValueChange = { renameBase = it },
+                        label = { Text("新文件名（不含扩展名）") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                }
+            }, confirmButton = {
+                TextButton(enabled = renameBase.isNotBlank() && renamePart in published.indices, onClick = {
+                    showRename = false
+                    onRename(published[renamePart], renameBase)
+                }) { Text("重命名") }
+            }, dismissButton = { TextButton(onClick = { showRename = false }) { Text("取消") } })
     }
 }
 

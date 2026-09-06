@@ -326,7 +326,7 @@ private fun RoomTaskRow(
     }
     val statusText = when {
         room.taskStatus == TaskStatus.STARTING -> "正在启动录制"
-        room.taskStatus == TaskStatus.RECONNECTING -> "录制重连中"
+        room.taskStatus == TaskStatus.RECONNECTING -> "等待重连"
         room.taskStatus == TaskStatus.FINALIZING -> "正在保存录制"
         room.taskStatus == TaskStatus.RECORDING -> "录制中"
         room.taskStatus == TaskStatus.PAUSED -> "已暂停"
@@ -340,7 +340,7 @@ private fun RoomTaskRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(104.dp),
+            .height(if (room.roomTitle.isNullOrBlank()) 104.dp else 128.dp),
         shape = RoundedCornerShape(6.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         color = MaterialTheme.colorScheme.surface,
@@ -375,6 +375,12 @@ private fun RoomTaskRow(
                         )
                     }
                     Spacer(Modifier.height(5.dp))
+                    room.roomTitle?.takeIf(String::isNotBlank)?.let { title ->
+                        Text(title, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(4.dp))
+                    }
                     Text(
                         "${room.platform} · ${room.quality}",
                         style = MaterialTheme.typography.bodyMedium,

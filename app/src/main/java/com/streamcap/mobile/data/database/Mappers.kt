@@ -33,6 +33,7 @@ fun RecordingSessionEntity.toDomain() = RecordingSession(
     id = id,
     roomId = roomId,
     roomName = roomName,
+    roomTitle = roomTitle,
     status = status,
     startedAt = startedAt,
     endedAt = endedAt,

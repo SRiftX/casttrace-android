@@ -121,9 +121,15 @@ class StreamCapRepository(
             now,
         )
         val resolver = resolvers.resolverForPlatform(room.platform)
-        val result = runCatching { resolver.checkLive(room) }.getOrElse { error ->
+        val checked = runCatching { resolver.checkRoom(room) }.getOrElse { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
             log(roomId, null, "ERROR", "LIVE_CHECK_FAILED", error.message ?: "检查开播状态失败")
-            LiveStatus.ERROR
+            com.streamcap.mobile.platform.resolver.RoomCheckResult(LiveStatus.ERROR)
+        }
+        val result = checked.status
+        checked.info?.let { info ->
+            val resolvedName = if (room.anchorName.startsWith("抖音主播 ") || room.anchorName.isBlank()) info.anchorName else room.anchorName
+            roomDao.updateResolvedInfo(roomId, room.anchorName, resolvedName, info.roomTitle)
         }
         roomDao.setStatus(
             roomId,
@@ -154,7 +160,8 @@ class StreamCapRepository(
         sessionDao.insert(
             RecordingSessionEntity(
                 roomId = room.id,
-                roomName = room.anchorName,
+                    roomName = room.anchorName,
+                    roomTitle = room.roomTitle,
                 status = TaskStatus.STARTING,
                 startedAt = System.currentTimeMillis(),
                 temporaryPath = temporaryPath,
@@ -169,6 +176,7 @@ class StreamCapRepository(
             RecordingSessionEntity(
                 roomId = room.id,
                 roomName = room.anchorName,
+                roomTitle = room.roomTitle,
                 status = TaskStatus.FAILED,
                 startedAt = System.currentTimeMillis(),
                 endedAt = System.currentTimeMillis(),

@@ -30,7 +30,7 @@ class AppContainer(context: Context) {
         context,
         StreamCapDatabase::class.java,
         "streamcap.db",
-    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
+    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, StreamCapDatabase.MIGRATION_3_4).build()
 
     val resolverRegistry = ResolverRegistry(
         listOf(

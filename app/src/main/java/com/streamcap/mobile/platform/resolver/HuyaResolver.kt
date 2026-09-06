@@ -61,12 +61,11 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
         val liveUrl = "https://www.huya.com/$roomId"
         val sources = mutableListOf<StreamSource>()
         if (live) {
-            // 虎牙 LOL 类直播间的移动端 HLS 经常直接返回 403；桌面端同样会切到网页线路。
-            if (liveData?.optString("gameHostName") == "lol") {
-                sources += runCatching { loadWebSources(liveUrl) }.onFailure {
+            // Mobile CDN signatures can be rejected across game categories, not just LOL.
+            sources += runCatching { loadWebSources(liveUrl) }.onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
                     android.util.Log.w("StreamCapSource", "Huya web resolution failed: ${it.message}")
                 }.getOrDefault(emptyList())
-            }
             val stream = data.optJSONObject("stream")
             val list = stream?.optJSONArray("baseSteamInfoList")
             val items = if (list == null) emptyList() else (0 until list.length())
@@ -121,9 +120,10 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
             items.forEach { item ->
                 val name = item.optString("sStreamName")
                 if (name.isBlank()) return@forEach
-                val antiCode = refreshAntiCode(item.optString("sFlvAntiCode"), name)
-                val flv = "${item.optString("sFlvUrl")}/$name.${item.optString("sFlvUrlSuffix", "flv")}?$antiCode"
-                val hls = "${item.optString("sHlsUrl")}/$name.${item.optString("sHlsUrlSuffix", "m3u8")}?$antiCode"
+                val flvAntiCode = refreshAntiCode(item.optString("sFlvAntiCode"), name)
+                val hlsAntiCode = refreshAntiCode(item.optString("sHlsAntiCode"), name)
+                val flv = "${item.optString("sFlvUrl")}/$name.${item.optString("sFlvUrlSuffix", "flv")}?$flvAntiCode"
+                val hls = "${item.optString("sHlsUrl")}/$name.${item.optString("sHlsUrlSuffix", "m3u8")}?$hlsAntiCode"
                 if (flv.startsWith("http")) add(StreamSource(flv, StreamType.FLV, "原画", headers = STREAM_HEADERS))
                 if (hls.startsWith("http")) add(StreamSource(hls, StreamType.HLS, "原画", headers = STREAM_HEADERS))
             }

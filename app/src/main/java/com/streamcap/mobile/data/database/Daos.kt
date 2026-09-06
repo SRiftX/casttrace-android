@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface LiveRoomDao {
+    @Query("UPDATE live_rooms SET anchorName = CASE WHEN anchorName = :previousName THEN :resolvedName ELSE anchorName END, roomTitle = COALESCE(:title, roomTitle) WHERE id = :id")
+    suspend fun updateResolvedInfo(id: Long, previousName: String, resolvedName: String, title: String?)
+
     @Query("SELECT * FROM live_rooms ORDER BY CASE WHEN taskStatus = 'RECORDING' THEN 0 ELSE 1 END, updatedAt DESC")
     fun observeAll(): Flow<List<LiveRoomEntity>>
 

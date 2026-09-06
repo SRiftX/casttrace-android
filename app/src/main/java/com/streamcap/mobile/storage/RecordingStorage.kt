@@ -11,12 +11,63 @@ import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.FileInputStream
 import android.net.Uri
+import android.provider.DocumentsContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
 class RecordingStorage(private val context: Context) {
+    fun shareIntent(source: Uri): android.content.Intent {
+        val name = displayName(source)
+        val sharedUri = if (source.scheme == "file") {
+            androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.files", File(requireNotNull(source.path)))
+        } else source
+        return android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = context.contentResolver.getType(sharedUri) ?: "application/octet-stream"
+            putExtra(android.content.Intent.EXTRA_STREAM, sharedUri)
+            putExtra(android.content.Intent.EXTRA_TITLE, name)
+            clipData = android.content.ClipData.newUri(context.contentResolver, name, sharedUri)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    fun displayName(uri: Uri): String = when (uri.scheme) {
+        "file" -> File(requireNotNull(uri.path)).name
+        "content" -> context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            ?: error("文件不存在或无读取权限")
+        else -> error("不支持此文件位置")
+    }
+
+    fun renamePublished(uri: Uri, baseName: String): Uri {
+        val base = baseName.trim()
+        require(base.isNotEmpty() && base != "." && base != ".." && base.length <= 100 &&
+            base.none { it.code < 32 || it in "\\/:*?\"<>|" }) { "文件名不能为空、过长或包含路径及特殊字符" }
+        val oldName = displayName(uri)
+        val extension = oldName.substringAfterLast('.', "")
+        val newName = if (extension.isEmpty()) base else "$base.$extension"
+        if (oldName == newName) return uri
+        return when {
+            uri.scheme == "file" -> {
+                val source = File(requireNotNull(uri.path))
+                val target = File(source.parentFile, newName)
+                check(!target.exists()) { "同名文件已存在" }
+                check(source.renameTo(target)) { "重命名失败，请检查目录权限" }
+                Uri.fromFile(target)
+            }
+            DocumentsContract.isDocumentUri(context, uri) ->
+                requireNotNull(DocumentsContract.renameDocument(context.contentResolver, uri, newName)) { "文档提供器拒绝重命名" }
+            uri.authority == MediaStore.AUTHORITY -> {
+                check(context.contentResolver.update(uri, ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
+                }, null, null) == 1) { "重命名失败，请检查文件权限" }
+                uri
+            }
+            else -> error("此文件提供器不支持重命名")
+        }
+    }
+
     suspend fun exportCopy(source: Uri, destination: Uri, onProgress: (Long) -> Unit = {}): Long =
         withContext(Dispatchers.IO) {
             require(source != destination) { "导出位置不能是原文件" }

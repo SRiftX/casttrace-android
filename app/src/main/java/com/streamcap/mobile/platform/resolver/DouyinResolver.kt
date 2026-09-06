@@ -23,13 +23,22 @@ class DouyinResolver(private val client: OkHttpClient) : PlatformResolver {
     override suspend fun checkLive(room: LiveRoom, credential: PlatformCredential?) =
         if (load(room.normalizedUrl, credential).sources.isNotEmpty()) LiveStatus.LIVE else LiveStatus.OFFLINE
 
+    override suspend fun checkRoom(room: LiveRoom, credential: PlatformCredential?): RoomCheckResult {
+        val data = load(room.normalizedUrl, credential)
+        return RoomCheckResult(
+            if (data.sources.isNotEmpty()) LiveStatus.LIVE else LiveStatus.OFFLINE,
+            LiveRoomInfo(data.url, "抖音直播", data.anchor, data.title),
+        )
+    }
+
     override suspend fun getStreams(room: LiveRoom, credential: PlatformCredential?) =
         load(room.normalizedUrl, credential).sources.selectQuality(room.quality)
 
     private suspend fun load(input: String, credential: PlatformCredential?): DouyinData {
         val headers = HEADERS + credential?.cookie?.takeIf(String::isNotBlank)?.let { mapOf("Cookie" to it) }.orEmpty()
         val response = client.getText(input, headers)
-        val normalized = response.body
+        val page = DouyinPageParser.parse(response.body)
+        val normalized = page.sourceText
             .replace("\\u0026", "&")
             .replace("\\u002F", "/")
             .replace("\\u003F", "?")
@@ -46,10 +55,9 @@ class DouyinResolver(private val client: OkHttpClient) : PlatformResolver {
             .distinct()
             .map { url -> StreamSource(url, streamTypeOf(url), qualityFromUrl(url), headers = headers) }
             .toList()
-        val nickname = NICKNAME_PATTERN.find(normalized)?.groupValues?.get(1)
-            ?.replace("\\u002F", "/")?.takeIf(String::isNotBlank)
+        val nickname = page.anchor
             ?: "抖音主播 ${response.finalUrl.substringBefore('?').substringAfterLast('/')}"
-        val title = TITLE_PATTERN.find(normalized)?.groupValues?.get(1)?.takeIf(String::isNotBlank)
+        val title = page.title
         if (urls.isEmpty() && normalized.contains("verify-center", true)) {
             throw IllegalStateException("抖音触发了访问验证，请稍后重试或更换网络")
         }
@@ -67,8 +75,6 @@ class DouyinResolver(private val client: OkHttpClient) : PlatformResolver {
 
     companion object {
         private val URL_PATTERN = Regex("https?://[^\\s\\\"'<>]+?(?:\\.flv|\\.m3u8)[^\\s\\\"'<>]*", RegexOption.IGNORE_CASE)
-        private val NICKNAME_PATTERN = Regex("\\\"nickname\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
-        private val TITLE_PATTERN = Regex("\\\"title\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
         private val HEADERS = mapOf(
             "User-Agent" to DESKTOP_USER_AGENT,
             "Referer" to "https://live.douyin.com/",

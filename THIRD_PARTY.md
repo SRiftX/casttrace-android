@@ -5,6 +5,10 @@ licenses, including AndroidX/Media3, Kotlin, kotlinx.coroutines, OkHttp and
 FFmpegKit. The Apache-2.0 license at this repository root covers the application
 source and does not relicense third-party dependencies.
 
+HTML parsing uses jsoup 1.18.3 (MIT license, https://jsoup.org/license).
+JVM parser tests use JSON-java 20240303 (public domain / Unlicense,
+https://github.com/stleary/JSON-java); Android uses its built-in `org.json` API.
+
 The local FFmpegKit binary is excluded from Git. The inspected binary contains
 FFmpeg and external-library license/source notices, including GNU license
 terms. Its exact redistribution provenance is not established by a filename

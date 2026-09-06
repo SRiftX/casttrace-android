@@ -45,6 +45,7 @@ data class RecordingSessionEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val roomId: Long,
     val roomName: String,
+    val roomTitle: String? = null,
     val status: TaskStatus = TaskStatus.STARTING,
     val startedAt: Long? = null,
     val endedAt: Long? = null,

@@ -11,6 +11,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import com.streamcap.mobile.domain.model.TaskStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import android.net.Uri
@@ -30,8 +34,37 @@ class RecordingsViewModel(
     fun dismissFileMessage() { _fileMessage.value = null }
     fun cancelExport() { exportJob?.cancel() }
 
+    fun rename(recordingId: Long, source: String, baseName: String) {
+        if (exportJob?.isActive == true || _exportProgress.value != null) return
+        _exportProgress.value = "正在重命名"
+        viewModelScope.launch {
+            try {
+                // A document rename can change its URI; persist it before honoring cancellation.
+                val name = withContext(Dispatchers.IO + NonCancellable) {
+                    val session = requireNotNull(repository.session(recordingId)) { "录制记录不存在" }
+                    check(session.status in setOf(TaskStatus.COMPLETED, TaskStatus.PAUSED, TaskStatus.FAILED)) { "录制尚未结束" }
+                    val sources = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
+                    check(source in sources) { "文件记录已变化，请刷新后重试" }
+                    val renamed = container.recordingStorage.renamePublished(Uri.parse(source), baseName)
+                    repository.updateSession(session.copy(
+                        outputUris = sources.map { if (it == source) renamed.toString() else it },
+                        outputUri = if (session.outputUri == source) renamed.toString() else session.outputUri,
+                    ))
+                    container.recordingStorage.displayName(renamed)
+                }
+                _fileMessage.value = "已重命名为 $name"
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _fileMessage.value = "重命名失败：${failure.message}"
+            } finally {
+                _exportProgress.value = null
+            }
+        }
+    }
+
     fun export(source: String, destination: Uri) {
-        if (exportJob?.isActive == true) return
+        if (exportJob?.isActive == true || _exportProgress.value != null) return
         _exportProgress.value = "正在导出"
         exportJob = viewModelScope.launch {
             try {

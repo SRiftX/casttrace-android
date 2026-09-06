@@ -12,6 +12,7 @@ class HlsSourceSelector(client: OkHttpClient) {
     private val client = client.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
 
     suspend fun select(sources: List<StreamSource>): StreamSource = withContext(Dispatchers.IO) {
+        val failures = linkedSetOf<String>()
         for (source in sources) {
             coroutineContext.ensureActive()
             try {
@@ -19,9 +20,9 @@ class HlsSourceSelector(client: OkHttpClient) {
                 repeat(4) {
                     val request = Request.Builder().url(url).apply { source.headers.forEach(::header) }.build()
                     client.newCall(request).execute().use { response ->
-                        check(response.isSuccessful)
+                        check(response.isSuccessful) { "播放列表 HTTP ${response.code}" }
                         val body = response.body!!.string()
-                        check(body.trimStart().startsWith("#EXTM3U"))
+                        check(body.trimStart().startsWith("#EXTM3U")) { "响应不是 HLS 播放列表" }
                         if (!body.contains("#EXT-X-STREAM-INF")) {
                             check(body.contains("#EXTINF:"))
                             val segment = body.lines().map(String::trim).last { it.isNotEmpty() && !it.startsWith('#') }
@@ -47,10 +48,15 @@ class HlsSourceSelector(client: OkHttpClient) {
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                failures += when (failure) {
+                    is java.io.InterruptedIOException -> "线路请求超时"
+                    is java.io.IOException -> "线路网络请求失败"
+                    else -> failure.message ?: "线路格式无效"
+                }
                 System.err.println("StreamCap source ${java.net.URI(source.url).host}: ${failure.message}")
                 // A rejected CDN must not hide working alternatives.
             }
         }
-        error("所有直播线路均不可用，请稍后重试")
+        error("所有直播线路均不可用：${failures.joinToString("；").ifBlank { "未取得 HLS 线路" }}")
     }
 }

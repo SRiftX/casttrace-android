@@ -48,6 +48,18 @@ pauses, then requires a published recording of at least 600 seconds.
 `PlaybackAcceptanceTest` takes `playbackRecordingId` and checks saved playback,
 seeking and measured 2x playback. These tests use real media and device storage.
 
+`RecordingReconnectTest` takes `reconnectRoomId` for an enabled room whose
+streams are currently unavailable. It pauses during retry backoff and verifies
+that neither the retry timer nor monitoring restarts the room for 35 seconds.
+It leaves that room paused. `RecordingExportTest` and `RecordingRenameTest`
+check byte preservation, cancellation cleanup, name validation and collisions.
+
+Reconnect backoff is 2, 4, 8, 16, then at most 30 seconds. Source resolution
+and network requests take additional time. `RECONNECT_WAIT` logs the backoff;
+the room displays a waiting state during the delay and a starting state when
+resolution begins. Automatic live checks respect each room's stored check
+interval (minimum 15 seconds) and cannot bypass a pending retry.
+
 Build the test APK with `assembleDebugAndroidTest`. On an emulator containing
 data, install using `adb install -r` and invoke `am instrument` directly;
 automated Gradle device-test installation can reset application data.
