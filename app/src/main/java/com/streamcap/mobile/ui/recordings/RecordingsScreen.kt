@@ -1,6 +1,7 @@
 package com.streamcap.mobile.ui.recordings
 
 import android.content.Intent
+import android.net.Uri
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -100,8 +101,10 @@ fun RecordingsScreen(
     var selectedFilter by remember { mutableStateOf(RecordingFilter.ALL) }
     var deleteError by remember { mutableStateOf<String?>(null) }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var selectedRoom by remember { mutableStateOf<String?>(null) }
+    val roomNames = recordings.map { it.roomName }.distinct().sorted()
     val filteredRecordings = recordings.filter { recording ->
-        when (selectedFilter) {
+        val matchesStatus = when (selectedFilter) {
             RecordingFilter.ALL -> true
             RecordingFilter.RECORDING -> recording.status in setOf(
                 TaskStatus.STARTING,
@@ -112,6 +115,7 @@ fun RecordingsScreen(
             RecordingFilter.COMPLETED -> recording.status == TaskStatus.COMPLETED
             RecordingFilter.FAILED -> recording.status == TaskStatus.FAILED
         }
+        matchesStatus && (selectedRoom == null || recording.roomName == selectedRoom)
     }
 
     LazyColumn(
@@ -129,11 +133,19 @@ fun RecordingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (selectedIds.isNotEmpty()) {
-                TextButton(onClick = {
-                    val targets = recordings.filter { it.id in selectedIds }
-                    viewModel.deleteMany(targets) { error -> deleteError = error ?: "已删除 ${targets.size} 个录制会话" }
-                    selectedIds = emptySet()
-                }) { Text("删除已选 (${selectedIds.size})") }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = {
+                        val targets = recordings.filter { it.id in selectedIds }
+                        val uris = targets.flatMap { it.outputUris.ifEmpty { listOfNotNull(it.outputUri) } }.map(Uri::parse)
+                        runCatching { context.startActivity(Intent.createChooser(RecordingStorage(context).shareIntent(uris), "分享录制文件")) }
+                            .onFailure { deleteError = "分享失败：${it.message}" }
+                    }) { Text("分享") }
+                    TextButton(onClick = {
+                        val targets = recordings.filter { it.id in selectedIds }
+                        viewModel.deleteMany(targets) { error -> deleteError = error ?: "已删除 ${targets.size} 个录制会话" }
+                        selectedIds = emptySet()
+                    }) { Text("删除 (${selectedIds.size})") }
+                }
             }
             Spacer(Modifier.height(12.dp))
         }
@@ -149,6 +161,18 @@ fun RecordingsScreen(
                         onClick = { selectedFilter = filter },
                         label = { Text(filter.label) },
                     )
+                }
+            }
+            if (roomNames.size > 1) {
+                Text("直播间", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(top = 6.dp, bottom = 4.dp)) {
+                    item {
+                        FilterChip(selected = selectedRoom == null, onClick = { selectedRoom = null }, label = { Text("全部直播间") })
+                    }
+                    items(roomNames) { room ->
+                        FilterChip(selected = selectedRoom == room, onClick = { selectedRoom = room }, label = { Text(room, maxLines = 1) })
+                    }
                 }
             }
         }

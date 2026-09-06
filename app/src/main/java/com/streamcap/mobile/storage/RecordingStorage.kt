@@ -32,6 +32,23 @@ class RecordingStorage(private val context: Context) {
         }
     }
 
+    fun shareIntent(sources: List<Uri>): android.content.Intent {
+        require(sources.isNotEmpty()) { "没有可分享的文件" }
+        if (sources.size == 1) return shareIntent(sources.single())
+        val uris = sources.map { source ->
+            if (source.scheme == "file") androidx.core.content.FileProvider.getUriForFile(
+                context, "${context.packageName}.files", File(requireNotNull(source.path))) else source
+        }
+        return android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "video/*"
+            putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, ArrayList(uris))
+            clipData = android.content.ClipData.newUri(context.contentResolver, "录制文件", uris.first()).apply {
+                uris.drop(1).forEach { addItem(android.content.ClipData.Item(it)) }
+            }
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
     fun displayName(uri: Uri): String = when (uri.scheme) {
         "file" -> File(requireNotNull(uri.path)).name
         "content" -> context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
@@ -193,13 +210,19 @@ class RecordingStorage(private val context: Context) {
         displayName: String,
         mimeType: String,
         preferredDirectoryUri: String? = null,
+        roomFolder: String? = null,
     ): String {
         val finalName = displayName.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val safeFolder = roomFolder?.replace(Regex("[\\\\/:*?\"<>|]"), "_")?.trim()?.take(80)?.ifBlank { null }
         preferredDirectoryUri?.let { treeUri ->
             val directory = DocumentFile.fromTreeUri(context, android.net.Uri.parse(treeUri))
                 ?: error("保存目录不可用，请重新选择目录")
             check(directory.canWrite()) { "保存目录没有写入权限，请重新选择目录" }
-            val target = directory.createFile(mimeType, uniqueDocumentName(directory, finalName))
+            val targetDirectory = safeFolder?.let { folder ->
+                directory.findFile(folder)?.takeIf { it.isDirectory } ?: directory.createDirectory(folder)
+            } ?: directory
+            requireNotNull(targetDirectory) { "无法创建直播间文件夹" }
+            val target = targetDirectory.createFile(mimeType, uniqueDocumentName(targetDirectory, finalName))
                 ?: error("无法在选择的目录中创建文件")
             try {
                 context.contentResolver.openOutputStream(target.uri, "w").use { output ->
@@ -217,7 +240,7 @@ class RecordingStorage(private val context: Context) {
             val values = ContentValues().apply {
                 put(MediaStore.Video.Media.DISPLAY_NAME, finalName)
                 put(MediaStore.Video.Media.MIME_TYPE, mimeType)
-                put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/StreamCap")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/StreamCap${safeFolder?.let { "/$it" } ?: ""}")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
             val uri = requireNotNull(
@@ -241,7 +264,7 @@ class RecordingStorage(private val context: Context) {
 
         val targetDirectory = File(
             context.getExternalFilesDir(Environment.DIRECTORY_MOVIES),
-            "StreamCap",
+            "StreamCap${safeFolder?.let { "/$it" } ?: ""}",
         ).apply { mkdirs() }
         val target = uniqueFile(targetDirectory, finalName)
         temporary.copyTo(target)

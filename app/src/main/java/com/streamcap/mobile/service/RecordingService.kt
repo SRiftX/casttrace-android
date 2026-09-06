@@ -678,6 +678,7 @@ class RecordingService : Service() {
                     "${baseName}${partSuffix}.$extension",
                     recording.outputFormat.mimeType(),
                     recording.storageDirectoryUri,
+                    recording.roomName,
                 )
                 if (publishFile != file) file.delete()
                 outputUri
