@@ -44,6 +44,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -70,6 +74,20 @@ fun SettingsScreen(
     var showQualityDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var powerUnrestricted by remember { mutableStateOf(false) }
+    var notificationsEnabled by remember { mutableStateOf(false) }
+    DisposableEffect(lifecycleOwner, context) {
+        val refresh = {
+            powerUnrestricted = context.getSystemService(PowerManager::class.java)
+                ?.isIgnoringBatteryOptimizations(context.packageName) == true
+            notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        }
+        refresh()
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) refresh() }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val directoryPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
@@ -103,7 +121,6 @@ fun SettingsScreen(
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
                 )
                 HorizontalDivider()
-                val notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
                 SettingsRow(
                     title = "录制通知",
                     value = if (notificationsEnabled) "已开启" else "未开启，建议打开",
@@ -154,17 +171,29 @@ fun SettingsScreen(
         }
         item {
             SettingsSection("后台运行") {
-                val power = context.getSystemService(PowerManager::class.java)
-                val unrestricted = power?.isIgnoringBatteryOptimizations(context.packageName) == true
                 SettingsRow(
                     title = "电池优化",
-                    value = if (unrestricted) "不受限制" else "可能限制后台录制",
+                    value = if (powerUnrestricted) "已关闭优化，允许后台录制" else "未豁免，可能被系统暂停",
                     modifier = Modifier.clickable {
-                        context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = android.net.Uri.parse("package:${context.packageName}")
+                        }
+                        runCatching { context.startActivity(request) }.onFailure {
+                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                    },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开电池设置") },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "后台启动与自启动",
+                    value = "部分厂商需要手动允许",
+                    modifier = Modifier.clickable {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                             data = android.net.Uri.parse("package:${context.packageName}")
                         })
                     },
-                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开电池设置") },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开应用设置") },
                 )
             }
         }
