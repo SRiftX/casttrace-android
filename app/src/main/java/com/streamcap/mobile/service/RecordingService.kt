@@ -639,6 +639,10 @@ class RecordingService : Service() {
             val outputUris = files.mapIndexed { index, file ->
                 val partSuffix = if (files.size > 1) "_${(index + 1).toString().padStart(3, '0')}" else ""
                 val publishFile = if (recording.outputFormat == "MP4") {
+                    repository.updateSession(session.copy(
+                        status = TaskStatus.FINALIZING,
+                        errorMessage = "正在修复索引${if (files.size > 1) "（第 ${index + 1}/${files.size} 段）" else ""}",
+                    ))
                     File(file.parentFile, "${file.nameWithoutExtension}.mp4")
                         .also { target ->
                             val tracks = runCatching { FfmpegMp4Muxer.convert(file, target) }
@@ -665,6 +669,10 @@ class RecordingService : Service() {
                             }
                         }
                 } else file
+                repository.updateSession(session.copy(
+                    status = TaskStatus.FINALIZING,
+                    errorMessage = "正在保存${if (files.size > 1) "（第 ${index + 1}/${files.size} 段）" else ""}",
+                ))
                 val outputUri = container.recordingStorage.publish(
                     publishFile,
                     "${baseName}${partSuffix}.$extension",

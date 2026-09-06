@@ -43,3 +43,12 @@ fun formatDuration(seconds: Long): String = "%02d:%02d:%02d".format(
     (seconds % 3_600) / 60,
     seconds % 60,
 )
+
+fun recordingFailureLabel(message: String?): String = when {
+    message.isNullOrBlank() -> "异常"
+    message.contains("空间", true) -> "空间不足"
+    message.contains("进程", true) || message.contains("中断", true) -> "进程中断"
+    message.contains("socket", true) || message.contains("HTTP", true) || message.contains("线路", true) || message.contains("网络", true) -> "网络中断"
+    message.contains("文件", true) || message.contains("封装", true) || message.contains("索引", true) || message.contains("权限", true) -> "文件损坏"
+    else -> "异常"
+}

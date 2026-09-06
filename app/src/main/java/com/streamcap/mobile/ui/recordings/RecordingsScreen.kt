@@ -407,6 +407,10 @@ private fun TaskStatus.displayName(error: String?): String = when {
     error?.contains("空间", true) == true -> "空间不足"
     error?.contains("进程", true) == true || error?.contains("中断", true) == true -> "进程中断"
     error?.contains("文件", true) == true || error?.contains("封装", true) == true -> "文件损坏"
-    error?.contains("网络", true) == true || error?.contains("连接", true) == true || error?.contains("直播地址", true) == true -> "网络中断"
+    error?.contains("网络", true) == true || error?.contains("连接", true) == true ||
+        error?.contains("socket", true) == true || error?.contains("HTTP", true) == true ||
+        error?.contains("线路", true) == true || error?.contains("直播地址", true) == true -> "网络中断"
+    error?.contains("权限", true) == true || error?.contains("发布", true) == true ||
+        error?.contains("封装", true) == true || error?.contains("索引", true) == true -> "文件损坏"
     else -> displayName()
 }
