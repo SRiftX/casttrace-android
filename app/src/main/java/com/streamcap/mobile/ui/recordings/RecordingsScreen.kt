@@ -103,6 +103,7 @@ fun RecordingsScreen(
     var selectedFilter by remember { mutableStateOf(RecordingFilter.ALL) }
     var deleteError by remember { mutableStateOf<String?>(null) }
     var deleteSuccess by remember { mutableStateOf<String?>(null) }
+    var multiSelectMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var selectedRoom by remember { mutableStateOf<String?>(null) }
     val roomNames = recordings.map { it.roomName }.distinct().sorted()
@@ -129,7 +130,7 @@ fun RecordingsScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            if (selectedIds.isNotEmpty()) {
+            if (multiSelectMode) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -139,7 +140,7 @@ fun RecordingsScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        IconButton(onClick = { selectedIds = emptySet() }) {
+                            IconButton(onClick = { selectedIds = emptySet(); multiSelectMode = false }) {
                             Icon(Icons.Outlined.Close, contentDescription = "退出多选")
                         }
                         Text("已选 ${selectedIds.size} 项", style = MaterialTheme.typography.titleSmall,
@@ -171,8 +172,9 @@ fun RecordingsScreen(
                         Text("${filteredRecordings.size} / ${recordings.size} 个录制会话",
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text("长按卡片可多选", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    IconButton(onClick = { multiSelectMode = true }) {
+                        Icon(Icons.Outlined.SelectAll, contentDescription = "进入多选")
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -228,6 +230,7 @@ fun RecordingsScreen(
         } else {
             items(filteredRecordings, key = { it.id }) { recording ->
                 RecordingRow(recording, onOpenRecording,
+                    selectionMode = multiSelectMode,
                     selected = recording.id in selectedIds,
                     onSelect = { checked -> selectedIds = if (checked) selectedIds + recording.id else selectedIds - recording.id },
                     onRename = { source, name -> viewModel.rename(recording.id, source, name) },
@@ -278,6 +281,7 @@ fun RecordingsScreen(
 private fun RecordingRow(
     recording: RecordingSession,
     onOpenRecording: (Long) -> Unit,
+    selectionMode: Boolean,
     selected: Boolean,
     onSelect: (Boolean) -> Unit,
     onExport: (String, String) -> Unit,
@@ -321,7 +325,7 @@ private fun RecordingRow(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Checkbox(checked = selected, onCheckedChange = onSelect)
+            if (selectionMode) Checkbox(checked = selected, onCheckedChange = onSelect)
             Icon(
                 if (canOpen) Icons.Outlined.PlayCircle else Icons.Outlined.VideoFile,
                 contentDescription = null,
