@@ -88,6 +88,7 @@ $device = '<ANDROID_DEVICE_SERIAL>'
 - 已通过 `testDebugUnitTest`、`assembleDebug`、`assembleDebugAndroidTest`。
 - 最近一次 APK 已安装到 MuMu 测试设备（serial 不写入仓库）。
 - 尚未完成 30 分钟或 1 小时真实直播源验收；不能把构建通过当作长时间录制验收。
+- 之前直接运行 Gradle 时未按本文件设置 `TEMP`、`TMP` 和 `ANDROID_HOME`，出现的 Java loopback 连接失败属于本机启动环境问题，不能作为项目本身的测试失败结论。按文档设置环境变量后，构建和单元测试均已通过。
 
 ## 已知限制
 
