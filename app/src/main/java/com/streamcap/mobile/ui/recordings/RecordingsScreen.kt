@@ -145,7 +145,12 @@ fun RecordingsScreen(
                         }
                         Text("已选 ${selectedIds.size} 项", style = MaterialTheme.typography.titleSmall,
                             modifier = Modifier.weight(1f))
-                        IconButton(onClick = { selectedIds = filteredRecordings.map { it.id }.toSet() }) {
+                        Row(
+                            modifier = Modifier
+                                .clickable { selectedIds = filteredRecordings.map { it.id }.toSet() }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Icon(Icons.Outlined.SelectAll, contentDescription = "全选当前筛选结果")
                         }
                         IconButton(onClick = {
