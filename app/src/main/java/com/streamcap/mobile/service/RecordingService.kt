@@ -502,7 +502,8 @@ class RecordingService : Service() {
                 ),
             )
         }
-        val paused = pauseRequested.contains(recording.roomId) && terminal.state == RecorderState.STOPPED
+        // An explicit pause wins over a transport error raised while cancelling the HTTP call.
+        val paused = pauseRequested.contains(recording.roomId)
         if (paused && terminal.bytesWritten == 0L) {
             repository.updateSession(
                 session.copy(
