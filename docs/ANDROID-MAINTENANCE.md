@@ -78,6 +78,11 @@ $device = '<ANDROID_DEVICE_SERIAL>'
 - 多选工具栏的全选图标周围整个区域都可点击。
 - 删除成功和删除失败使用不同提示，不再把成功文本放进失败弹窗，也不再显示 `kotlin.Unit`。
 - 播放器支持拖动定位、快进/快退和倍速播放。
+- 长录制按直播间配置的时间分段保存，默认 30 分钟；HLS 和 FLV 分段文件使用统一的 `name_002.ts.part` / `name_002.flv.part` 命名，并兼容旧命名。
+- 每个已发布分段都会立即写入数据库，后续分段失败或进程中断时，前面已保存的文件仍可见、可播放。
+- 强制退出或系统回收后，应用重新启动会扫描临时录制，自动修复并发布仍可读取的分段。
+- 断流收尾时会裁剪不完整的 TS 包或 FLV Tag；MP4 封装使用 `.mp4` staging 文件，失败不会留下损坏的成品文件。
+- 播放器可直接读取 TS 分段，支持多个 MP4/TS/FLV 分段连续播放、总时长显示和跨分段拖动定位。
 - 电池优化豁免、后台运行和自启动设置入口已加入。
 - 监控查询使用后台线程，最多 4 个并发检查，避免阻塞界面。
 - 录制完成后保留直播间名称和当时的直播标题元数据。
@@ -91,6 +96,8 @@ $device = '<ANDROID_DEVICE_SERIAL>'
 - 本次复验使用的命令为 `.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest`；单元测试共 26 项，失败 0、错误 0、跳过 0。
 - 尚未完成 30 分钟或 1 小时真实直播源验收；不能把构建通过当作长时间录制验收。
 - 之前直接运行 Gradle 时未按本文件设置 `TEMP`、`TMP` 和 `ANDROID_HOME`，出现的 Java loopback 连接失败属于本机启动环境问题，不能作为项目本身的测试失败结论。按文档设置环境变量后，构建和单元测试均已通过。
+- 2026-09-06 修复后的单元测试覆盖 HLS 多分段命名、断流刷新、FLV 收尾修复和 TS 收尾修复；完整 `testDebugUnitTest` 结果为 26 项通过。
+- 2026-09-06 使用 MuMu `127.0.0.1:7555` 直接执行 `com.streamcap.mobile.test/androidx.test.runner.AndroidJUnitRunner`，结果为 `OK (14 tests)`；其中需要外部直播间或录制参数的用例按设计跳过，其余用例实际通过。
 
 ## 已知限制
 
@@ -108,10 +115,12 @@ $device = '<ANDROID_DEVICE_SERIAL>'
 4. 涉及录制、解析、播放器或存储时，补充对应的真实设备验证记录。
 5. 提交信息写清行为变化；不要提交 AAR、APK、录制视频、数据库或本地配置。
 6. 推送 GitHub 前确认仓库仍为私人仓库，并检查 `git status` 和最近提交。
+7. 长视频问题优先检查 `recording_sessions.outputUris`、`pending-recordings` 临时文件族和 MediaStore 中的分段文件，不要只查看旧的 `outputUri` 单值字段。
 
 ## 近期提交
 
 ```text
+248b93e Fix long recording preservation and repair
 ae7fa11 Keep monitoring work off UI thread
 8473772 Run room checks concurrently
 91b18bc Expand select all touch target
