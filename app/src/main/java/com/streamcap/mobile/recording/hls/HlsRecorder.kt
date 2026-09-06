@@ -392,9 +392,14 @@ class HlsRecorder(
     private fun resolve(base: String, child: String): String = URI(base).resolve(child).toString()
 
     private fun siblingPart(first: File, index: Int): File {
-        val marker = first.name.lastIndexOf('.')
+        val marker = listOf(".ts.part", ".m3u8.part").firstOrNull { first.name.endsWith(it) }
         val suffix = "_${index.toString().padStart(3, '0')}"
-        val name = if (marker >= 0) first.name.substring(0, marker) + suffix + first.name.substring(marker) else first.name + suffix
+        val name = if (marker != null) {
+            first.name.removeSuffix(marker) + suffix + marker
+        } else {
+            val dot = first.name.lastIndexOf('.')
+            if (dot >= 0) first.name.substring(0, dot) + suffix + first.name.substring(dot) else first.name + suffix
+        }
         return File(first.parentFile, name)
     }
 

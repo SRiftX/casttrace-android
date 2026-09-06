@@ -15,24 +15,34 @@ object FfmpegMp4Muxer {
     suspend fun convert(input: File, output: File): Mp4Muxer.TrackInfo = withContext(Dispatchers.IO) {
         require(input.exists() && input.length() > 0L) { "待封装的 TS 文件为空" }
         output.parentFile?.mkdirs()
-        output.delete()
-        val session = FFmpegKit.executeWithArguments(
-            arrayOf(
-                "-y",
-                "-hide_banner",
-                "-loglevel", "warning",
-                "-fflags", "+genpts+discardcorrupt",
-                "-i", input.absolutePath,
-                "-map", "0:v?",
-                "-map", "0:a?",
-                "-c", "copy",
-                "-avoid_negative_ts", "make_zero",
-                "-movflags", "+faststart",
-                output.absolutePath,
-            ),
-        )
-        check(ReturnCode.isSuccess(session.returnCode) && output.exists() && output.length() > 0L) {
-            session.failStackTrace ?: session.output ?: "FFmpeg MP4 封装失败"
+        // Keep the .mp4 suffix so FFmpeg can infer the muxer. A suffix such as
+        // ".mp4.writing" makes FFmpeg reject the output format before writing anything.
+        val staging = File(output.parentFile, ".${output.nameWithoutExtension}.writing.mp4")
+        staging.delete()
+        try {
+            val session = FFmpegKit.executeWithArguments(
+                arrayOf(
+                    "-y",
+                    "-hide_banner",
+                    "-loglevel", "warning",
+                    "-fflags", "+genpts+discardcorrupt",
+                    "-i", input.absolutePath,
+                    "-map", "0:v?",
+                    "-map", "0:a?",
+                    "-c", "copy",
+                    "-avoid_negative_ts", "make_zero",
+                    "-movflags", "+faststart",
+                    staging.absolutePath,
+                ),
+            )
+            check(ReturnCode.isSuccess(session.returnCode) && staging.exists() && staging.length() > 0L) {
+                session.failStackTrace ?: session.output ?: "FFmpeg MP4 封装失败"
+            }
+            output.delete()
+            check(staging.renameTo(output)) { "无法提交 MP4 文件" }
+        } catch (failure: Throwable) {
+            staging.delete()
+            throw failure
         }
         Mp4Muxer.inspect(output)
     }

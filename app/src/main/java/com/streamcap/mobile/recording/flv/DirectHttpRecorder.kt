@@ -265,11 +265,13 @@ class DirectHttpRecorder(
     }
 
     private fun siblingPart(first: File, index: Int): File {
-        val marker = first.name.lastIndexOf('.')
-        val name = if (marker >= 0) {
-            first.name.substring(0, marker) + "_${index.toString().padStart(3, '0')}" + first.name.substring(marker)
+        val marker = ".flv.part"
+        val name = if (first.name.endsWith(marker)) {
+            first.name.removeSuffix(marker) + "_${index.toString().padStart(3, '0')}" + marker
         } else {
-            "${first.name}_${index.toString().padStart(3, '0')}"
+            val dot = first.name.lastIndexOf('.')
+            if (dot >= 0) first.name.substring(0, dot) + "_${index.toString().padStart(3, '0')}" + first.name.substring(dot)
+            else "${first.name}_${index.toString().padStart(3, '0')}"
         }
         return File(first.parentFile, name)
     }

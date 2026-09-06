@@ -96,8 +96,20 @@ private fun Playback(recording: RecordingSession, container: AppContainer, paddi
                 }
                 check(uris.isNotEmpty()) { "没有可读取的媒体文件，录制可能尚未保存" }
                 headers = emptyMap()
-                // Let extractors sniff temporary containers; .part is not a media format.
-                items = uris.map { MediaItem.fromUri(it) }
+                items = uris.map { uri ->
+                    val rawName = uri.lastPathSegment.orEmpty().lowercase()
+                    val mimeType = when {
+                        rawName.endsWith(".ts") || rawName.contains(".ts.") -> MimeTypes.VIDEO_MP2T
+                        rawName.endsWith(".flv") || rawName.contains(".flv.") -> MimeTypes.VIDEO_FLV
+                        recording.containerFormat.equals("ts", true) -> MimeTypes.VIDEO_MP2T
+                        recording.containerFormat.equals("flv", true) -> MimeTypes.VIDEO_FLV
+                        else -> MimeTypes.VIDEO_MP4
+                    }
+                    MediaItem.Builder()
+                        .setUri(uri)
+                        .setMimeType(mimeType)
+                        .build()
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -145,6 +157,8 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
+    var currentWindow by remember { mutableIntStateOf(0) }
+    var timelineDurations by remember { mutableStateOf<List<Long>>(emptyList()) }
     var playing by remember { mutableStateOf(false) }
     var seekable by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
@@ -179,8 +193,19 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     }
     LaunchedEffect(player) {
         while (isActive) {
-            position = player.currentPosition.coerceAtLeast(0)
-            duration = player.duration.takeIf { it > 0 } ?: 0L
+            val timeline = player.currentTimeline
+            val windows = if (timeline.isEmpty) emptyList() else buildList(timeline.windowCount) {
+                val window = Timeline.Window()
+                for (index in 0 until timeline.windowCount) {
+                    timeline.getWindow(index, window)
+                    add(window.durationUs.takeIf { it != C.TIME_UNSET }?.div(1_000L)?.coerceAtLeast(0L) ?: 0L)
+                }
+            }
+            timelineDurations = windows
+            currentWindow = player.currentMediaItemIndex.coerceAtLeast(0)
+            duration = windows.sum().takeIf { it > 0L } ?: player.duration.takeIf { it > 0 } ?: 0L
+            val beforeCurrent = windows.take(currentWindow).sum()
+            position = (beforeCurrent + player.currentPosition).coerceAtLeast(0L).coerceAtMost(duration)
             playing = player.isPlaying
             seekable = player.isCurrentMediaItemSeekable
             delay(250)
@@ -194,7 +219,8 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
         } }, update = { it.player = player }, modifier = Modifier.weight(1f).fillMaxWidth())
         Slider(value = dragging ?: position.toFloat().coerceAtMost(duration.toFloat()),
             onValueChange = { dragging = it }, onValueChangeFinished = {
-                dragging?.let { player.seekTo(it.toLong()) }; dragging = null
+                dragging?.let { target -> seekGlobal(player, timelineDurations, target.toLong()) }
+                dragging = null
             }, valueRange = 0f..duration.coerceAtLeast(1).toFloat(), enabled = !live && seekable && duration > 0)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.VolumeDown, contentDescription = "音量")
@@ -238,4 +264,27 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     }
 }
 
-private fun timeLabel(ms: Long): String = "%02d:%02d".format(ms / 60000, ms / 1000 % 60)
+private fun timeLabel(ms: Long): String {
+    val totalSeconds = (ms / 1_000L).coerceAtLeast(0L)
+    return if (totalSeconds >= 3_600L) {
+        "%02d:%02d:%02d".format(totalSeconds / 3_600L, totalSeconds / 60L % 60L, totalSeconds % 60L)
+    } else {
+        "%02d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
+    }
+}
+
+private fun seekGlobal(player: Player, durations: List<Long>, targetMs: Long) {
+    if (durations.isEmpty()) {
+        player.seekTo(targetMs.coerceAtLeast(0L))
+        return
+    }
+    var remaining = targetMs.coerceAtLeast(0L)
+    durations.forEachIndexed { index, segmentDuration ->
+        val isLast = index == durations.lastIndex
+        if (isLast || remaining <= segmentDuration) {
+            player.seekTo(index, remaining.coerceIn(0L, segmentDuration.coerceAtLeast(0L)))
+            return
+        }
+        remaining -= segmentDuration
+    }
+}

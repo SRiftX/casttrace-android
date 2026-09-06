@@ -83,6 +83,10 @@ class RecordingEnginesTest {
             }
             assertEquals(RecorderState.COMPLETED, terminal.state)
             assertEquals(2, terminal.outputFiles.size)
+            assertEquals(
+                "${first.name.removeSuffix(".ts.part")}_002.ts.part",
+                terminal.outputFiles[1].name,
+            )
             assertArrayEquals(byteArrayOf(1, 2, 3), terminal.outputFiles[0].readBytes())
             assertArrayEquals(byteArrayOf(4, 5), terminal.outputFiles[1].readBytes())
         } finally {

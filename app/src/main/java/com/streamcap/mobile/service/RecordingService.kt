@@ -26,6 +26,7 @@ import com.streamcap.mobile.recording.hls.HlsSourceSelector
 import com.streamcap.mobile.recording.ffmpeg.FfmpegHlsRecorder
 import com.streamcap.mobile.recording.ffmpeg.FfmpegMp4Muxer
 import com.streamcap.mobile.recording.mp4.Mp4Muxer
+import com.streamcap.mobile.recording.repair.RecordingFileRepair
 import com.streamcap.mobile.storage.RecordingNameContext
 import com.streamcap.mobile.storage.RecordingNameFormatter
 import kotlinx.coroutines.CoroutineScope
@@ -203,15 +204,9 @@ class RecordingService : Service() {
 
     private fun prepareMonitoring() {
         serviceScope.launch {
-            repository.activeSessions().filter { (it.startedAt ?: Long.MAX_VALUE) < serviceCreatedAt }.forEach { session ->
-                if (active.values.none { it.sessionId == session.id }) {
-                    repository.updateSession(session.copy(
-                        status = TaskStatus.FAILED,
-                        endedAt = serviceCreatedAt,
-                        errorMessage = "上次录制进程已结束，可尝试预览保留的文件",
-                    ))
-                }
-            }
+            // Opening the app after a force-stop is also a recovery entry point. Finish
+            // publishing old temporary parts before the monitor can start a new session.
+            recoverInterruptedTasksNow()
             repository.monitoredRooms().forEach { room ->
                 stopRequested.remove(room.id)
                 pauseRequested.remove(room.id)
@@ -636,8 +631,18 @@ class RecordingService : Service() {
             } else {
                 existingFiles
             }
+            // A forced stop can leave the final transport packet half-written. Trim it before
+            // muxing so one broken tail cannot invalidate an otherwise playable long recording.
+            files.forEach { file ->
+                if (recording.outputFormat == "FLV" || file.extension.equals("flv", true)) {
+                    RecordingFileRepair.repairFlv(file)
+                } else if (file.extension.equals("ts", true) || file.name.contains(".ts.")) {
+                    RecordingFileRepair.repairTransportStream(file)
+                }
+            }
             var muxedDurationSeconds = 0L
-            val outputUris = files.mapIndexed { index, file ->
+            val outputUris = mutableListOf<String>()
+            files.forEachIndexed { index, file ->
                 val partSuffix = if (files.size > 1) "_${(index + 1).toString().padStart(3, '0')}" else ""
                 val publishFile = if (recording.outputFormat == "MP4") {
                     repository.updateSession(session.copy(
@@ -682,7 +687,17 @@ class RecordingService : Service() {
                     recording.roomName,
                 )
                 if (publishFile != file) file.delete()
-                outputUri
+                outputUris += outputUri
+                // Persist every successfully published part immediately. If the process dies
+                // while a later part is being muxed, the earlier parts remain playable and visible.
+                repository.updateSession(session.copy(
+                    status = TaskStatus.FINALIZING,
+                    outputUri = outputUris.firstOrNull(),
+                    outputUris = outputUris.toList(),
+                    totalBytes = terminal.bytesWritten,
+                    durationSeconds = muxedDurationSeconds.takeIf { it > 0L } ?: terminal.durationSeconds,
+                    errorMessage = "已保存 ${outputUris.size}/${files.size} 个分段",
+                ))
             }
             // MP4 的实际轨道时长比下载循环的累计分片时长更可信，尤其是断流换线路后。
             val publishedDurationSeconds = muxedDurationSeconds.takeIf { recording.outputFormat == "MP4" && it > 0L }
@@ -691,8 +706,8 @@ class RecordingService : Service() {
                 session.copy(
                     status = if (paused) TaskStatus.PAUSED else TaskStatus.COMPLETED,
                     endedAt = System.currentTimeMillis(),
-                    outputUri = outputUris.first(),
-                    outputUris = outputUris,
+                    outputUri = outputUris.firstOrNull(),
+                    outputUris = outputUris.toList(),
                     totalBytes = terminal.bytesWritten,
                     durationSeconds = publishedDurationSeconds,
                     errorMessage = null,
@@ -733,8 +748,9 @@ class RecordingService : Service() {
                 )
             }
         }.onFailure { error ->
+            val latestSession = repository.session(recording.sessionId) ?: session
             repository.updateSession(
-                session.copy(
+                latestSession.copy(
                     status = TaskStatus.FAILED,
                     endedAt = System.currentTimeMillis(),
                     totalBytes = terminal.bytesWritten,
@@ -837,38 +853,119 @@ class RecordingService : Service() {
     }
 
     private fun recoverInterruptedTasks() {
-        serviceScope.launch {
-            val sessions = repository.activeSessions()
-            sessions.forEach { session ->
-                val preservedMedia = session.temporaryPath?.let { path ->
-                    java.io.File(path).let { file ->
-                        file.exists() && file.length() > 1024L
-                    }
-                } == true || session.outputUri != null || session.outputUris.isNotEmpty()
-                val recoveryMessage = if (preservedMedia) {
-                    "应用进程中断，已保留已录内容，可直接预览"
-                } else {
-                    "应用进程中断，未发现可恢复的媒体文件"
-                }
-                repository.updateSession(
-                    session.copy(
+        serviceScope.launch { recoverInterruptedTasksNow() }
+    }
+
+    private suspend fun recoverInterruptedTasksNow() {
+        val sessions = repository.activeSessions()
+        sessions.forEach { session ->
+            val recovered = runCatching { recoverInterruptedSession(session) }
+                .getOrElse { failure ->
+                    val latest = repository.session(session.id) ?: session
+                    repository.updateSession(latest.copy(
                         status = TaskStatus.FAILED,
                         endedAt = System.currentTimeMillis(),
-                        errorMessage = recoveryMessage,
-                    ),
-                )
-                repository.log(
-                    session.roomId,
-                    session.id,
-                    if (preservedMedia) "WARN" else "ERROR",
-                    "INTERRUPTED_RECORDING_RECOVERED",
-                    recoveryMessage,
-                )
-                val remainingStopAt = session.stopAtMillis?.takeIf { it > System.currentTimeMillis() }
-                startRecording(session.roomId, remainingStopAt)
-            }
-            if (sessions.isEmpty()) stopIfIdle()
+                        errorMessage = "应用进程中断，恢复失败：${failure.message}",
+                    ))
+                    false
+                }
+            repository.log(
+                session.roomId,
+                session.id,
+                if (recovered) "WARN" else "ERROR",
+                "INTERRUPTED_RECORDING_RECOVERED",
+                if (recovered) "应用进程中断，已自动封装并保存已录内容" else "应用进程中断，未发现可恢复的媒体文件",
+            )
+            val remainingStopAt = session.stopAtMillis?.takeIf { it > System.currentTimeMillis() }
+            startRecording(session.roomId, remainingStopAt)
         }
+        if (sessions.isEmpty()) stopIfIdle()
+    }
+
+    private suspend fun recoverInterruptedSession(session: RecordingSessionEntity): Boolean {
+        val first = session.temporaryPath?.let(::File) ?: return false
+        val files = temporaryFamily(first).filter { it.exists() && it.length() > 0L }
+        val outputUris = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }.toMutableList()
+        if (files.isEmpty()) {
+            if (outputUris.isEmpty()) return false
+            repository.updateSession(session.copy(
+                status = TaskStatus.COMPLETED,
+                endedAt = System.currentTimeMillis(),
+                outputUri = outputUris.first(),
+                outputUris = outputUris.toList(),
+                errorMessage = "应用进程中断，已保留已保存的 ${outputUris.size} 个分段",
+            ))
+            return true
+        }
+        val room = repository.room(session.roomId) ?: return false
+        val settings = container.preferences.settings.first()
+        val baseName = RecordingNameFormatter.format(
+            template = settings.fileNameTemplate,
+            includeTitle = settings.includeTitleInFileName,
+            removeEmoji = settings.removeEmojiFromFileName,
+            context = RecordingNameContext(room.platform, session.roomName, session.roomTitle, LocalDateTime.now()),
+        )
+        var duration = 0L
+        val existingPartCount = outputUris.size
+        val totalParts = existingPartCount + files.size
+        files.forEachIndexed { index, file ->
+            if (session.streamType == StreamType.FLV || file.extension.equals("flv", true)) {
+                RecordingFileRepair.repairFlv(file)
+            } else {
+                RecordingFileRepair.repairTransportStream(file)
+            }
+            val suffix = if (totalParts > 1) "_${(existingPartCount + index + 1).toString().padStart(3, '0')}" else ""
+            val published = if (session.containerFormat.equals("mp4", true)) {
+                val target = File(file.parentFile, "${file.nameWithoutExtension}.mp4")
+                val tracks = runCatching { FfmpegMp4Muxer.convert(file, target) }.getOrElse {
+                    target.delete()
+                    Mp4Muxer.convert(file, target)
+                }
+                duration += tracks.durationSeconds
+                container.recordingStorage.publish(target, "$baseName$suffix.mp4", "video/mp4", room.storageDirectoryUri ?: settings.storageDirectoryUri, session.roomName)
+                    .also { target.delete() }
+            } else {
+                val extension = session.containerFormat.lowercase()
+                container.recordingStorage.publish(file, "$baseName$suffix.$extension", extension.mimeType(), room.storageDirectoryUri ?: settings.storageDirectoryUri, session.roomName)
+            }
+            outputUris += published
+            repository.updateSession(session.copy(
+                status = TaskStatus.FINALIZING,
+                outputUri = outputUris.firstOrNull(),
+                outputUris = outputUris.toList(),
+                totalBytes = files.sumOf { it.length() },
+                durationSeconds = duration.takeIf { it > 0L } ?: session.durationSeconds,
+                errorMessage = "应用进程中断，已自动保存 ${outputUris.size} 个分段",
+            ))
+        }
+        repository.updateSession(session.copy(
+            status = TaskStatus.COMPLETED,
+            endedAt = System.currentTimeMillis(),
+            outputUri = outputUris.firstOrNull(),
+            outputUris = outputUris,
+            totalBytes = files.sumOf { it.length() },
+            durationSeconds = duration.takeIf { it > 0L } ?: session.durationSeconds,
+            errorMessage = "应用进程中断，已自动保存 ${outputUris.size} 个分段",
+        ))
+        return outputUris.isNotEmpty()
+    }
+
+    private fun temporaryFamily(first: File): List<File> {
+        val marker = first.name.indexOf(".ts.part").takeIf { it >= 0 }
+            ?: first.name.indexOf(".flv.part").takeIf { it >= 0 }
+        val prefix = marker?.let { first.name.substring(0, it) } ?: first.nameWithoutExtension
+        val suffix = marker?.let { first.name.substring(it) } ?: ".${first.extension}"
+        val patterns = listOf(
+            Regex("^${Regex.escape(prefix)}_(\\d{3})${Regex.escape(suffix)}$"),
+            // Compatibility with the pre-fix `name.ts_002.part` naming.
+            Regex("^${Regex.escape(first.nameWithoutExtension)}_(\\d{3})\\.${Regex.escape(first.extension)}$"),
+        ).distinctBy(Regex::pattern)
+        return first.parentFile?.listFiles().orEmpty().mapNotNull { file ->
+            val index = if (file.name == first.name) 1 else patterns.firstNotNullOfOrNull {
+                it.matchEntire(file.name)?.groupValues?.get(1)?.toIntOrNull()
+            }
+            index?.let { it to file }
+        }.sortedBy { it.first }.map { it.second }
     }
 
     private fun finishActive(roomId: Long) {

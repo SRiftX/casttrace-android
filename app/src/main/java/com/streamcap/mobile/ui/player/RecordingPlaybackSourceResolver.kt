@@ -24,7 +24,9 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
             return preparePublished(explicit, containerFormat)
         }
         if (outputUri.isNullOrBlank() || !hasReadableMedia(Uri.parse(outputUri))) {
-            return temporaryPath?.let { temporaryParts(File(it)) }?.map { snapshot(it) }.orEmpty()
+            return temporaryPath?.let { temporaryParts(File(it)) }
+                ?.map { Uri.fromFile(it) }
+                .orEmpty()
         }
         val current = Uri.parse(outputUri)
         if (!hasReadableMedia(current)) return emptyList()
@@ -33,17 +35,25 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
     }
 
     private suspend fun preparePublished(uris: List<Uri>, format: String): List<Uri> = when (format.lowercase()) {
-        // Raw TS/FLV can lack a seek map. Build an indexed playback copy without changing the recording.
-        "ts" -> uris.map { snapshot(it) }
+        // Media3 can seek TS directly and playing each segment avoids copying a multi-GB recording into cache.
+        "ts" -> uris
         "flv" -> uris.filter(::hasPlayableFlv).map { snapshot(it) }
         else -> uris
     }
 
     private fun temporaryParts(first: File): List<File> {
-        val stem = first.nameWithoutExtension
-        val pattern = Regex("^${Regex.escape(stem)}_(\\d{3})\\.${Regex.escape(first.extension)}$")
+        val marker = listOf(".ts.part", ".flv.part").firstOrNull { first.name.endsWith(it) }
+        val prefix = marker?.let { first.name.removeSuffix(it) } ?: first.nameWithoutExtension
+        val suffix = marker ?: ".${first.extension}"
+        val patterns = listOf(
+            Regex("^${Regex.escape(prefix)}_(\\d{3})${Regex.escape(suffix)}$"),
+            // Files made by older builds used `name.ts_002.part`.
+            Regex("^${Regex.escape(first.nameWithoutExtension)}_(\\d{3})\\.${Regex.escape(first.extension)}$"),
+        ).distinctBy(Regex::pattern)
         return first.parentFile?.listFiles().orEmpty().mapNotNull { file ->
-            val index = if (file.name == first.name) 1 else pattern.matchEntire(file.name)?.groupValues?.get(1)?.toIntOrNull()
+            val index = if (file.name == first.name) 1 else patterns.firstNotNullOfOrNull {
+                it.matchEntire(file.name)?.groupValues?.get(1)?.toIntOrNull()
+            }
             index?.takeIf { file.length() > 1024 }?.let { it to file }
         }.sortedBy { it.first }.map { it.second }
     }
