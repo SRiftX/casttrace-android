@@ -87,6 +87,58 @@ $device = '<ANDROID_DEVICE_SERIAL>'
 - 监控查询使用后台线程，最多 4 个并发检查，避免阻塞界面。
 - 录制完成后保留直播间名称和当时的直播标题元数据。
 
+## 本次版本的实现说明
+
+以下内容对应提交 `248b93e`，后续升级或排查长录制问题时按这个流程核对：
+
+### 录制、分段与发布
+
+- `RecordingRequest.segmentSeconds` 控制 HLS 和 FLV 的自动分段；房间设置在录制入口再次限制为 30 分钟到 7 天，旧数据库中的过小值会按 30 分钟兜底。
+- HLS 使用 `HlsRecorder` 按媒体分片边界下载并写入 MPEG-TS，FLV 使用 `DirectHttpRecorder` 按完整 Tag 写入；FLV 仅在达到阈值且遇到视频关键帧时切换，避免从任意帧开始导致首段无法播放。
+- 临时文件统一位于应用专属目录的 `pending-recordings` 下。新文件名为 `直播间_时间戳.ts.part` 或 `直播间_时间戳.flv.part`，后续分段为 `_002`、`_003`；播放器和恢复逻辑同时识别旧版本的 `name.ts_002.part` 命名。
+- 每发布一个分段就更新 `recording_sessions.outputUris` 和 `outputUri` 首段兼容字段。发布后才删除对应临时文件，因此封装后半程中断不会丢失已经完成的分段。
+- MP4 先写入隐藏的 `.name.writing.mp4` staging 文件，检查成功后再重命名为最终文件；封装失败会清理 staging 文件，避免 MediaStore 或自定义目录出现损坏的同名成品。
+- MediaStore 发布使用 `IS_PENDING=1` 写入，复制完成后才切换为 `IS_PENDING=0`；SAF 目录使用直播间子目录并在复制失败时删除目标文档。
+
+### 断流、强制退出与恢复
+
+- TS 收尾通过 `RecordingFileRepair.repairTransportStream` 按 188 字节包边界裁剪尾部残包；FLV 收尾通过 `repairFlv` 逐 Tag 校验长度，丢弃未完成的最后一个 Tag。
+- 录制服务进入 `FINALIZING` 后先修复所有临时分段，再逐段封装和发布。状态、字节数、时长和已发布 URI 在每段完成后立即落库。
+- 应用被强制停止、系统回收或进程崩溃后，`RecordingService.monitor` 会在重新扫描直播间前调用恢复入口；`TaskRecoveryWorker` 也只调用这个统一入口，避免启动恢复逻辑分叉。
+- 恢复会扫描活动会话的临时文件族：可读取的分段会修复、封装、发布并标记 `COMPLETED`；没有临时文件但已有 `outputUris` 的会话会保留已发布分段并完成归档；完全没有可用媒体时才标记失败。
+- 自动恢复不会伪造完整录制时长；MP4 优先使用封装器读取的轨道时长，TS/FLV 使用下载器累计时长。真实断流续录仍受平台线路和重试次数限制。
+
+### 播放、删除与兼容
+
+- 播放源解析优先读取 `outputUris`，再回退到旧的单值 `outputUri`，最后才读取 `temporaryPath` 下的临时分段。
+- Media3 对 TS、FLV、MP4 显式设置 MIME 类型；多分段作为多个 `MediaItem` 连续播放，时间轴按各窗口时长合计，进度条可以跨分段拖动。
+- 删除操作按数据库中的全部 URI 执行，并额外查找同名前缀的 MediaStore 分段；删除后通过查询确认内容 URI 已不存在，避免“实际删除成功但提示失败”。
+- 数据库当前为 Room version 4：1→2 增加房间录制和分段配置，2→3 增加 `outputUris` 并从旧 `outputUri` 回填，3→4 增加 `roomTitle`。修改实体字段时必须同步迁移和导出 schema。
+
+### 相关代码入口
+
+| 领域 | 入口文件 | 升级时重点检查 |
+| --- | --- | --- |
+| 录制服务与恢复 | `app/src/main/java/com/streamcap/mobile/service/RecordingService.kt` | `FINALIZING` 状态、逐段落库、强制退出恢复 |
+| HLS 分段 | `app/src/main/java/com/streamcap/mobile/recording/hls/HlsRecorder.kt` | playlist 刷新、序号重置、关键帧切段、加密分片 |
+| FLV 分段 | `app/src/main/java/com/streamcap/mobile/recording/flv/DirectHttpRecorder.kt` | Tag 完整性、时间戳连续性、重连后的文件命名 |
+| 文件修复 | `app/src/main/java/com/streamcap/mobile/recording/repair/RecordingFileRepair.kt` | TS 188 字节边界、FLV Tag 长度校验 |
+| MP4 封装 | `app/src/main/java/com/streamcap/mobile/recording/ffmpeg/FfmpegMp4Muxer.kt` | staging 后缀必须保持 `.mp4`，失败清理临时产物 |
+| 存储发布与删除 | `app/src/main/java/com/streamcap/mobile/storage/RecordingStorage.kt` | MediaStore pending、SAF 权限、分段删除和目录命名 |
+| 播放源与时间轴 | `app/src/main/java/com/streamcap/mobile/ui/player/RecordingPlaybackSourceResolver.kt`、`RecordingPlayerScreen.kt` | 新旧分段命名、MIME、跨段 seek |
+| 数据模型与迁移 | `app/src/main/java/com/streamcap/mobile/data/database/Entities.kt`、`Migrations.kt`、`StreamCapDatabase.kt` | Room 版本号、旧字段回填、schema 导出 |
+
+## 后续升级检查清单
+
+新增录制格式、分段策略或存储位置时，按以下顺序更新：
+
+1. 先更新 `RecordingRequest`、录制器和 `RecordingProgress.outputFiles`，确保终态携带全部分段文件。
+2. 再更新 `RecordingService` 的修复、封装、发布和恢复路径，并保证每个已发布 URI 都能在中途崩溃后从数据库恢复。
+3. 同步更新播放器解析、导出/分享、重命名和删除逻辑；不能只修改录制端的扩展名。
+4. 如果修改 `LiveRoomEntity` 或 `RecordingSessionEntity`，增加连续 Room migration、导出 schema 和旧数据库回填测试。
+5. 为完整包、残包、断流重连、分段命名和多段播放补充单元测试；再执行 MuMu 安装、启动、instrumentation 和 logcat 检查。
+6. 更新本节、验证记录、已知限制和近期提交，明确哪些结果是模拟数据，哪些是实际直播源验收。
+
 ## 验证记录
 
 - 已完成一次真实 MuMu 录制验收：约 625 秒，生成发布文件，状态为 `PAUSED`。
@@ -120,6 +172,7 @@ $device = '<ANDROID_DEVICE_SERIAL>'
 ## 近期提交
 
 ```text
+239ab57 docs: update Android maintenance notes
 248b93e Fix long recording preservation and repair
 ae7fa11 Keep monitoring work off UI thread
 8473772 Run room checks concurrently
