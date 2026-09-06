@@ -44,6 +44,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Checkbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -98,6 +99,7 @@ fun RecordingsScreen(
     }
     var selectedFilter by remember { mutableStateOf(RecordingFilter.ALL) }
     var deleteError by remember { mutableStateOf<String?>(null) }
+    var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     val filteredRecordings = recordings.filter { recording ->
         when (selectedFilter) {
             RecordingFilter.ALL -> true
@@ -126,6 +128,13 @@ fun RecordingsScreen(
                 "${filteredRecordings.size} / ${recordings.size} 个录制会话",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (selectedIds.isNotEmpty()) {
+                TextButton(onClick = {
+                    val targets = recordings.filter { it.id in selectedIds }
+                    viewModel.deleteMany(targets) { error -> deleteError = error ?: "已删除 ${targets.size} 个录制会话" }
+                    selectedIds = emptySet()
+                }) { Text("删除已选 (${selectedIds.size})") }
+            }
             Spacer(Modifier.height(12.dp))
         }
         item {
@@ -167,6 +176,8 @@ fun RecordingsScreen(
         } else {
             items(filteredRecordings, key = { it.id }) { recording ->
                 RecordingRow(recording, onOpenRecording,
+                    selected = recording.id in selectedIds,
+                    onSelect = { checked -> selectedIds = if (checked) selectedIds + recording.id else selectedIds - recording.id },
                     onRename = { source, name -> viewModel.rename(recording.id, source, name) },
                     onExport = { source, name ->
                         exportSource = source
@@ -204,6 +215,8 @@ fun RecordingsScreen(
 private fun RecordingRow(
     recording: RecordingSession,
     onOpenRecording: (Long) -> Unit,
+    selected: Boolean,
+    onSelect: (Boolean) -> Unit,
     onExport: (String, String) -> Unit,
     onRename: (String, String) -> Unit,
     onDelete: (RecordingSession) -> Unit,
@@ -245,6 +258,7 @@ private fun RecordingRow(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Checkbox(checked = selected, onCheckedChange = onSelect)
             Icon(
                 if (canOpen) Icons.Outlined.PlayCircle else Icons.Outlined.VideoFile,
                 contentDescription = null,

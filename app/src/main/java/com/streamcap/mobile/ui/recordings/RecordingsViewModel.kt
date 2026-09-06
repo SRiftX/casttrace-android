@@ -110,6 +110,20 @@ class RecordingsViewModel(
         }
     }
 
+    fun deleteMany(recordings: List<RecordingSession>, afterDelete: (String?) -> Unit = {}) {
+        if (recordings.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val errors = recordings.mapNotNull { recording ->
+                val entity = repository.session(recording.id) ?: return@mapNotNull null
+                val published = container.recordingStorage.deleteRecordingFiles(entity.outputUris.ifEmpty { listOfNotNull(entity.outputUri) })
+                val temporaryDeleted = entity.temporaryPath?.let(::deleteTemporaryFamily) ?: true
+                if (published.successful && temporaryDeleted) repository.deleteSession(entity)
+                else "${recording.roomName}: 删除失败"
+            }
+            withContext(kotlinx.coroutines.Dispatchers.Main) { afterDelete(errors.takeIf { it.isNotEmpty() }?.joinToString("；")) }
+        }
+    }
+
     private fun deleteTemporaryFamily(path: String): Boolean {
         val first = File(path)
         val stem = Regex("^(.*?)(?:_\\d{3})?(\\.[^.]+)$").matchEntire(first.name)
