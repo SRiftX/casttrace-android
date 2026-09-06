@@ -62,7 +62,8 @@ class RecordingService : Service() {
         var timerJob: Job? = null,
     )
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    // Network checks, database updates, and recorder startup must never run on the UI thread.
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val retries = RecordingRetryScheduler(serviceScope)
     private val serviceCreatedAt = System.currentTimeMillis()
     private val active = ConcurrentHashMap<Long, ActiveRecording>()
