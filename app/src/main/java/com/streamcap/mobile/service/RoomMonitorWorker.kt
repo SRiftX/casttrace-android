@@ -10,7 +10,12 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.LiveStatus
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.TimeUnit
 
 class RoomMonitorWorker(
@@ -20,19 +25,20 @@ class RoomMonitorWorker(
     override suspend fun doWork(): Result {
         val repository = (applicationContext as StreamCapApplication).container.repository
         val rooms = repository.monitoredRooms()
-        rooms.forEachIndexed { index, room ->
-            if (room.taskStatus == com.streamcap.mobile.domain.model.TaskStatus.PAUSED) {
-                if (index < rooms.lastIndex) delay(500)
-                return@forEachIndexed
-            }
-            runCatching { repository.refresh(room.id) }
-                .onSuccess { status ->
-                    if (status == LiveStatus.LIVE) RecordingService.start(applicationContext, room.id)
+        val semaphore = Semaphore(4)
+        coroutineScope {
+            rooms.map { room -> async(Dispatchers.IO) {
+                if (room.taskStatus == com.streamcap.mobile.domain.model.TaskStatus.PAUSED) return@async
+                semaphore.withPermit {
+                    runCatching { repository.refresh(room.id) }
+                        .onSuccess { status ->
+                            if (status == LiveStatus.LIVE) RecordingService.start(applicationContext, room.id)
+                        }
+                        .onFailure { error ->
+                            repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", error.message ?: "自动检查开播失败")
+                        }
                 }
-                .onFailure { error ->
-                    repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", error.message ?: "自动检查开播失败")
-                }
-            if (index < rooms.lastIndex) delay(500)
+            } }.awaitAll()
         }
         return Result.success()
     }
