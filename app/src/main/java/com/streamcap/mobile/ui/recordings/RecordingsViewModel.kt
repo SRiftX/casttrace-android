@@ -114,7 +114,7 @@ class RecordingsViewModel(
         if (recordings.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
             val errors = recordings.mapNotNull { recording ->
-                val entity = repository.session(recording.id) ?: return@mapNotNull null
+                val entity = repository.session(recording.id) ?: return@mapNotNull "${recording.roomName}: 记录不存在"
                 val published = container.recordingStorage.deleteRecordingFiles(entity.outputUris.ifEmpty { listOfNotNull(entity.outputUri) })
                 val temporaryDeleted = entity.temporaryPath?.let(::deleteTemporaryFamily) ?: true
                 if (published.successful && temporaryDeleted) repository.deleteSession(entity)

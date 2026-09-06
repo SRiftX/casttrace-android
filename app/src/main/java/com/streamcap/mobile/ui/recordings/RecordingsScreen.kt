@@ -102,6 +102,7 @@ fun RecordingsScreen(
     }
     var selectedFilter by remember { mutableStateOf(RecordingFilter.ALL) }
     var deleteError by remember { mutableStateOf<String?>(null) }
+    var deleteSuccess by remember { mutableStateOf<String?>(null) }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var selectedRoom by remember { mutableStateOf<String?>(null) }
     val roomNames = recordings.map { it.roomName }.distinct().sorted()
@@ -154,7 +155,10 @@ fun RecordingsScreen(
                         }) { Icon(Icons.Outlined.Share, contentDescription = "分享已选文件") }
                         IconButton(onClick = {
                         val targets = recordings.filter { it.id in selectedIds }
-                        viewModel.deleteMany(targets) { error -> deleteError = error ?: "已删除 ${targets.size} 个录制会话" }
+                        viewModel.deleteMany(targets) { error ->
+                            if (error == null) deleteSuccess = "已删除 ${targets.size} 个录制会话"
+                            else deleteError = error
+                        }
                         selectedIds = emptySet()
                         }) { Icon(Icons.Outlined.Delete, contentDescription = "删除已选文件") }
                     }
@@ -231,7 +235,10 @@ fun RecordingsScreen(
                         exportSource = source
                         exportPicker.launch(name)
                     },
-                    onDelete = { target -> viewModel.delete(target) { error -> deleteError = error } },
+                    onDelete = { target -> viewModel.delete(target) { error ->
+                        if (error != null) deleteError = error
+                        else deleteSuccess = "录制文件已删除"
+                    } },
                 )
             }
         }
@@ -242,6 +249,14 @@ fun RecordingsScreen(
             title = { Text("文件删除失败") },
             text = { Text(message) },
             confirmButton = { TextButton(onClick = { deleteError = null }) { Text("确定") } },
+        )
+    }
+    deleteSuccess?.let { message ->
+        AlertDialog(
+            onDismissRequest = { deleteSuccess = null },
+            title = { Text("删除成功") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { deleteSuccess = null }) { Text("确定") } },
         )
     }
     exportProgress?.let { progress ->
