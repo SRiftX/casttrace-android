@@ -22,6 +22,8 @@ fun LiveRoomEntity.toDomain() = LiveRoom(
     scheduledMonitoringEnabled = scheduledMonitoringEnabled,
     notificationsEnabled = notificationsEnabled,
     checkIntervalSeconds = checkIntervalSeconds,
+    oneTimeStartAt = oneTimeStartAt,
+    oneTimeEndAt = oneTimeEndAt,
     liveStatus = liveStatus,
     taskStatus = taskStatus,
     lastCheckAt = lastCheckAt,
@@ -46,4 +48,7 @@ fun RecordingSessionEntity.toDomain() = RecordingSession(
     durationSeconds = durationSeconds,
     stopAtMillis = stopAtMillis,
     errorMessage = errorMessage,
+    danmakuPath = danmakuPath,
+    danmakuEventCount = danmakuEventCount,
+    danmakuDroppedCount = danmakuDroppedCount,
 )

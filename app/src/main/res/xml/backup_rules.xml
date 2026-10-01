@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="platform_credentials.xml" />
+    <exclude domain="file" path="Movies/StreamCap/pending-recordings" />
+    <exclude domain="database" path="task_logs" />
+</full-backup-content>

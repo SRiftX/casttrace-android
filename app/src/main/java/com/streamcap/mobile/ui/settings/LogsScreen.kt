@@ -1,5 +1,11 @@
 package com.streamcap.mobile.ui.settings
 
+import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -48,25 +54,25 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LogsScreen(container: AppContainer, onBack: () -> Unit) {
+    val context = LocalContext.current
     val viewModel: SettingsViewModel = viewModel(
-        factory = ViewModelFactory { SettingsViewModel(container.preferences, container.repository) },
+        factory = ViewModelFactory {
+            SettingsViewModel(context, container.preferences, container.repository)
+        },
     )
     val logs by viewModel.logs.collectAsStateWithLifecycle()
     val recordings by container.repository.recordings.collectAsStateWithLifecycle(emptyList())
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val errorLogs = logs.filter { it.level.equals("ERROR", ignoreCase = true) }
+    var preview by remember { mutableStateOf<String?>(null) }
+    var exportText by remember { mutableStateOf<String?>(null) }
+    val errorLogs = logs.filter { it.level.equals("ERROR", ignoreCase = true) && it.createdAt >= System.currentTimeMillis() - 86_400_000L }.take(100)
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         scope.launch {
             val result = runCatching {
-                val report = TaskLogExporter.buildErrorReport(
-                    logs = errorLogs,
-                    appVersion = BuildConfig.VERSION_NAME,
-                    deviceInfo = "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
-                )
+                val report = requireNotNull(exportText) { "预览已失效，请重新生成" }
                 withContext(Dispatchers.IO) {
                     context.contentResolver.openOutputStream(uri, "w")
                         ?.bufferedWriter(Charsets.UTF_8)
@@ -93,11 +99,11 @@ fun LogsScreen(container: AppContainer, onBack: () -> Unit) {
                 actions = {
                     IconButton(
                         onClick = {
-                            val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-                            exportLauncher.launch("streamcap-errors-$timestamp.txt")
+                            preview = TaskLogExporter.buildPreviewReport(errorLogs, BuildConfig.VERSION_NAME,
+                                "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
                         },
                     ) {
-                        Icon(Icons.Outlined.Download, contentDescription = "导出错误日志")
+                        Icon(Icons.Outlined.Download, contentDescription = "预览脱敏诊断")
                     }
                 },
             )
@@ -132,6 +138,19 @@ fun LogsScreen(container: AppContainer, onBack: () -> Unit) {
             }
         }
     }
+    preview?.let { report ->
+        AlertDialog(onDismissRequest = { preview = null }, title = { Text("诊断预览 · 最近 24 小时") },
+            text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text("最多 100 条错误、128 KiB；已移除链接、凭据，不包含视频。仅在选择导出后写入所选文件。")
+                Text(report, style = MaterialTheme.typography.bodySmall)
+            } }, confirmButton = { TextButton(onClick = {
+                exportText = report
+                preview = null
+                val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                exportLauncher.launch("casttrace-diagnostics-$timestamp.txt")
+            }) { Text("选择位置并导出") } }, dismissButton = { TextButton(onClick = { preview = null }) { Text("取消") } })
+    }
+
 }
 
 private fun formatDiagnosticStorage(bytes: Long): String = when {

@@ -15,11 +15,19 @@ import com.streamcap.mobile.platform.resolver.HuyaResolver
 import com.streamcap.mobile.platform.resolver.KuaishouResolver
 import com.streamcap.mobile.platform.resolver.ResolverRegistry
 import com.streamcap.mobile.storage.RecordingStorage
+import com.streamcap.mobile.data.security.CredentialStore
+import com.streamcap.mobile.danmaku.RealDanmakuClientFactory
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 class AppContainer(context: Context) {
+    val preferences = AppPreferences(context)
+    val networkPolicy = com.streamcap.mobile.network.RecordingNetworkPolicy(context, preferences)
     val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            kotlinx.coroutines.runBlocking { networkPolicy.requireAllowed() }
+            chain.proceed(chain.request())
+        }
         .connectTimeout(20, TimeUnit.SECONDS)
         // Read timeout bounds inactivity, not the total lifetime of a live response.
         .readTimeout(30, TimeUnit.SECONDS)
@@ -30,7 +38,7 @@ class AppContainer(context: Context) {
         context,
         StreamCapDatabase::class.java,
         "streamcap.db",
-    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, StreamCapDatabase.MIGRATION_3_4).build()
+    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, StreamCapDatabase.MIGRATION_3_4, StreamCapDatabase.MIGRATION_4_5, StreamCapDatabase.MIGRATION_5_6).build()
 
     val resolverRegistry = ResolverRegistry(
         listOf(
@@ -43,13 +51,18 @@ class AppContainer(context: Context) {
         ),
     )
 
+    val credentialStore = CredentialStore(context)
+    val danmakuClients = RealDanmakuClientFactory(httpClient)
+
     val repository = StreamCapRepository(
         roomDao = database.liveRoomDao(),
         sessionDao = database.recordingSessionDao(),
         logDao = database.taskLogDao(),
         resolvers = resolverRegistry,
+        credentialStore = credentialStore,
     )
 
-    val preferences = AppPreferences(context)
     val recordingStorage = RecordingStorage(context)
+    val videoExporter = com.streamcap.mobile.danmaku.RecordingVideoExporter(context, repository)
+    val shareExporter = com.streamcap.mobile.danmaku.RecordingShareExporter(context, repository)
 }

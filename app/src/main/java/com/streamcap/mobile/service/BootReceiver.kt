@@ -6,14 +6,35 @@ import android.content.Intent
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.streamcap.mobile.data.preferences.AppPreferences
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            "streamcap-boot-recovery",
-            ExistingWorkPolicy.REPLACE,
-            OneTimeWorkRequestBuilder<TaskRecoveryWorker>().build(),
-        )
+        val pendingResult = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                val settings = AppPreferences(context.applicationContext).settings.first()
+                if (BackgroundMonitoringPolicy.restoreAfterBoot(settings)) {
+                    RoomMonitorWorker.schedule(context, settings.allowMobileData)
+                } else {
+                    // A periodic request survives reboot. Cancel it here so a disabled
+                    // boot-resume setting cannot silently restart monitoring.
+                    RoomMonitorWorker.cancelSchedule(context)
+                }
+                WorkManager.getInstance(context).enqueueUniqueWork(
+                    "streamcap-boot-recovery",
+                    ExistingWorkPolicy.REPLACE,
+                    OneTimeWorkRequestBuilder<TaskRecoveryWorker>().build(),
+                )
+            } finally {
+                pendingResult.finish()
+            }
+        }
     }
 }

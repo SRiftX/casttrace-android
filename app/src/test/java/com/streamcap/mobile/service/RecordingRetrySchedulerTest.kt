@@ -9,6 +9,32 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingRetrySchedulerTest {
+    @Test fun parallelReplacementsLeaveOnlyOneCancellableReservation() = runTest {
+        val scheduler = RecordingRetryScheduler(this)
+        val workers = java.util.concurrent.Executors.newFixedThreadPool(8)
+        try {
+            val ready = java.util.concurrent.CountDownLatch(8)
+            val go = java.util.concurrent.CountDownLatch(1)
+            val futures = (1..8).map {
+                workers.submit {
+                    ready.countDown()
+                    go.await()
+                    repeat(100) {
+                        scheduler.schedule(1, 0) { fail("Cancelled reservation restarted") }
+                        scheduler.isPending(1)
+                    }
+                }
+            }
+            assertTrue(ready.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            go.countDown()
+            futures.forEach { it.get(10, java.util.concurrent.TimeUnit.SECONDS) }
+            assertTrue(scheduler.isPending(1))
+            scheduler.cancel(1)
+            advanceTimeBy(5000)
+            runCurrent()
+            assertFalse(scheduler.hasPending())
+        } finally { workers.shutdownNow() }
+    }
     @Test fun retryWaitsUntilDeadlineAndReleasesReservationBeforeStarting() = runTest {
         val scheduler = RecordingRetryScheduler(this)
         var starts = 0

@@ -27,6 +27,164 @@ import org.junit.Test
 import java.nio.file.Files
 
 class RecordingEnginesTest {
+    @Test fun confirmedFlvLiveEndCompletesOnceAndPreservesMedia() = runBlocking {
+        val server = MockWebServer()
+        val media = flvHeader() + flvTag(0, byteArrayOf(0x17, 1, 0, 0, 0, 1))
+        server.enqueue(MockResponse().setBody(Buffer().write(media)))
+        server.start()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val file = Files.createTempFile("flv-live-end", ".flv").toFile()
+        var refreshes = 0
+        try {
+            val recorder = DirectHttpRecorder(OkHttpClient(), scope)
+            val handle = recorder.start(RecordingRequest(server.url("/live").toString(), emptyMap(), StreamType.FLV, file,
+                refreshSource = { refreshes++; throw com.streamcap.mobile.recording.engine.LiveStreamEndedException() }))
+            val end = withTimeout(5_000) { recorder.observe(handle).first { it.state in setOf(RecorderState.COMPLETED, RecorderState.FAILED) } }
+            assertEquals(RecorderState.COMPLETED, end.state)
+            assertTrue(end.liveEnded)
+            assertEquals(null, end.errorMessage)
+            assertEquals(1, refreshes)
+            assertEquals(1, server.requestCount)
+            assertArrayEquals(media, file.readBytes())
+        } finally { scope.cancel(); server.shutdown(); file.delete() }
+    }
+
+    @Test fun confirmedHlsLiveEndDoesNotRetryEndListAsAnError() = runBlocking {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:1,\n/one.ts\n#EXT-X-ENDLIST\n"))
+        server.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:1,\n/one.ts\n#EXT-X-ENDLIST\n"))
+        server.enqueue(MockResponse().setBody(Buffer().write(byteArrayOf(1, 2, 3))))
+        server.start()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val file = Files.createTempFile("hls-live-end", ".ts").toFile()
+        var refreshes = 0
+        try {
+            val recorder = HlsRecorder(OkHttpClient(), scope)
+            val handle = recorder.start(RecordingRequest(server.url("/live").toString(), emptyMap(), StreamType.HLS, file,
+                refreshSource = { refreshes++; throw com.streamcap.mobile.recording.engine.LiveStreamEndedException() }))
+            val end = withTimeout(5_000) { recorder.observe(handle).first { it.state in setOf(RecorderState.COMPLETED, RecorderState.FAILED) } }
+            assertEquals(RecorderState.COMPLETED, end.state)
+            assertTrue(end.liveEnded)
+            assertEquals(null, end.errorMessage)
+            assertEquals(1, refreshes)
+            assertArrayEquals(byteArrayOf(1, 2, 3), file.readBytes())
+        } finally { scope.cancel(); server.shutdown(); file.delete() }
+    }
+    @Test fun flvRetainsWrittenMediaAcrossMoreThanThreeEmptyReconnects() = runBlocking {
+        val server = MockWebServer()
+        val firstTag = flvTag(0, byteArrayOf(0x17, 1, 0, 0, 0, 1))
+        val secondTag = flvTag(1000, byteArrayOf(0x27, 1, 0, 0, 0, 2))
+        val thirdTag = flvTag(2000, byteArrayOf(0x27, 1, 0, 0, 0, 3))
+        val attempts = java.util.concurrent.atomic.AtomicInteger()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (attempts.incrementAndGet()) {
+                1 -> MockResponse().setBody(Buffer().write(flvHeader() + firstTag))
+                in 2..5 -> MockResponse().setResponseCode(503)
+                6 -> MockResponse().setBody(Buffer().write(flvHeader() + secondTag))
+                in 7..10 -> MockResponse().setResponseCode(503)
+                else -> MockResponse().setBody(Buffer().write(flvHeader() + thirdTag))
+            }
+        }
+        server.start()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val file = Files.createTempFile("flv-outage", ".flv.part").toFile()
+        try {
+            val recorder = DirectHttpRecorder(OkHttpClient(), scope)
+            val url = server.url("/stream").toString()
+            val handle = recorder.start(RecordingRequest(url, emptyMap(), StreamType.FLV, file, 1800,
+                refreshSource = { StreamSource(url, StreamType.FLV, "原画") }))
+            val expected = flvHeader() + firstTag + secondTag + thirdTag
+            withTimeout(25000) { recorder.observe(handle).first { it.bytesWritten >= expected.size } }
+            recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.PAUSE)
+            assertTrue(attempts.get() >= 11)
+            assertArrayEquals(expected, file.readBytes())
+        } finally { scope.cancel(); server.shutdown(); file.delete() }
+    }
+    @Test fun flvReconnectSkipsReplayedGopAndDoesNotResetClockForCodecHeader() = runBlocking {
+        val server = MockWebServer()
+        val config = flvTag(0, byteArrayOf(0x17, 0))
+        val first = flvTag(10000, byteArrayOf(0x17, 1, 10))
+        val overlap = flvTag(11000, byteArrayOf(0x17, 1, 11))
+        val next = flvTag(12000, byteArrayOf(0x17, 1, 12))
+        server.enqueue(MockResponse().setBody(Buffer().write(flvHeader() + config + first + overlap)))
+        server.enqueue(MockResponse().setBody(Buffer().write(flvHeader() + config + overlap + next)))
+        server.start()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val file = Files.createTempFile("flv-overlap", ".flv.part").toFile()
+        try {
+            val expected = flvHeader() + config + first + overlap + flvTag(11000, byteArrayOf(0x17, 0)) + next
+            val recorder = DirectHttpRecorder(OkHttpClient(), scope)
+            val handle = recorder.start(RecordingRequest(server.url("/live").toString(), emptyMap(), StreamType.FLV, file, 1800))
+            withTimeout(5000) { recorder.observe(handle).first { it.bytesWritten >= expected.size } }
+            recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.PAUSE)
+            withTimeout(5000) { recorder.observe(handle).first { it.state == RecorderState.STOPPED } }
+            assertArrayEquals(expected, file.readBytes())
+        } finally { scope.cancel(); server.shutdown(); file.delete() }
+    }
+
+    @Test fun flvExpiredUrlRefreshKeepsOneFileAndExistingTags() = runBlocking {
+        val server = MockWebServer()
+        val firstTag = flvTag(1000, byteArrayOf(0x17, 1))
+        val secondTag = flvTag(2000, byteArrayOf(0x17, 2))
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/first" -> MockResponse().setBody(Buffer().write(flvHeader() + firstTag))
+                "/expired" -> MockResponse().setResponseCode(403)
+                else -> MockResponse().setBody(Buffer().write(flvHeader() + secondTag))
+            }
+        }
+        server.start()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val file = Files.createTempFile("flv-renew", ".flv.part").toFile()
+        var refreshes = 0
+        try {
+            val recorder = DirectHttpRecorder(OkHttpClient(), scope)
+            val expected = flvHeader() + firstTag + secondTag
+            val handle = recorder.start(RecordingRequest(
+                server.url("/first").toString(), emptyMap(), StreamType.FLV, file, 1800,
+                refreshSource = {
+                    StreamSource(server.url(if (++refreshes == 1) "/expired" else "/fresh").toString(), StreamType.FLV, "原画")
+                },
+            ))
+            withTimeout(10000) { recorder.observe(handle).first { it.bytesWritten >= expected.size } }
+            recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.PAUSE)
+            val stopped = withTimeout(5000) { recorder.observe(handle).first { it.state == RecorderState.STOPPED } }
+            assertEquals(1, stopped.outputFiles.size)
+            assertTrue(refreshes >= 2)
+            assertArrayEquals(expected, file.readBytes())
+        } finally { scope.cancel(); server.shutdown(); file.delete() }
+    }
+
+    @Test fun hlsPauseDuringHttpReadPreservesMediaAsStopped() = runBlocking {
+        val server = MockWebServer()
+        val readingSecond = java.util.concurrent.CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/live" -> MockResponse().setBody("#EXTM3U\n#EXTINF:1,\n/one.ts\n#EXTINF:1,\n/two.ts\n")
+                "/one.ts" -> MockResponse().setBody(Buffer().write(byteArrayOf(1, 2, 3)))
+                else -> {
+                    readingSecond.countDown()
+                    MockResponse().setBody("delayed").setBodyDelay(2, java.util.concurrent.TimeUnit.SECONDS)
+                }
+            }
+        }
+        server.start()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val file = Files.createTempFile("hls-pause-read", ".ts").toFile()
+        try {
+            val recorder = HlsRecorder(OkHttpClient(), scope)
+            val handle = recorder.start(RecordingRequest(server.url("/live").toString(), emptyMap(), StreamType.HLS, file))
+            assertTrue(readingSecond.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.PAUSE)
+            val terminal = withTimeout(5000) {
+                recorder.observe(handle).first { it.state == RecorderState.STOPPED || it.state == RecorderState.FAILED }
+            }
+            assertEquals(RecorderState.STOPPED, terminal.state)
+            assertEquals(3L, terminal.bytesWritten)
+            assertArrayEquals(byteArrayOf(1, 2, 3), file.readBytes())
+        } finally { scope.cancel(); server.shutdown(); file.delete() }
+    }
+
     @Test
     fun hlsMasterReturnedDuringPollingIsNotWrittenAsVideo() = runBlocking {
         val server = MockWebServer()
@@ -191,7 +349,8 @@ class RecordingEnginesTest {
     @Test
     fun flvSegmentationCutsOnlyAtTagBoundaryAndKeepsHeader() = runBlocking {
         // 直播源时间戳可能不是从 0 开始，首个媒体帧不能被误判为切片点。
-        val flv = flvHeader() + flvTag(timestamp = 300_000, payload = byteArrayOf(0x17, 0x00)) +
+        val audioConfig = flvTag(timestamp = 0, payload = byteArrayOf(0xaf.toByte(), 0, 0x12, 0x10), type = 8)
+        val flv = flvHeader() + audioConfig + flvTag(timestamp = 300_000, payload = byteArrayOf(0x17, 0x01)) +
             flvTag(timestamp = 302_000, payload = byteArrayOf(0x17, 0x01))
         val server = MockWebServer()
         server.enqueue(MockResponse().setBody(Buffer().write(flv)))
@@ -207,6 +366,7 @@ class RecordingEnginesTest {
             recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.USER)
             val terminal = recorder.observe(handle).first { it.state == RecorderState.STOPPED }
             assertEquals(2, terminal.outputFiles.size)
+            assertArrayEquals(audioConfig, terminal.outputFiles[1].readBytes().copyOfRange(13, 13 + audioConfig.size))
             terminal.outputFiles.forEach { file ->
                 assertTrue(file.length() > 13)
                 assertArrayEquals(byteArrayOf('F'.code.toByte(), 'L'.code.toByte(), 'V'.code.toByte()), file.readBytes().copyOf(3))
@@ -277,6 +437,38 @@ class RecordingEnginesTest {
 
             assertEquals(2, server.requestCount)
             assertArrayEquals(flvHeader() + firstTag + secondTag, output.readBytes())
+        } finally {
+            scope.cancel()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun flvReconnectKeepsConfiguredSegmentation() = runBlocking {
+        val firstTag = flvTag(timestamp = 0, payload = byteArrayOf(0x17, 0x01))
+        val secondTag = flvTag(timestamp = 1_000, payload = byteArrayOf(0x17, 0x01))
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setBody(Buffer().write(flvHeader() + firstTag)))
+        // The second response represents a reconnect after a network interruption. It
+        // carries a fresh FLV header and a keyframe at the configured segment boundary.
+        server.enqueue(MockResponse().setBody(Buffer().write(flvHeader() + secondTag)))
+        server.start()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val output = Files.createTempFile("streamcap-flv-segment-reconnect", ".flv.part").toFile()
+        try {
+            val recorder = DirectHttpRecorder(OkHttpClient(), scope)
+            val handle = recorder.start(
+                RecordingRequest(server.url("/live.flv").toString(), emptyMap(), StreamType.FLV, output, 1),
+            )
+            val terminal = withTimeout(5_000) {
+                recorder.observe(handle).first { it.outputFiles.size >= 2 }
+            }
+            recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.USER)
+            assertEquals(2, terminal.outputFiles.size)
+            assertTrue(terminal.outputFiles.all { it.length() > flvHeader().size })
+            terminal.outputFiles.forEach { file ->
+                assertArrayEquals(flvHeader(), file.readBytes().copyOf(flvHeader().size))
+            }
         } finally {
             scope.cancel()
             server.shutdown()

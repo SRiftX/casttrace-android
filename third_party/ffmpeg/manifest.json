@@ -1,0 +1,130 @@
+{
+  "artifact": "dev.ffmpegkit-maintained:ffmpeg-kit-https:7.1.6",
+  "sha256": "e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860",
+  "url": "https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar",
+  "license": "LGPL-3.0",
+  "buildCommit": "0cc470227a1730ce3d467967677de4f54e759f7a",
+  "buildRun": "https://github.com/ffmpegkit-maintained/ffmpeg/actions/runs/29181361560",
+  "buildAssociation": "Workflow/version/timestamp evidence; no recovered run artifact checksum independently ties this run to the Maven AAR.",
+  "native": [
+    {
+      "file": "jni/arm64-v8a/libavcodec.so",
+      "configuration": "--cross-prefix=aarch64-linux-android- --sysroot=/home/runner/.ndk/android-ndk-r26c/toolchains/llvm/prebuilt/linux-x86_64/sysroot --prefix=/home/runner/work/ffmpeg/ffmpeg/android-7.1-lts/prebuilt/android-arm64/ffmpeg --pkg-config=/usr/bin/pkg-config --enable-version3 --arch=aarch64 --cpu=armv8-a --target-os=android --enable-neon --enable-asm --enable-inline-asm --ar=llvm-ar --cc=aarch64-linux-android24-clang --cxx=aarch64-linux-android24-clang++ --ranlib=llvm-ranlib --strip=llvm-strip --nm=llvm-nm --extra-libs='-L/home/runner/work/ffmpeg/ffmpeg/android-7.1-lts/prebuilt/android-arm64/cpu-features/lib -lndk_compat ' --disable-autodetect --enable-cross-compile --enable-pic --enable-jni --enable-optimizations --enable-swscale --disable-static --enable-shared --enable-pthreads --enable-v4l2-m2m --disable-outdev=fbdev --disable-indev=fbdev --enable-small --disable-xmm-clobber-test --disable-debug --enable-lto --disable-neon-clobber-test --disable-programs --disable-postproc --disable-doc --disable-htmlpages --disable-manpages --disable-podpages --disable-txtpages --disable-sndio --disable-schannel --disable-securetransport --disable-xlib --disable-cuda --disable-cuvid --disable-nvenc --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-audiotoolbox --disable-appkit --disable-alsa --disable-cuda --disable-cuvid --disable-nvenc --disable-vaapi --disable-vdpau --enable-gmp --enable-gnutls --enable-iconv --disable-sdl2 --disable-openssl --enable-zlib --enable-mediacodec --disable-decoder=sanm",
+      "version": "FFmpeg version n7.1.5"
+    },
+    {
+      "file": "jni/x86_64/libavcodec.so",
+      "configuration": "--cross-prefix=x86_64-linux-android- --sysroot=/home/runner/.ndk/android-ndk-r26c/toolchains/llvm/prebuilt/linux-x86_64/sysroot --prefix=/home/runner/work/ffmpeg/ffmpeg/android-7.1-lts/prebuilt/android-x86_64/ffmpeg --pkg-config=/usr/bin/pkg-config --enable-version3 --arch=x86_64 --cpu=x86-64 --target-os=android --disable-neon --enable-asm --enable-inline-asm --ar=llvm-ar --cc=x86_64-linux-android24-clang --cxx=x86_64-linux-android24-clang++ --ranlib=llvm-ranlib --strip=llvm-strip --nm=llvm-nm --extra-libs='-L/home/runner/work/ffmpeg/ffmpeg/android-7.1-lts/prebuilt/android-x86_64/cpu-features/lib -lndk_compat ' --disable-autodetect --enable-cross-compile --enable-pic --enable-jni --enable-optimizations --enable-swscale --disable-static --enable-shared --enable-pthreads --enable-v4l2-m2m --disable-outdev=fbdev --disable-indev=fbdev --enable-small --disable-xmm-clobber-test --disable-debug --enable-lto --disable-neon-clobber-test --disable-programs --disable-postproc --disable-doc --disable-htmlpages --disable-manpages --disable-podpages --disable-txtpages --disable-sndio --disable-schannel --disable-securetransport --disable-xlib --disable-cuda --disable-cuvid --disable-nvenc --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-audiotoolbox --disable-appkit --disable-alsa --disable-cuda --disable-cuvid --disable-nvenc --disable-vaapi --disable-vdpau --enable-gmp --enable-gnutls --enable-iconv --disable-sdl2 --disable-openssl --enable-zlib --enable-mediacodec --disable-decoder=sanm",
+      "version": "FFmpeg version n7.1.5"
+    }
+  ],
+  "sources": [
+    {
+      "name": "ffmpegkit",
+      "repository": "https://github.com/ffmpegkit-maintained/ffmpeg",
+      "ref": "0cc470227a1730ce3d467967677de4f54e759f7a",
+      "commit": "0cc470227a1730ce3d467967677de4f54e759f7a",
+      "url": "https://codeload.github.com/ffmpegkit-maintained/ffmpeg/tar.gz/0cc470227a1730ce3d467967677de4f54e759f7a",
+      "file": "ffmpegkit-0cc470227a1730ce3d467967677de4f54e759f7a.tar.gz",
+      "sha256": "fbc24d857b71e3b65d878e9bf5f594c5db55e306bb1f8c2f4c098fd4230a2345",
+      "bytes": 8837071
+    },
+    {
+      "name": "ffmpeg",
+      "repository": "https://github.com/arthenica/FFmpeg",
+      "ref": "3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587",
+      "commit": "3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587",
+      "url": "https://codeload.github.com/arthenica/FFmpeg/tar.gz/3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587",
+      "file": "ffmpeg-3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587.tar.gz",
+      "sha256": "83220fe0807da10df19714176f02ec3d3812ef0e055f69e940d01b3ad1379cdb",
+      "bytes": 15946561
+    },
+    {
+      "name": "cpu-features",
+      "repository": "https://github.com/arthenica/cpu_features",
+      "ref": "936b9ab5515dead115606559502e3864958f7f6e",
+      "commit": "936b9ab5515dead115606559502e3864958f7f6e",
+      "url": "https://codeload.github.com/arthenica/cpu_features/tar.gz/936b9ab5515dead115606559502e3864958f7f6e",
+      "file": "cpu-features-936b9ab5515dead115606559502e3864958f7f6e.tar.gz",
+      "sha256": "851c2f0b1e31b0d3a5389ba5df1850e27670fd7c09c8fa1d1ae322d6035135d2",
+      "bytes": 102400
+    },
+    {
+      "name": "gmp",
+      "repository": "https://github.com/arthenica/gmp",
+      "ref": "66a538082b4a485bd2b34012db96e44a86a8e712",
+      "commit": "66a538082b4a485bd2b34012db96e44a86a8e712",
+      "url": "https://codeload.github.com/arthenica/gmp/tar.gz/66a538082b4a485bd2b34012db96e44a86a8e712",
+      "file": "gmp-66a538082b4a485bd2b34012db96e44a86a8e712.tar.gz",
+      "sha256": "f7d64ef6e8dd121fec28088234a723c033fb05faeb08b0f429d3c523d3466441",
+      "bytes": 3331445
+    },
+    {
+      "name": "gnutls",
+      "repository": "https://github.com/arthenica/gnutls",
+      "ref": "ca61668d7764fc29fb4cc2aa396cb035e176636d",
+      "commit": "ca61668d7764fc29fb4cc2aa396cb035e176636d",
+      "url": "https://codeload.github.com/arthenica/gnutls/tar.gz/ca61668d7764fc29fb4cc2aa396cb035e176636d",
+      "file": "gnutls-ca61668d7764fc29fb4cc2aa396cb035e176636d.tar.gz",
+      "sha256": "24a986acadfdf5598eba06efecc77cbb9b7bc51285f70b9ec6bb62ef0051b827",
+      "bytes": 10852551
+    },
+    {
+      "name": "libiconv",
+      "repository": "https://github.com/arthenica/libiconv",
+      "ref": "4b9c27bec873392533dd3ef309cd62962a644e18",
+      "commit": "4b9c27bec873392533dd3ef309cd62962a644e18",
+      "url": "https://codeload.github.com/arthenica/libiconv/tar.gz/4b9c27bec873392533dd3ef309cd62962a644e18",
+      "file": "libiconv-4b9c27bec873392533dd3ef309cd62962a644e18.tar.gz",
+      "sha256": "f652b492c4107e3c887d78ae8bc1295dfecca53e932bac92f053fcd4b9a1ffa7",
+      "bytes": 4393969
+    },
+    {
+      "name": "nettle",
+      "repository": "https://github.com/arthenica/nettle",
+      "ref": "990abad16ceacd070747dcc76ed16a39c129321e",
+      "commit": "990abad16ceacd070747dcc76ed16a39c129321e",
+      "url": "https://codeload.github.com/arthenica/nettle/tar.gz/990abad16ceacd070747dcc76ed16a39c129321e",
+      "file": "nettle-990abad16ceacd070747dcc76ed16a39c129321e.tar.gz",
+      "sha256": "f4c41e50012f9c559af5a85899dc32a031a1756b1091c210c44d3c3e0f78d008",
+      "bytes": 1712154
+    },
+    {
+      "name": "libiconv-gnulib",
+      "repository": "https://github.com/arthenica/gnulib",
+      "ref": "485d983b7795548fb32b12fbe8370d40789e88c4",
+      "commit": "485d983b7795548fb32b12fbe8370d40789e88c4",
+      "url": "https://codeload.github.com/arthenica/gnulib/tar.gz/485d983b7795548fb32b12fbe8370d40789e88c4",
+      "file": "libiconv-gnulib-485d983b7795548fb32b12fbe8370d40789e88c4.tar.gz",
+      "sha256": "161290586d00a752fed2d8be64713b1b3ecfe8427f9b0e6f1d68b8fd9eee9e1f",
+      "bytes": 8159921
+    },
+    {
+      "name": "gnutls-declared-gnulib",
+      "repository": "https://github.com/arthenica/gnulib",
+      "ref": "3639c57a970191e0bf7a9789bd1341786d0255a1",
+      "commit": "3639c57a970191e0bf7a9789bd1341786d0255a1",
+      "url": "https://codeload.github.com/arthenica/gnulib/tar.gz/3639c57a970191e0bf7a9789bd1341786d0255a1",
+      "file": "gnutls-declared-gnulib-3639c57a970191e0bf7a9789bd1341786d0255a1.tar.gz",
+      "sha256": "41cafb20f14f9b9bd1330d0208cc8e7daf233076cf4359c862f867c08b84daca",
+      "bytes": 7363054
+    }
+  ],
+  "javaSources": {
+    "file": "ffmpeg-kit-https-7.1.6-sources.jar",
+    "url": "https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6-sources.jar",
+    "sha256": "260daf6715b1e983e78f8840d6fcfb95634aec86af418e6ca2bafab01a4d6220"
+  },
+  "systemLibraries": [
+    "Android libc/libm/libdl/liblog",
+    "Android MediaCodec",
+    "Android zlib"
+  ],
+  "redistributionReady": false,
+  "sourceGaps": [
+    "Actual CI restored prebuilt/ and src/ from ci-cache-71-free-https; the branch now returns 404 and its revision is not recorded in the available log.",
+    "GnuTLS bootstrap can update gnulib with --remote. The declared submodule archive is included but its use in this binary is unverified.",
+    "Other GnuTLS bootstrap/test submodules and generated cache contents are not included; these archives are source materials, not a verified complete corresponding-source distribution."
+  ],
+  "verificationScope": "Maven SHA-256 match and pinned declared source inputs/build recipe. Exact cached native sources and a clean native rebuild remain unverified."
+}

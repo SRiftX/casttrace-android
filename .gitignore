@@ -10,6 +10,11 @@ local.properties
 *.zip
 *.jks
 *.keystore
+*.p12
+*.pfx
+*.dpapi.xml
+RECOVERY-PASSWORD.txt
+signing/
 keystore.properties
 .env
 .env.*
@@ -23,3 +28,8 @@ keystore.properties
 *.part
 /verification/
 /captures/
+__pycache__/
+*.pyc
+
+# Local documentation and device QA evidence stay off GitHub.
+/docs/

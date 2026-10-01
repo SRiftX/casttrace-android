@@ -13,6 +13,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RecordingExportTest {
+    @Test fun simulatedWriteFailureRemovesPartialDestinationAndAllowsRetry() = runBlocking {
+        val source = File.createTempFile("export-failure-", ".bin", context.cacheDir)
+        val failedTarget = destination()
+        val retryTarget = destination()
+        try {
+            val bytes = ByteArray(1024 * 1024) { (it % 127).toByte() }
+            source.writeBytes(bytes)
+            try {
+                storage.exportCopy(Uri.fromFile(source), failedTarget) { throw java.io.IOException("simulated ENOSPC") }
+                fail("Write failure must propagate")
+            } catch (_: java.io.IOException) {
+                context.contentResolver.query(failedTarget, arrayOf("_id"), null, null, null)!!.use {
+                    assertFalse(it.moveToFirst())
+                }
+            }
+            assertArrayEquals(bytes, source.readBytes())
+            assertEquals(bytes.size.toLong(), storage.exportCopy(Uri.fromFile(source), retryTarget))
+        } finally {
+            source.delete()
+            context.contentResolver.delete(failedTarget, null, null)
+            context.contentResolver.delete(retryTarget, null, null)
+        }
+    }
+
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val storage = RecordingStorage(context)
 

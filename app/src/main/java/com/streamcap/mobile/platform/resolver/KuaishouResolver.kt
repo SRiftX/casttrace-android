@@ -54,8 +54,8 @@ class KuaishouResolver(private val client: OkHttpClient) : PlatformResolver {
         val sources = representations.mapNotNull { item ->
             val url = item.optString("url")
             if (!url.startsWith("http")) null else StreamSource(
-                url = url,
-                type = streamTypeOf(url).takeIf { it != StreamType.UNKNOWN } ?: StreamType.FLV,
+                url = secureStreamUrl(url),
+                type = streamTypeOf(secureStreamUrl(url)).takeIf { it != StreamType.UNKNOWN } ?: StreamType.FLV,
                 quality = item.optString("name", "原画"),
                 bitrate = item.optLong("bitrate").takeIf { it > 0 },
                 headers = HEADERS,

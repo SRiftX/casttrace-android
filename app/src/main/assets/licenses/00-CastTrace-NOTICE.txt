@@ -1,0 +1,38 @@
+CastTrace Android
+
+Application source: Apache License 2.0. Based on StreamCap by ihmily and contributors.
+https://github.com/ihmily/StreamCap
+CastTrace is an independent adaptation, not an official StreamCap Android release.
+
+This application uses FFmpegKit HTTPS 7.1.6 (dev.ffmpegkit-maintained:ffmpeg-kit-https:7.1.6)
+and FFmpeg n7.1.5, under the GNU Lesser General Public License version 3.
+Copyright (c) FFmpeg developers, Arthenica, and FFmpegKit contributors.
+Continuation: https://github.com/ffmpegkit-maintained/ffmpeg
+
+The HTTPS build uses GMP, GnuTLS, Nettle and libiconv, plus cpu_features/ndk_compat.
+Their original notices are included alongside this notice. Android zlib and MediaCodec
+are system libraries. Including GPL license texts required by LGPL does not mean
+the application source has been relicensed as GPL. The libiconv source distribution
+also includes GPL utilities; the library is LGPL. See the source licenses for scope.
+
+No restriction is imposed on modification of these LGPL libraries or reverse
+engineering for debugging such modifications. Public distribution is intended to use
+LGPLv3 section 4(d)(0), with corresponding application and library source materials.
+This local candidate is not cleared for public distribution: the exact native source
+cache used upstream has not been recovered. See docs/FFMPEG-LICENSE.md and
+casttrace-ffmpeg-7.1.6-source-materials.zip for evidence and remaining source gaps.
+casttrace-application-source.zip contains the application snapshot and relinking notes.
+Modified APKs may be signed using the recipient's own key; our release private key
+is not needed or included. Back up app data before changing signing identities.
+
+The pinned AAR SHA-256 is:
+e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860
+Maven origin:
+https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/
+
+The original AAR's source.txt points to the retired Arthenica distribution. CastTrace
+instead records the maintained fork's declared source inputs in third_party/ffmpeg/manifest.json.
+No source delivery promise on behalf of Arthenica is made by CastTrace.
+
+The software and third-party libraries are provided without warranty to the extent
+permitted by their licenses. Refer to the included license texts for full terms.

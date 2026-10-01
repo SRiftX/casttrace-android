@@ -1,0 +1,37 @@
+name: Android checks
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Obtain approved FFmpegKit artifact
+        run: |
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            'https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar' \
+            -o app/libs/ffmpeg-kit-https-7.1.6.aar
+          echo 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860  app/libs/ffmpeg-kit-https-7.1.6.aar' | sha256sum --check
+      - name: Unit tests, lint and release build
+        run: bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+      - name: Check committed Room schemas
+        run: git diff --exit-code -- app/schemas
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-check-reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/mapping/release/

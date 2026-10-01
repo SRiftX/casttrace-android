@@ -1,6 +1,7 @@
 package com.streamcap.mobile.recording.hls
 
 import com.streamcap.mobile.domain.model.StreamType
+import com.streamcap.mobile.platform.resolver.secureStreamUrl
 import com.streamcap.mobile.recording.engine.Recorder
 import com.streamcap.mobile.recording.engine.RecorderState
 import com.streamcap.mobile.recording.engine.RecordingHandle
@@ -45,7 +46,7 @@ class HlsRecorder(
         val progress: MutableStateFlow<RecordingProgress>,
         var job: Job? = null,
         var call: Call? = null,
-        var stopped: Boolean = false,
+        @Volatile var stopped: Boolean = false,
     )
 
     private data class KeyInfo(val method: String, val uri: String?, val iv: ByteArray?)
@@ -82,6 +83,7 @@ class HlsRecorder(
     private suspend fun record(request: RecordingRequest, running: Running) {
         val startedAt = System.currentTimeMillis()
         val files = mutableListOf(request.destination)
+        val completedFiles = mutableListOf<File>()
         val seen = linkedSetOf<String>()
         val keyCache = mutableMapOf<String, ByteArray>()
         var playlistUrl = request.url
@@ -97,13 +99,13 @@ class HlsRecorder(
         var lastMediaAt = System.currentTimeMillis()
         var stalledRefreshes = 0
         var consecutiveErrors = 0
-        var lastSourceRefreshAt = System.currentTimeMillis()
         var terminal: RecordingProgress? = null
         // 线路切换后分开保存，避免不同时间轴的 TS 生硬拼接导致后段卡顿。
         suspend fun rotateOutput() {
             if (partBytes <= 0L) return
             output.flush()
             output.close()
+            files.lastOrNull()?.let { completedFiles += it }
             part++
             val next = siblingPart(request.destination, part)
             files += next
@@ -120,6 +122,7 @@ class HlsRecorder(
                     break
                 } catch (error: Throwable) {
                     if (error is CancellationException || running.stopped) throw error
+                    if (error is com.streamcap.mobile.recording.engine.LiveStreamEndedException) throw error
                     if (++consecutiveErrors >= 3) throw error
                     val refreshed = refreshSource(request) ?: throw error
                     headers = refreshed.headers
@@ -129,14 +132,9 @@ class HlsRecorder(
             }
             while (!running.stopped) {
                 try {
-                    if (request.refreshSource != null && System.currentTimeMillis() - lastSourceRefreshAt >= 60_000L) {
-                        val refreshed = refreshSource(request)
-                        lastSourceRefreshAt = System.currentTimeMillis()
-                        if (refreshed != null) {
-                            playlistUrl = resolveMediaPlaylist(refreshed.url, refreshed.headers, running)
-                            headers = refreshed.headers
-                        }
-                    }
+                    // Keep a healthy media timeline. Refresh only on HTTP failure,
+                    // ENDLIST or a stalled playlist (handled below); resolving a new
+                    // CDN every minute can reset sequence numbers and split output.
                     val playlistText = downloadText(playlistUrl, headers, running)
                     if (playlistText.contains("#EXT-X-STREAM-INF")) {
                         playlistUrl = resolveMediaPlaylist(playlistUrl, headers, running)
@@ -166,15 +164,7 @@ class HlsRecorder(
                         if (request.segmentSeconds != null && request.segmentSeconds > 0 &&
                             partDuration > 0 && partDuration + segment.duration > request.segmentSeconds
                         ) {
-                            output.flush()
-                            output.close()
-                            part++
-                            val next = siblingPart(request.destination, part)
-                            files += next
-                            output = BufferedOutputStream(FileOutputStream(next))
-                            partDuration = 0.0
-                            partBytes = 0L
-                            initMapWritten = null
+                            rotateOutput()
                             playlist.initMapUrl?.let { mapUrl ->
                                 val init = downloadBytes(mapUrl, headers, running)
                                 output.write(init)
@@ -209,6 +199,7 @@ class HlsRecorder(
                             bytesWritten = totalBytes,
                             durationSeconds = totalDuration.roundToLong(),
                             outputFiles = files.toList(),
+                            completedOutputFiles = completedFiles.toList(),
                         )
                     }
                     if (playlist.endList) {
@@ -246,6 +237,7 @@ class HlsRecorder(
                     delay(if (downloaded) 500L else (playlist.targetDuration * 500).toLong().coerceIn(1_000, 8_000))
                 } catch (error: Throwable) {
                     if (error is CancellationException || running.stopped) throw error
+                    if (error is com.streamcap.mobile.recording.engine.LiveStreamEndedException) throw error
                     System.err.println("StreamCap HLS retry: ${error.message}")
                     if (++consecutiveErrors >= 6) throw error
                     val refreshed = refreshSource(request)
@@ -266,6 +258,7 @@ class HlsRecorder(
                 bytesWritten = totalBytes,
                 durationSeconds = totalDuration.roundToLong(),
                 outputFiles = files,
+                completedOutputFiles = completedFiles.toList(),
             )
         } catch (cancelled: CancellationException) {
             terminal = RecordingProgress(
@@ -273,14 +266,21 @@ class HlsRecorder(
                 totalBytes,
                 totalDuration.roundToLong(),
                 outputFiles = files,
+                completedOutputFiles = completedFiles.toList(),
             )
         } catch (error: Throwable) {
             terminal = RecordingProgress(
-                RecorderState.FAILED,
+                when {
+                    running.stopped -> RecorderState.STOPPED
+                    error is com.streamcap.mobile.recording.engine.LiveStreamEndedException -> RecorderState.COMPLETED
+                    else -> RecorderState.FAILED
+                },
                 totalBytes,
                 totalDuration.roundToLong(),
-                error.message ?: "HLS 录制失败",
+                if (running.stopped || error is com.streamcap.mobile.recording.engine.LiveStreamEndedException) null else error.message ?: "HLS 录制失败",
                 files,
+                completedFiles.toList(),
+                liveEnded = error is com.streamcap.mobile.recording.engine.LiveStreamEndedException,
             )
         } finally {
             runCatching { output.flush() }
@@ -341,8 +341,9 @@ class HlsRecorder(
         downloadBytes(url, headers, running).toString(Charsets.UTF_8)
 
     private suspend fun refreshSource(request: RecordingRequest) =
-        try { request.refreshSource?.invoke() }
+        try { request.refreshSource?.invoke(false) }
         catch (cancelled: CancellationException) { throw cancelled }
+        catch (ended: com.streamcap.mobile.recording.engine.LiveStreamEndedException) { throw ended }
         catch (error: Exception) {
             System.err.println("StreamCap HLS source refresh: ${error.javaClass.simpleName}: ${error.message}")
             null
@@ -354,7 +355,9 @@ class HlsRecorder(
             val call = requestClient.newCall(request)
             running.call = call
             call.execute().use { response ->
-                check(response.isSuccessful) { "下载 HLS 数据失败：HTTP ${response.code}" }
+                check(response.isSuccessful) {
+                    "下载 HLS 数据失败：HTTP ${response.code}（${response.request.url.host}${response.request.url.encodedPath}）"
+                }
                 checkNotNull(response.body).bytes()
             }
         }
@@ -389,7 +392,8 @@ class HlsRecorder(
         }
     }
 
-    private fun resolve(base: String, child: String): String = URI(base).resolve(child).toString()
+    private fun resolve(base: String, child: String): String =
+        secureStreamUrl(URI(base).resolve(child).toString())
 
     private fun siblingPart(first: File, index: Int): File {
         val marker = listOf(".ts.part", ".m3u8.part").firstOrNull { first.name.endsWith(it) }

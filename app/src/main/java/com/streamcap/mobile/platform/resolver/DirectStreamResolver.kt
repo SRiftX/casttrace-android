@@ -24,7 +24,8 @@ class DirectStreamResolver(
 
     override suspend fun resolveRoom(url: String): LiveRoomInfo {
         val parsed = url.toHttpUrlOrNull()
-            ?: throw IllegalArgumentException("请输入有效的 HTTP 或 HTTPS 地址")
+            ?: throw IllegalArgumentException("请输入有效的 HTTPS 地址")
+        require(parsed.scheme == "https") { "为保护直播地址和登录凭据，直链必须使用 HTTPS" }
         if (!supports(url)) {
             throw UnsupportedPlatformException(url)
         }
@@ -48,7 +49,8 @@ class DirectStreamResolver(
             .build()
         runCatching {
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) LiveStatus.LIVE else LiveStatus.OFFLINE
+                // An HTTP rejection can be an expired signature; it does not confirm a broadcaster's end.
+                if (response.isSuccessful) LiveStatus.LIVE else LiveStatus.ERROR
             }
         }.getOrElse { LiveStatus.ERROR }
     }

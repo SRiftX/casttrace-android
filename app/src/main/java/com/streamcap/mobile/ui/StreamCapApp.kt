@@ -1,5 +1,7 @@
 package com.streamcap.mobile.ui
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
@@ -13,6 +15,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -30,6 +38,11 @@ import com.streamcap.mobile.ui.rooms.AddRoomScreen
 import com.streamcap.mobile.ui.settings.LogsScreen
 import com.streamcap.mobile.ui.settings.PlatformsScreen
 import com.streamcap.mobile.ui.settings.SettingsScreen
+import com.streamcap.mobile.ui.settings.StorageScreen
+import com.streamcap.mobile.ui.settings.BackupScreen
+import com.streamcap.mobile.ui.common.MotionTokens
+import com.streamcap.mobile.ui.common.rememberMotionScale
+import com.streamcap.mobile.ui.common.scaledDuration
 
 private object Routes {
     const val HOME = "home"
@@ -46,25 +59,31 @@ private object Routes {
 }
 
 @Composable
-fun StreamCapApp(sharedUrl: String?) {
+fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchToken: Int = 0) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val container = (context.applicationContext as StreamCapApplication).container
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val topLevelRoutes = setOf(Routes.HOME, Routes.RECORDINGS, Routes.SETTINGS)
+    val motionScale = rememberMotionScale()
 
-    LaunchedEffect(sharedUrl) {
+    LaunchedEffect(sharedUrl, launchToken) {
         if (!sharedUrl.isNullOrBlank()) navController.navigate(Routes.ADD_ROOM)
     }
 
+    LaunchedEffect(notificationRoomId, launchToken) {
+        notificationRoomId?.let { navController.navigate(Routes.roomDetail(it)) { launchSingleTop = true } }
+    }
+    BoxWithConstraints(Modifier.fillMaxHeight()) {
+    val wideNavigation = maxWidth >= 900.dp
     Scaffold(
         bottomBar = {
-            if (currentRoute in topLevelRoutes) {
+            if (currentRoute in topLevelRoutes && !wideNavigation) {
                 NavigationBar {
                     listOf(
-                        Triple(Routes.HOME, "任务", Icons.Outlined.Home),
-                        Triple(Routes.RECORDINGS, "录制", Icons.Outlined.VideoLibrary),
+                        Triple(Routes.HOME, "直播间", Icons.Outlined.Home),
+                        Triple(Routes.RECORDINGS, "视频库", Icons.Outlined.VideoLibrary),
                         Triple(Routes.SETTINGS, "设置", Icons.Outlined.Settings),
                     ).forEach { (route, label, icon) ->
                         NavigationBarItem(
@@ -86,10 +105,45 @@ fun StreamCapApp(sharedUrl: String?) {
             }
         },
     ) { padding ->
+        Row(Modifier.fillMaxHeight()) {
+        if (wideNavigation && currentRoute in topLevelRoutes) NavigationRail {
+            listOf(
+                Triple(Routes.HOME, "直播间", Icons.Outlined.Home),
+                Triple(Routes.RECORDINGS, "视频库", Icons.Outlined.VideoLibrary),
+                Triple(Routes.SETTINGS, "设置", Icons.Outlined.Settings),
+            ).forEach { (route, label, icon) ->
+                NavigationRailItem(
+                    selected = currentRoute == route,
+                    onClick = { navController.navigate(route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    } },
+                    icon = { Icon(icon, contentDescription = label) },
+                    label = { Text(label) },
+                )
+            }
+        }
         NavHost(
             navController = navController,
             startDestination = Routes.HOME,
-            modifier = Modifier,
+            modifier = Modifier.weight(1f),
+            enterTransition = {
+                fadeIn(tween(scaledDuration(MotionTokens.Emphasis, motionScale))) +
+                    slideInHorizontally(tween(scaledDuration(MotionTokens.Emphasis, motionScale))) { it / 5 }
+            },
+            exitTransition = {
+                fadeOut(tween(scaledDuration(MotionTokens.Exit, motionScale))) +
+                    slideOutHorizontally(tween(scaledDuration(MotionTokens.Exit, motionScale))) { -it / 12 }
+            },
+            popEnterTransition = {
+                fadeIn(tween(scaledDuration(MotionTokens.Emphasis, motionScale))) +
+                    slideInHorizontally(tween(scaledDuration(MotionTokens.Emphasis, motionScale))) { -it / 5 }
+            },
+            popExitTransition = {
+                fadeOut(tween(scaledDuration(MotionTokens.Exit, motionScale))) +
+                    slideOutHorizontally(tween(scaledDuration(MotionTokens.Exit, motionScale))) { it / 12 }
+            },
         ) {
             composable(Routes.HOME) {
                 HomeScreen(
@@ -111,6 +165,10 @@ fun StreamCapApp(sharedUrl: String?) {
                 SettingsScreen(
                     container = container,
                     contentPadding = padding,
+                    onOpenStorage = { navController.navigate("storage") },
+                    onOpenBackup = { navController.navigate("backup") },
+                    onOpenLicenses = { navController.navigate("licenses") },
+                    onOpenUserGuide = { navController.navigate("user-guide") },
                     onOpenLogs = { navController.navigate(Routes.LOGS) },
                     onOpenPlatforms = { navController.navigate(Routes.PLATFORMS) },
                 )
@@ -137,11 +195,15 @@ fun StreamCapApp(sharedUrl: String?) {
                     onBack = navController::popBackStack,
                 )
             }
+            composable("storage") { StorageScreen(container, navController::popBackStack) { navController.navigate(Routes.RECORDINGS) { popUpTo(Routes.HOME); launchSingleTop = true } } }
+            composable("backup") { BackupScreen(container, navController::popBackStack) }
+            composable("licenses") { com.streamcap.mobile.ui.settings.OpenSourceScreen(navController::popBackStack) }
+            composable("user-guide") { com.streamcap.mobile.ui.settings.UserGuideScreen(navController::popBackStack) }
             composable(Routes.LOGS) {
                 LogsScreen(container = container, onBack = navController::popBackStack)
             }
             composable(Routes.PLATFORMS) {
-                PlatformsScreen(onBack = navController::popBackStack)
+                PlatformsScreen(container = container, onBack = navController::popBackStack)
             }
             composable(
                 route = Routes.PLAYER,
@@ -154,5 +216,7 @@ fun StreamCapApp(sharedUrl: String?) {
                 )
             }
         }
+        }
     }
-}
+    }
+    }

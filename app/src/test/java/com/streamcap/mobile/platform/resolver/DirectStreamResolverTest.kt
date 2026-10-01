@@ -32,4 +32,12 @@ class DirectStreamResolverTest {
         assertEquals("demo", room.anchorName)
         assertEquals("https://cdn.example.com/channel/demo.flv", room.normalizedUrl)
     }
+
+    @Test
+    fun rejectsCleartextDirectStream() = runTest {
+        val error = runCatching {
+            resolver.resolveRoom("http://cdn.example.com/channel/demo.flv")
+        }.exceptionOrNull()
+        assertTrue(error is IllegalArgumentException)
+    }
 }

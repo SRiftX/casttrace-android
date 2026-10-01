@@ -16,10 +16,11 @@ import kotlin.random.Random
 class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
     override val platformId = "huya"
 
-    override fun supports(url: String) = url.contains("huya.com", ignoreCase = true)
+    override fun supports(url: String) = url.hasHost("huya.com", "hy.fan")
 
     override suspend fun resolveRoom(url: String): LiveRoomInfo {
-        val data = load(url)
+        val expanded = client.expandRoomShareUrl(url, "hy.fan", listOf("huya.com"), MOBILE_PAGE_HEADERS)
+        val data = load(expanded)
         return LiveRoomInfo(data.liveUrl, "虎牙直播", data.anchorName, data.title)
     }
 
@@ -34,7 +35,7 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
         }
         return data.sources.map { source ->
             android.util.Log.i("StreamCapSource", "Huya candidate ${source.type} ${java.net.URI(source.url).host}")
-            source.copy(url = withRatio(source.url, ratio.orEmpty()), quality = room.quality)
+            source.copy(url = withRatio(source.url, ratio), quality = room.quality)
         }
     }
 
@@ -57,15 +58,12 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
         val data = root.optJSONObject("data") ?: error(root.optString("message", "虎牙接口没有返回房间数据"))
         val profile = data.optJSONObject("profileInfo")
         val liveData = data.optJSONObject("liveData")
-        val live = data.optString("realLiveStatus") == "ON"
+        val status = data.optString("realLiveStatus")
+        check(status in setOf("ON", "OFF")) { "虎牙没有返回有效开播状态，无法确认是否下播" }
+        val live = status == "ON"
         val liveUrl = "https://www.huya.com/$roomId"
         val sources = mutableListOf<StreamSource>()
         if (live) {
-            // Mobile CDN signatures can be rejected across game categories, not just LOL.
-            sources += runCatching { loadWebSources(liveUrl) }.onFailure {
-                    if (it is kotlinx.coroutines.CancellationException) throw it
-                    android.util.Log.w("StreamCapSource", "Huya web resolution failed: ${it.message}")
-                }.getOrDefault(emptyList())
             val stream = data.optJSONObject("stream")
             val list = stream?.optJSONArray("baseSteamInfoList")
             val items = if (list == null) emptyList() else (0 until list.length())
@@ -79,21 +77,23 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
                 }
             for (item in items) {
                 val name = item.optString("sStreamName")
-                val cdn = item.optString("sCdnType")
                 // 移动接口已经分别返回可用的 FLV/HLS 签名，不能把 FLV 签名重算后复用于 HLS。
                 val flvAntiCode = item.optString("sFlvAntiCode")
                 val hlsAntiCode = item.optString("sHlsAntiCode").ifBlank { flvAntiCode }
                 val flvSuffix = item.optString("sFlvUrlSuffix").ifBlank { "flv" }
                 val hlsSuffix = item.optString("sHlsUrlSuffix").ifBlank { "m3u8" }
-                var flv = "${item.optString("sFlvUrl")}/$name.$flvSuffix?$flvAntiCode"
-                var hls = "${item.optString("sHlsUrl")}/$name.$hlsSuffix?$hlsAntiCode"
-                if (cdn == "TX" || cdn == "HW") {
-                    flv = flv.replace("&ctype=tars_mp", "&ctype=huya_webh5").replace("&fs=bhct", "&fs=bgct")
-                    hls = hls.replace("&ctype=tars_mp", "&ctype=huya_webh5").replace("&fs=bhct", "&fs=bgct")
-                }
-                if (flv.startsWith("http")) sources += StreamSource(flv, StreamType.FLV, "原画", headers = STREAM_HEADERS)
-                if (hls.startsWith("http")) sources += StreamSource(hls, StreamType.HLS, "原画", headers = STREAM_HEADERS)
+                // ctype participates in wsSecret. Changing it after signing
+                // invalidates the server-issued URL on TX/HW.
+                val flv = "${item.optString("sFlvUrl")}/$name.$flvSuffix?$flvAntiCode"
+                val hls = "${item.optString("sHlsUrl")}/$name.$hlsSuffix?$hlsAntiCode"
+                if (flv.startsWith("http")) sources += StreamSource(secureStreamUrl(flv), StreamType.FLV, "原画", headers = STREAM_HEADERS)
+                if (hls.startsWith("http")) sources += StreamSource(secureStreamUrl(hls), StreamType.HLS, "原画", headers = STREAM_HEADERS)
             }
+            // Try intact server-issued signatures before locally reconstructed ones.
+            sources += runCatching { loadWebSources(liveUrl) }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                android.util.Log.w("StreamCapSource", "Huya web resolution failed: ${it.message}")
+            }.getOrDefault(emptyList())
         }
         return HuyaData(
             liveUrl = liveUrl,
@@ -124,8 +124,8 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
                 val hlsAntiCode = refreshAntiCode(item.optString("sHlsAntiCode"), name)
                 val flv = "${item.optString("sFlvUrl")}/$name.${item.optString("sFlvUrlSuffix", "flv")}?$flvAntiCode"
                 val hls = "${item.optString("sHlsUrl")}/$name.${item.optString("sHlsUrlSuffix", "m3u8")}?$hlsAntiCode"
-                if (flv.startsWith("http")) add(StreamSource(flv, StreamType.FLV, "原画", headers = STREAM_HEADERS))
-                if (hls.startsWith("http")) add(StreamSource(hls, StreamType.HLS, "原画", headers = STREAM_HEADERS))
+                if (flv.startsWith("http")) add(StreamSource(secureStreamUrl(flv), StreamType.FLV, "原画", headers = STREAM_HEADERS))
+                if (hls.startsWith("http")) add(StreamSource(secureStreamUrl(hls), StreamType.HLS, "原画", headers = STREAM_HEADERS))
             }
         }.distinctBy { it.url }
     }
@@ -166,7 +166,11 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
         val sources: List<StreamSource>,
     )
 
-    private fun withRatio(url: String, ratio: String): String = if (Regex("[?&]ratio=").containsMatchIn(url)) {
+    internal fun withRatio(url: String, ratio: String?): String = if (ratio.isNullOrBlank()) {
+        // Original quality uses the signed URL unchanged. An empty ratio= is
+        // rejected with HTTP 403 by Huya's HS HLS CDN.
+        url
+    } else if (Regex("[?&]ratio=").containsMatchIn(url)) {
         url.replace(Regex("([?&]ratio=)[^&]*"), "$1$ratio")
     } else {
         "$url&ratio=$ratio"

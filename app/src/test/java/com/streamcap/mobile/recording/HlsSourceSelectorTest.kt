@@ -13,6 +13,22 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class HlsSourceSelectorTest {
+    @Test fun totalDeadlineDoesNotProbeEverySlowCandidate() = runBlocking {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(403).setHeadersDelay(200, java.util.concurrent.TimeUnit.MILLISECONDS))
+            val sources = (1..20).map {
+                StreamSource(server.url("/$it.m3u8").toString(), StreamType.HLS, "original")
+            }
+            try {
+                HlsSourceSelector(OkHttpClient(), selectionTimeoutMillis = 50).select(sources)
+                fail("Expected selection deadline")
+            } catch (error: IllegalStateException) {
+                assertTrue(error.message.orEmpty().contains("探测超时"))
+                assertEquals(1, server.requestCount)
+            }
+        }
+    }
+
     @Test fun reportsForbiddenPlaylistInsteadOfGenericRetryError() = runBlocking {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setResponseCode(403))

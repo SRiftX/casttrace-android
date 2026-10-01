@@ -11,7 +11,8 @@ data class RecordingRequest(
     val streamType: StreamType,
     val destination: File,
     val segmentSeconds: Int? = null,
-    val refreshSource: (suspend () -> StreamSource?)? = null,
+    /** True when the previous connection delivered new media. */
+    val refreshSource: (suspend (Boolean) -> StreamSource?)? = null,
 )
 
 data class RecordingHandle(val id: String)
@@ -30,6 +31,9 @@ data class RecordingProgress(
     val durationSeconds: Long = 0,
     val errorMessage: String? = null,
     val outputFiles: List<File> = emptyList(),
+    /** Files whose writers have been closed and can be safely published while recording continues. */
+    val completedOutputFiles: List<File> = emptyList(),
+    val liveEnded: Boolean = false,
 )
 
 enum class StopReason {

@@ -1,7 +1,10 @@
 package com.streamcap.mobile.domain.model
 
-const val MIN_SEGMENT_SECONDS = 1_800
+const val MIN_SEGMENT_SECONDS = 60
+const val DEFAULT_SEGMENT_SECONDS = 1_800
 const val MAX_SEGMENT_SECONDS = 604_800
+const val MIN_MONITOR_INTERVAL_SECONDS = 15
+const val MAX_MONITOR_INTERVAL_SECONDS = 3_600
 
 enum class LiveStatus {
     UNKNOWN,
@@ -50,6 +53,8 @@ data class LiveRoom(
     val scheduledMonitoringEnabled: Boolean,
     val notificationsEnabled: Boolean,
     val checkIntervalSeconds: Int,
+    val oneTimeStartAt: Long? = null,
+    val oneTimeEndAt: Long? = null,
     val liveStatus: LiveStatus,
     val taskStatus: TaskStatus,
     val lastCheckAt: Long?,
@@ -64,9 +69,10 @@ data class RoomRecordingOptions(
     val flvDirectDownload: Boolean = false,
     val storageDirectoryUri: String? = null,
     val segmentEnabled: Boolean = true,
-    val segmentSeconds: Int = MIN_SEGMENT_SECONDS,
+    val segmentSeconds: Int = DEFAULT_SEGMENT_SECONDS,
     val scheduledMonitoringEnabled: Boolean = false,
     val notificationsEnabled: Boolean = true,
+    val checkIntervalSeconds: Int = 60,
 )
 
 data class RecordingSession(
@@ -86,6 +92,9 @@ data class RecordingSession(
     val durationSeconds: Long,
     val stopAtMillis: Long?,
     val errorMessage: String?,
+    val danmakuPath: String? = null,
+    val danmakuEventCount: Long = 0,
+    val danmakuDroppedCount: Long = 0,
 )
 
 data class LiveRoomInfo(

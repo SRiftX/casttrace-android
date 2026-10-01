@@ -2,9 +2,32 @@ package com.streamcap.mobile.ui.player
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.streamcap.mobile.danmaku.DanmakuAssetManager
+import com.streamcap.mobile.danmaku.DanmakuEvent
+import com.streamcap.mobile.danmaku.DanmakuSubtitleExporter
+import com.streamcap.mobile.danmaku.DanmakuSubtitleFormat
+import com.streamcap.mobile.data.preferences.DanmakuAppearance
+import java.io.File
+import kotlinx.coroutines.launch
 
 import androidx.annotation.OptIn as AndroidXOptIn
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.*
@@ -14,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.*
@@ -24,6 +48,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.domain.model.*
 import com.streamcap.mobile.recording.hls.HlsSourceSelector
@@ -33,30 +58,97 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RecordingPlayerScreen(recordingId: Long, container: AppContainer, onBack: () -> Unit) {
     val recording by container.repository.observeRecording(recordingId).collectAsStateWithLifecycle(null)
-    Scaffold(topBar = {
-        TopAppBar(title = { Text(recording?.roomName ?: "播放") }, navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") }
-        })
-    }) { padding ->
-        recording?.let { Playback(it, container, padding) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    var exportFormat by remember { mutableStateOf(DanmakuSubtitleFormat.ASS) }
+    var showExportMenu by remember { mutableStateOf(false) }
+    val exportAppearance by container.preferences.danmakuAppearance.collectAsStateWithLifecycle(DanmakuAppearance())
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { destination ->
+        if (destination != null) scope.launch {
+            try {
+                val current = requireNotNull(recording)
+                val path = requireNotNull(current.danmakuPath)
+                val temp = File(context.cacheDir, "danmaku-export-${current.id}.${exportFormat.name.lowercase()}")
+                try {
+                    withContext(Dispatchers.IO) {
+                        if (exportFormat == DanmakuSubtitleFormat.JSONL) File(path).copyTo(temp, overwrite = true)
+                        else DanmakuSubtitleExporter.export(DanmakuAssetManager(context, container.repository).events(current.id), temp, exportFormat, exportAppearance)
+                        requireNotNull(context.contentResolver.openOutputStream(destination, "w")) { "导出目录不可写" }.use { output ->
+                            temp.inputStream().use { it.copyTo(output) }
+                        }
+                    }
+                    snackbar.showSnackbar("弹幕文件已导出")
+                } finally { temp.delete() }
+            } catch (failure: Exception) { snackbar.showSnackbar("导出弹幕失败：${failure.message}") }
+        }
+    }
+    MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFB4DECD), surface = Color(0xFF202020),
+        surfaceContainer = Color(0xFF272727), background = Color.Black)) {
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            recording?.let { Playback(it, container, onBack, exportMenuOpen = showExportMenu, onExport = { showExportMenu = true }) }
+                ?: IconButton(onClick = onBack, modifier = Modifier.statusBarsPadding()) {
+                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = Color.White)
+                }
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
+        }
+        if (showExportMenu) AlertDialog(onDismissRequest = { showExportMenu = false }, title = { Text("导出弹幕") },
+            text = { Column { DanmakuSubtitleFormat.entries.forEach { format ->
+                TextButton(onClick = {
+                    showExportMenu = false; exportFormat = format
+                    exportPicker.launch("弹幕_${recordingId}.${format.name.lowercase()}")
+                }, modifier = Modifier.fillMaxWidth()) { Text("导出 ${format.name}") }
+            } } }, confirmButton = { TextButton(onClick = { showExportMenu = false }) { Text("取消") } })
+        }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @AndroidXOptIn(markerClass = [UnstableApi::class])
 @Composable
-private fun Playback(recording: RecordingSession, container: AppContainer, padding: PaddingValues) {
+private fun Playback(recording: RecordingSession, container: AppContainer, onBack: () -> Unit, exportMenuOpen: Boolean, onExport: () -> Unit) {
     val context = LocalContext.current
-    var live by remember(recording.id) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val progressStore = remember { PlaybackProgressStore(context) }
+    var progress by remember(recording.id) { mutableStateOf(progressStore.read(recording.id)) }
+    var openedPartCount by remember(recording.id) { mutableIntStateOf(recording.outputUris.size) }
+    var live by rememberSaveable(recording.id) { mutableStateOf(false) }
+    var fullscreen by rememberSaveable(recording.id) { mutableStateOf(false) }
+    val activity = context as? Activity
+    val configuration = LocalConfiguration.current
+    val originalOrientation = rememberSaveable { activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
+    DisposableEffect(activity) {
+        onDispose { if (activity?.isChangingConfigurations != true) activity?.requestedOrientation = originalOrientation }
+    }
+    DisposableEffect(activity, fullscreen) {
+        val controller = activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView) }
+        controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (fullscreen) controller?.hide(WindowInsetsCompat.Type.systemBars())
+        else controller?.show(WindowInsetsCompat.Type.systemBars())
+        onDispose { controller?.show(WindowInsetsCompat.Type.systemBars()) }
+    }
+    BackHandler(fullscreen) { fullscreen = false }
+    var requestedProgress by remember { mutableStateOf<PlaybackProgress?>(null) }
     var retry by remember { mutableIntStateOf(0) }
     var items by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var knownDurations by remember { mutableStateOf<List<Long>>(emptyList()) }
     var headers by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var liveFailures by remember(recording.id, live) { mutableIntStateOf(0) }
+    var danmakuEvents by remember(recording.id, recording.danmakuPath) { mutableStateOf<List<DanmakuEvent>>(emptyList()) }
+    var showDanmaku by rememberSaveable(recording.id) { mutableStateOf(progressStore.readDanmakuVisible()) }
+    var showDanmakuSettings by remember(recording.id) { mutableStateOf(false) }
+    val danmakuAppearance by container.preferences.danmakuAppearance.collectAsStateWithLifecycle(DanmakuAppearance())
+    LaunchedEffect(recording.danmakuPath) {
+        danmakuEvents = if (recording.danmakuPath == null) emptyList()
+            else runCatching { DanmakuAssetManager(context, container.repository).events(recording.id) }.getOrDefault(emptyList())
+    }
     LaunchedEffect(error, live) {
         if (live && error != null && liveFailures < 3) {
             delay(1500)
@@ -64,12 +156,17 @@ private fun Playback(recording: RecordingSession, container: AppContainer, paddi
             retry++
         }
     }
-    val resolver = remember(recording.id) { RecordingPlaybackSourceResolver(context) }
+    // A checkpoint changes the database list, not the user's current playback.
+    // Keep the opened snapshot stable until an explicit refresh or mode change.
+    val resolver = remember(recording.id, live, retry) {
+        RecordingPlaybackSourceResolver(context)
+    }
     DisposableEffect(resolver) { onDispose { resolver.close() } }
-    LaunchedEffect(recording.id, live, recording.outputUri, recording.outputUris, retry) {
+    LaunchedEffect(recording.id, live, retry) {
         loading = true
         error = null
         items = emptyList()
+        knownDurations = emptyList()
         try {
             if (live) {
                 val source = withContext(Dispatchers.IO) {
@@ -92,13 +189,45 @@ private fun Playback(recording: RecordingSession, container: AppContainer, paddi
             } else {
                 val uris = withContext(Dispatchers.IO) {
                     resolver.resolve(recording.outputUri, recording.outputUris,
-                        recording.temporaryPath, recording.containerFormat)
+                        recording.temporaryPath, recording.containerFormat,
+                        includeActiveTail = recording.status == com.streamcap.mobile.domain.model.TaskStatus.RECORDING,
+                        refreshPublished = {
+                            container.repository.session(recording.id)?.outputUris.orEmpty()
+                        })
+                }
+                if (uris.size < recording.outputUris.distinct().size) {
+                    requestedProgress = PlaybackProgress(0, false)
+                    error = "部分分段无法读取，已从可用内容开头暂停；请检查目录权限。"
                 }
                 check(uris.isNotEmpty()) { "没有可读取的媒体文件，录制可能尚未保存" }
+                openedPartCount = recording.outputUris.size
                 headers = emptyMap()
+                // ExoPlayer loads later playlist windows lazily. Resolve saved
+                // durations before enabling the global seek bar, otherwise a
+                // two-part recording initially appears to be only its first part.
+                knownDurations = withContext(Dispatchers.IO) {
+                    uris.map { uri ->
+                        val indexed = runCatching {
+                            context.contentResolver.query(uri, arrayOf("duration"), null, null, null)?.use {
+                                if (it.moveToFirst()) it.getLong(0) else 0L
+                            } ?: 0L
+                        }.getOrDefault(0L)
+                        if (indexed > 0L) indexed else runCatching {
+                            val metadata = android.media.MediaMetadataRetriever()
+                            try {
+                                metadata.setDataSource(context, uri)
+                                metadata.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                    ?.toLongOrNull() ?: 0L
+                            } finally {
+                                metadata.release()
+                            }
+                        }.getOrDefault(0L)
+                    }
+                }
                 items = uris.map { uri ->
                     val rawName = uri.lastPathSegment.orEmpty().lowercase()
                     val mimeType = when {
+                        rawName.endsWith(".mp4") -> MimeTypes.VIDEO_MP4
                         rawName.endsWith(".ts") || rawName.contains(".ts.") -> MimeTypes.VIDEO_MP2T
                         rawName.endsWith(".flv") || rawName.contains(".flv.") -> MimeTypes.VIDEO_FLV
                         recording.containerFormat.equals("ts", true) -> MimeTypes.VIDEO_MP2T
@@ -117,43 +246,89 @@ private fun Playback(recording: RecordingSession, container: AppContainer, paddi
             error = failure.message ?: "读取播放源失败"
         } finally { loading = false }
     }
-    Column(Modifier.fillMaxSize().padding(padding).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = !live, onClick = { live = false }, label = { Text("已录内容") })
-            FilterChip(selected = live, onClick = { live = true }, label = { Text("直播预览") })
-        }
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (loading) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            CircularProgressIndicator(Modifier.align(Alignment.Center))
         } else if (items.isNotEmpty()) {
             key(items, retry) {
-                VideoSurface(items, headers, live, Modifier.weight(1f).fillMaxWidth(),
-                    onReady = { liveFailures = 0 }) { error = it }
+                VideoSurface(items, headers, live, knownDurations, container.networkPolicy, Modifier.fillMaxSize(),
+                    danmakuEvents = if (showDanmaku) danmakuEvents else emptyList(),
+                    danmakuAppearance = danmakuAppearance,
+                    title = recording.roomName, fullscreen = fullscreen,
+                    onBack = { if (fullscreen) fullscreen = false else onBack() },
+                    onFullscreen = { fullscreen = !fullscreen },
+                    onRotate = {
+                        activity?.requestedOrientation = if (configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
+                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    },
+                    hasDanmaku = danmakuEvents.isNotEmpty(), showDanmaku = showDanmaku,
+                    onDanmakuToggle = { showDanmaku = !showDanmaku; progressStore.writeDanmakuVisible(showDanmaku) },
+                    externalPanelOpen = showDanmakuSettings || exportMenuOpen || error != null,
+                    onDanmakuSettings = { showDanmakuSettings = true }, onExport = onExport,
+                    onSwitchSource = { live = !live },
+                    onRefresh = { retry++ }, hasNewParts = recording.outputUris.size > openedPartCount,
+                    initialProgress = requestedProgress ?: progress,
+                    onProgress = { progress = it; progressStore.write(recording.id, it) },
+                    onReady = {
+                        liveFailures = 0
+                        requestedProgress?.let { progress = it; progressStore.write(recording.id, it); requestedProgress = null }
+                    }) { error = it }
             }
         }
-        error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, maxLines = 2)
-            IconButton(onClick = { retry++ }) { Icon(Icons.Outlined.Refresh, "重试播放") }
+        if (loading || items.isEmpty()) Row(Modifier.align(Alignment.TopStart).safeDrawingPadding(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { if (fullscreen) fullscreen = false else onBack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") }
+            Text(recording.roomName, Modifier.weight(1f), maxLines = 1)
+            TextButton(onClick = { live = !live }) { Text(if (live) "已录内容" else "直播预览") }
         }
+        if (!loading && items.isEmpty()) TextButton(onClick = { retry++ }, modifier = Modifier.align(Alignment.Center)) {
+            Icon(Icons.Outlined.Refresh, null)
+            Text("重试播放")
+        }
+    }
+    if (showDanmakuSettings) DanmakuSettingsPanel(danmakuAppearance, onDismiss = { showDanmakuSettings = false }) { value ->
+        scope.launch { container.preferences.setDanmakuAppearance(value) }
+    }
+    error?.let { message ->
+        AlertDialog(onDismissRequest = { error = null }, title = { Text("播放提示") }, text = { Text(message) },
+            confirmButton = { TextButton(onClick = { retry++ }) { Text("重试播放") } },
+            dismissButton = { TextButton(onClick = { error = null }) { Text("关闭") } })
     }
 }
 
 @AndroidXOptIn(markerClass = [UnstableApi::class])
 @Composable
-private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, live: Boolean,
-                         modifier: Modifier, onReady: () -> Unit, onError: (String) -> Unit) {
+private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, live: Boolean, knownDurations: List<Long>,
+                         networkPolicy: com.streamcap.mobile.network.RecordingNetworkPolicy,
+                         modifier: Modifier, danmakuEvents: List<DanmakuEvent>, danmakuAppearance: DanmakuAppearance,
+                         title: String, fullscreen: Boolean, onBack: () -> Unit, onFullscreen: () -> Unit, onRotate: () -> Unit,
+                         hasDanmaku: Boolean, showDanmaku: Boolean, onDanmakuToggle: () -> Unit,
+                         externalPanelOpen: Boolean,
+                         onDanmakuSettings: () -> Unit, onExport: () -> Unit, onSwitchSource: () -> Unit,
+                         onRefresh: () -> Unit, hasNewParts: Boolean,
+                         initialProgress: PlaybackProgress, onProgress: (PlaybackProgress) -> Unit, onReady: () -> Unit, onError: (String) -> Unit) {
     val context = LocalContext.current
-    DisposableEffect(Unit) {
-        onDispose {
-            (context as? Activity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-    }
     // Recreate the data source when a live retry returns different request headers.
     val player = remember(headers) {
         val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(headers)
             .setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15000).setReadTimeoutMs(20000)
+        val guarded = androidx.media3.datasource.ResolvingDataSource.Factory(DefaultDataSource.Factory(context, http)) { spec ->
+            if (spec.uri.scheme in setOf("http", "https")) {
+                kotlinx.coroutines.runBlocking { networkPolicy.requireAllowed() }
+            }
+            spec
+        }
         ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
-            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(context, http)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(guarded))
             .setSeekBackIncrementMs(10000).setSeekForwardIncrementMs(10000).build()
+    }
+    val reportProgress by rememberUpdatedState(onProgress)
+    var stoppedProgress by remember(player) { mutableStateOf<PlaybackProgress?>(null) }
+    // Capture before releasing; global milliseconds remain stable when new segments append.
+    fun snapshot(): PlaybackProgress {
+        val before = knownDurations.take(player.currentMediaItemIndex.coerceAtLeast(0)).sum()
+        val total = knownDurations.sum()
+        val value = (before + player.currentPosition).coerceAtLeast(0)
+        return PlaybackProgress(if (total > 0 && value >= total - 1000) 0 else value, player.playWhenReady)
     }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -161,11 +336,17 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     var timelineDurations by remember { mutableStateOf<List<Long>>(emptyList()) }
     var playing by remember { mutableStateOf(false) }
     var seekable by remember { mutableStateOf(false) }
-    var speed by remember { mutableFloatStateOf(1f) }
-    var volume by remember { mutableFloatStateOf(1f) }
-    var speedMenu by remember { mutableStateOf(false) }
+    val optionsStore = remember { PlaybackProgressStore(context) }
+    val options = remember { optionsStore.readOptions() }
+    var speed by rememberSaveable { mutableFloatStateOf(options.speed) }
+    var volume by rememberSaveable { mutableFloatStateOf(options.volume) }
+    var muted by rememberSaveable { mutableStateOf(options.muted) }
+    LaunchedEffect(speed, volume, muted) { optionsStore.writeOptions(PlaybackOptions(speed, volume, muted)) }
     var dragging by remember { mutableStateOf<Float?>(null) }
-    var fullscreen by remember { mutableStateOf(false) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var interaction by remember { mutableIntStateOf(0) }
+    var panel by remember { mutableStateOf<String?>(null) }
+    var videoProperties by remember { mutableStateOf("") }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() { onReady() }
@@ -182,23 +363,61 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             }
         }
         player.addListener(listener)
-        onDispose { player.removeListener(listener); player.release() }
+        onDispose { if (!live && player.playbackState != Player.STATE_IDLE) reportProgress(stoppedProgress ?: snapshot()); player.removeListener(listener); player.release() }
     }
     // Items can change while this composable stays in the slot (for example after
     // a failed preview retry), so loading them belongs in an effect keyed by items.
     LaunchedEffect(player, items) {
         player.setMediaItems(items, /* resetPosition = */ true)
+        if (!live && knownDurations.all { it > 0 } && knownDurations.isNotEmpty()) {
+            val resume = initialProgress.positionMs.takeIf { it < knownDurations.sum() - 1000 } ?: 0L
+            seekGlobal(player, knownDurations, resume)
+        }
         player.prepare()
-        player.playWhenReady = true
+        player.setPlaybackSpeed(if (live) 1f else speed)
+        player.volume = if (muted) 0f else volume
+        player.playWhenReady = live || initialProgress.playWhenReady
+    }
+    LaunchedEffect(player, live) {
+        while (!live && isActive) {
+            delay(5000)
+            if (stoppedProgress == null && (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_ENDED)) reportProgress(snapshot())
+        }
+    }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(player, lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                stoppedProgress = snapshot()
+                if (!live) reportProgress(requireNotNull(stoppedProgress))
+                player.pause()
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
+                stoppedProgress?.let { player.playWhenReady = it.playWhenReady }
+                stoppedProgress = null
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(player, live) {
+        while (live && isActive) {
+            if (!withContext(Dispatchers.IO) { networkPolicy.allowsRequests() }) {
+                player.stop()
+                onError("仅 Wi-Fi 模式：当前网络不可用或按流量计费，已停止直播预览")
+                break
+            }
+            delay(1_000)
+        }
     }
     LaunchedEffect(player) {
         while (isActive) {
             val timeline = player.currentTimeline
-            val windows = if (timeline.isEmpty) emptyList() else buildList(timeline.windowCount) {
+            val windows = if (timeline.isEmpty) knownDurations else buildList(timeline.windowCount) {
                 val window = Timeline.Window()
                 for (index in 0 until timeline.windowCount) {
                     timeline.getWindow(index, window)
-                    add(window.durationUs.takeIf { it != C.TIME_UNSET }?.div(1_000L)?.coerceAtLeast(0L) ?: 0L)
+                    add(window.durationUs.takeIf { it != C.TIME_UNSET }?.div(1_000L)?.coerceAtLeast(0L)
+                        ?: knownDurations.getOrElse(index) { 0L })
                 }
             }
             timelineDurations = windows
@@ -208,58 +427,196 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             position = (beforeCurrent + player.currentPosition).coerceAtLeast(0L).coerceAtMost(duration)
             playing = player.isPlaying
             seekable = player.isCurrentMediaItemSeekable
+            videoProperties = player.videoFormat?.let { format ->
+                buildString {
+                    if (format.width > 0 && format.height > 0) append("实际视频 ${format.width}×${format.height}")
+                    if (format.frameRate > 0) append(" · ${"%.1f".format(format.frameRate)} fps")
+                    format.sampleMimeType?.let { append(" · $it") }
+                }
+            }.orEmpty()
             delay(250)
         }
     }
-    Column(modifier) {
+    var menuOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(externalPanelOpen) { if (externalPanelOpen) controlsVisible = true }
+    LaunchedEffect(controlsVisible, playing, dragging, panel, menuOpen, externalPanelOpen, interaction) {
+        if (controlsVisible && playing && dragging == null && panel == null && !menuOpen && !externalPanelOpen) {
+            delay(3500)
+            controlsVisible = false
+        }
+    }
+    fun touch() { interaction++; controlsVisible = true }
+    Box(modifier.background(Color.Black)) {
         AndroidView(factory = { PlayerView(it).apply {
             this.player = player
             useController = false
+            keepScreenOn = true
+            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-        } }, update = { it.player = player }, modifier = Modifier.weight(1f).fillMaxWidth())
-        Slider(value = dragging ?: position.toFloat().coerceAtMost(duration.toFloat()),
-            onValueChange = { dragging = it }, onValueChangeFinished = {
-                dragging?.let { target -> seekGlobal(player, timelineDurations, target.toLong()) }
-                dragging = null
-            }, valueRange = 0f..duration.coerceAtLeast(1).toFloat(), enabled = !live && seekable && duration > 0)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.VolumeDown, contentDescription = "音量")
-            Slider(value = volume, onValueChange = {
-                volume = it
-                player.volume = it
-            }, valueRange = 0f..1f, modifier = Modifier.weight(1f))
-            Icon(Icons.Outlined.VolumeUp, contentDescription = null)
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceEvenly) {
-            IconButton(onClick = { player.seekToPreviousMediaItem() }, enabled = player.hasPreviousMediaItem()) {
-                Icon(Icons.Outlined.SkipPrevious, "上一段")
-            }
-            IconButton(onClick = { player.seekBack() }, enabled = !live && seekable) { Icon(Icons.Outlined.Replay10, "后退10秒") }
-            IconButton(onClick = { if (player.playWhenReady) player.pause() else player.play() }) {
-                Icon(if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, if (playing) "暂停" else "播放")
-            }
-            IconButton(onClick = { player.seekForward() }, enabled = !live && seekable) { Icon(Icons.Outlined.Forward10, "快进10秒") }
-            IconButton(onClick = { player.seekToNextMediaItem() }, enabled = player.hasNextMediaItem()) {
-                Icon(Icons.Outlined.SkipNext, "下一段")
-            }
-            Text(if (live) "直播" else "${timeLabel(position)} / ${timeLabel(duration)}")
-            IconButton(onClick = {
-                fullscreen = !fullscreen
-                (context as? Activity)?.requestedOrientation = if (fullscreen) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            }) {
-                Icon(if (fullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen, if (fullscreen) "退出全屏" else "全屏")
-            }
-            Box {
-                TextButton(onClick = { speedMenu = true }) { Text("${speed}x") }
-                DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
-                    listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f).forEach { rate ->
-                        DropdownMenuItem(text = { Text("${rate}x") }, onClick = {
-                            player.setPlaybackSpeed(rate); speed = rate; speedMenu = false
-                        })
+            setShutterBackgroundColor(android.graphics.Color.BLACK)
+        } }, update = { it.player = player }, modifier = Modifier.fillMaxSize())
+        if (!live && danmakuEvents.isNotEmpty()) ScrollingDanmakuOverlay(danmakuEvents,
+            appearance = danmakuAppearance,
+            videoAspectRatio = player.videoSize.let {
+                if (it.width > 0 && it.height > 0) it.width * it.pixelWidthHeightRatio / it.height else 16f / 9f
+            },
+            mediaPosition = {
+                timelineDurations.take(player.currentMediaItemIndex.coerceAtLeast(0)).sum() + player.currentPosition
+            }, modifier = Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().semantics { contentDescription = "播放画面" }
+            .pointerInput(player) {
+                detectTapGestures(onTap = { controlsVisible = !controlsVisible; interaction++ },
+                    onDoubleTap = { if (player.playWhenReady) player.pause() else player.play(); touch() })
+            })
+        androidx.compose.animation.AnimatedVisibility(visible = controlsVisible,
+            enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter)) {
+            Row(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .78f))
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                .padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                PlayerIcon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", { if (!live) reportProgress(snapshot()); onBack() })
+                Column(Modifier.weight(1f).padding(horizontal = 4.dp, vertical = 6.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    Text(if (live) "直播预览" else "已录内容", style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFBBBBBB))
+                }
+                if (hasDanmaku && !live) PlayerIcon(Icons.Outlined.Subtitles,
+                    if (showDanmaku) "隐藏弹幕" else "显示弹幕", { onDanmakuToggle(); touch() },
+                    tint = if (showDanmaku) MaterialTheme.colorScheme.primary else Color.White)
+                PlayerIcon(Icons.Outlined.ScreenRotation, "旋转屏幕", { if (!live) reportProgress(snapshot()); onRotate(); touch() })
+                Box {
+                    PlayerIcon(Icons.Outlined.Settings, "播放设置", { menuOpen = true; touch() })
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false; touch() }) {
+                        fun close() { menuOpen = false; touch() }
+                        DropdownMenuItem(text = { Text("倍速 ${speed}x") }, enabled = !live,
+                            leadingIcon = { Icon(Icons.Outlined.Speed, null) }, onClick = { close(); panel = "speed" })
+                        DropdownMenuItem(text = { Text("音量") }, leadingIcon = { Icon(Icons.Outlined.VolumeUp, null) },
+                            onClick = { close(); panel = "volume" })
+                        DropdownMenuItem(text = { Text("弹幕设置") }, leadingIcon = { Icon(Icons.Outlined.Tune, null) },
+                            onClick = { close(); onDanmakuSettings() })
+                        if (hasDanmaku && !live) {
+                            DropdownMenuItem(text = { Text("导出弹幕") }, leadingIcon = { Icon(Icons.Outlined.Download, null) },
+                                onClick = { close(); onExport() })
+                        }
+                        if (!live) {
+                            DropdownMenuItem(text = { Text("分段 ${currentWindow + 1}/${items.size}") },
+                                leadingIcon = { Icon(Icons.Outlined.VideoLibrary, null) }, onClick = { close(); panel = "parts" })
+                            DropdownMenuItem(text = { Text("从头播放") }, leadingIcon = { Icon(Icons.Outlined.RestartAlt, null) },
+                                onClick = { close(); seekGlobal(player, timelineDurations, 0); player.play() })
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(text = { Text(if (live) "切换到已录内容" else "切换到直播预览") },
+                            leadingIcon = { Icon(Icons.Outlined.SwapHoriz, null) }, onClick = { close(); if (!live) reportProgress(snapshot()); onSwitchSource() })
+                        DropdownMenuItem(text = { Text(if (live) "刷新直播预览" else if (hasNewParts) "有新片段 · 刷新" else "刷新已录内容") },
+                            leadingIcon = { Icon(Icons.Outlined.Refresh, null) }, onClick = { close(); if (!live) reportProgress(snapshot()); onRefresh() })
+                        DropdownMenuItem(text = { Text("视频信息") }, leadingIcon = { Icon(Icons.Outlined.Info, null) },
+                            onClick = { close(); panel = "info" })
                     }
                 }
             }
+        }
+        androidx.compose.animation.AnimatedVisibility(visible = controlsVisible,
+            enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)) {
+            BoxWithConstraints(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .82f))
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                .padding(horizontal = 12.dp, vertical = 4.dp)) {
+                val wide = maxWidth >= 600.dp
+                val timeOnOwnLine = maxWidth < 380.dp && !live
+                val time = if (live) "直播" else "${timeLabel(position)} / ${timeLabel(duration)}"
+                Column {
+                    if (!live) Slider(value = dragging ?: position.toFloat().coerceAtMost(duration.toFloat()),
+                        onValueChange = { dragging = it; touch() }, onValueChangeFinished = {
+                            dragging?.let { target -> seekGlobal(player, timelineDurations, target.toLong()) }
+                            dragging = null; touch()
+                        }, valueRange = 0f..duration.coerceAtLeast(1).toFloat(), enabled = seekable && duration > 0,
+                        modifier = Modifier.fillMaxWidth().height(32.dp)
+                            .semantics { contentDescription = "播放进度" })
+                    if (timeOnOwnLine) Text(time, style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp), maxLines = 1)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        PlayerIcon(if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                            if (playing) "暂停" else "播放", {
+                                if (player.playbackState == Player.STATE_ENDED) {
+                                    seekGlobal(player, timelineDurations, 0); player.play()
+                                } else if (player.playWhenReady) player.pause() else player.play()
+                                touch()
+                            })
+                        if (!live) {
+                            if (wide && items.size > 1) PlayerIcon(Icons.Outlined.SkipPrevious, "上一段",
+                                { player.seekToPreviousMediaItem(); touch() }, enabled = player.hasPreviousMediaItem())
+                            PlayerIcon(Icons.Outlined.Replay10, "后退10秒", { player.seekBack(); touch() }, enabled = seekable)
+                            PlayerIcon(Icons.Outlined.Forward10, "快进10秒", { player.seekForward(); touch() }, enabled = seekable)
+                            if (wide && items.size > 1) PlayerIcon(Icons.Outlined.SkipNext, "下一段",
+                                { player.seekToNextMediaItem(); touch() }, enabled = player.hasNextMediaItem())
+                        }
+                        if (timeOnOwnLine) Spacer(Modifier.weight(1f)) else Text(time,
+                            style = MaterialTheme.typography.labelMedium, maxLines = 1,
+                            modifier = Modifier.weight(1f).padding(horizontal = 4.dp))
+                        if (wide) {
+                            PlayerIcon(if (muted || volume == 0f) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeUp,
+                                "音量", { panel = "volume"; touch() })
+                            TextButton(onClick = { panel = "speed"; touch() }, enabled = !live) { Text("${speed}x") }
+                        }
+                        PlayerIcon(Icons.Outlined.Tune, "弹幕设置", { onDanmakuSettings(); touch() })
+                        PlayerIcon(if (fullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
+                            if (fullscreen) "退出全屏" else "全屏", { onFullscreen(); touch() })
+                    }
+                }
+            }
+        }
+    }
+    panel?.let { selected ->
+        AlertDialog(onDismissRequest = { panel = null; touch() },
+            title = { Text(when (selected) { "volume" -> "音量"; "speed" -> "播放倍速"; "parts" -> "分段"; else -> "视频信息" }) },
+            text = {
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                    when (selected) {
+                        "volume" -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                PlayerIcon(if (muted || volume == 0f) Icons.Outlined.VolumeOff else Icons.Outlined.VolumeUp,
+                                    if (muted) "取消静音" else "静音", {
+                                        muted = !muted; player.volume = if (muted) 0f else volume
+                                    })
+                                Text("${if (muted) 0 else (volume * 100).toInt()}%")
+                            }
+                            Slider(value = if (muted) 0f else volume, onValueChange = {
+                                volume = it; muted = false; player.volume = it
+                            }, valueRange = 0f..1f, modifier = Modifier.semantics { contentDescription = "播放音量" })
+                        }
+                        "speed" -> listOf(.25f, .5f, .75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f).forEach { rate ->
+                            Row(Modifier.fillMaxWidth().clickable {
+                                speed = rate; player.setPlaybackSpeed(rate); panel = null; touch()
+                            }, verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(speed == rate, onClick = {
+                                    speed = rate; player.setPlaybackSpeed(rate); panel = null; touch()
+                                })
+                                Text("${rate}x")
+                            }
+                        }
+                        "parts" -> items.indices.forEach { index ->
+                            Row(Modifier.fillMaxWidth().clickable { player.seekTo(index, 0); panel = null; touch() },
+                                verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(currentWindow == index, onClick = { player.seekTo(index, 0); panel = null; touch() })
+                                Text("第 ${index + 1} 段 · ${timeLabel(timelineDurations.getOrElse(index) { 0 })}")
+                            }
+                        }
+                        else -> Text(videoProperties.ifBlank { "视频规格暂不可用" } + "\n分段 ${currentWindow + 1}/${items.size}")
+                    }
+                }
+            }, confirmButton = { TextButton(onClick = { panel = null; touch() }) { Text("完成") } })
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit,
+                       enabled: Boolean = true, tint: Color = Color.White) {
+    TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
+            Icon(icon, label, tint = if (enabled) tint else tint.copy(alpha = .35f))
         }
     }
 }

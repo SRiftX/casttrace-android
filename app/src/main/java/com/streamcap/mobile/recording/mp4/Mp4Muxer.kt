@@ -18,13 +18,15 @@ object Mp4Muxer {
     suspend fun convert(input: File, output: File): TrackInfo = withContext(Dispatchers.IO) {
         require(input.exists() && input.length() > 0) { "待封装的 TS 文件为空" }
         output.parentFile?.mkdirs()
+        val staging = File(output.parentFile, ".${output.nameWithoutExtension}.system-writing.mp4")
+        staging.delete()
         val extractor = MediaExtractor()
         var muxer: MediaMuxer? = null
         var audioTracks = 0
         var videoTracks = 0
         try {
             extractor.setDataSource(input.absolutePath)
-            muxer = MediaMuxer(output.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = MediaMuxer(staging.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val trackMap = IntArray(extractor.trackCount) { -1 }
             for (index in 0 until extractor.trackCount) {
                 val format = extractor.getTrackFormat(index)
@@ -46,6 +48,11 @@ object Mp4Muxer {
             val lastPts = LongArray(extractor.trackCount) { Long.MIN_VALUE }
             val timestampOffset = LongArray(extractor.trackCount)
             val continuityStep = LongArray(extractor.trackCount) { 33_333L }
+            val video = BooleanArray(extractor.trackCount) {
+                extractor.getTrackFormat(it).getString(android.media.MediaFormat.KEY_MIME).orEmpty().startsWith("video/")
+            }
+            val samples = LongArray(extractor.trackCount)
+            val syncSeen = BooleanArray(extractor.trackCount)
             for (index in 0 until extractor.trackCount) {
                 val mime = extractor.getTrackFormat(index).getString(android.media.MediaFormat.KEY_MIME).orEmpty()
                 if (mime.startsWith("audio/")) continuityStep[index] = 23_220L
@@ -57,6 +64,10 @@ object Mp4Muxer {
                 buffer.clear()
                 val size = extractor.readSampleData(buffer, 0)
                 if (size < 0) break
+                if (trackMap[track] < 0) {
+                    extractor.advance()
+                    continue
+                }
                 val rawPts = extractor.sampleTime
                 if (rawPts < 0L) {
                     extractor.advance()
@@ -82,19 +93,33 @@ object Mp4Muxer {
                 } else {
                     0
                 }
+                if (info.flags != 0) syncSeen[track] = true
+                if (video[track] && !syncSeen[track]) {
+                    extractor.advance()
+                    continue
+                }
                 muxer.writeSampleData(trackMap[track], buffer, info)
+                samples[track]++
                 lastPts[track] = pts
                 maxPresentationTimeUs = maxOf(maxPresentationTimeUs, pts)
                 extractor.advance()
             }
+            check(videoTracks > 0 && video.indices.filter { video[it] }.all { samples[it] > 0 && syncSeen[it] }) {
+                "系统封装器未提取到可播放的视频关键帧，原文件已保留"
+            }
             muxer.stop()
-            val metadataDuration = durationSeconds(output)
+            muxer.release()
+            muxer = null
+            val metadataDuration = durationSeconds(staging)
+            check(inspect(staging).videoTracks > 0) { "系统封装结果没有视频轨道，原文件已保留" }
+            output.delete()
+            check(staging.renameTo(output)) { "无法提交 MP4 文件" }
             val timestampDuration = ((maxPresentationTimeUs + 999_999L) / 1_000_000L)
             TrackInfo(audioTracks, videoTracks, maxOf(metadataDuration, timestampDuration))
         } finally {
             runCatching { extractor.release() }
             runCatching { muxer?.release() }
-            if (!output.exists() || output.length() == 0L) output.delete()
+            staging.delete()
         }
     }
 

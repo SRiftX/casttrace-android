@@ -6,6 +6,14 @@ import org.junit.Test
 import java.time.LocalDateTime
 
 class RecordingNameFormatterTest {
+    @org.junit.Test fun safeNamesHandleWindowsReservedUnicodeAndByteLength() {
+        org.junit.Assert.assertEquals("_CON", RecordingNameFormatter.safeComponent("CON. "))
+        org.junit.Assert.assertEquals("é", RecordingNameFormatter.safeComponent("e\u0301"))
+        val name = RecordingNameFormatter.safeComponent("视频😀".repeat(100))
+        org.junit.Assert.assertTrue(name.toByteArray(Charsets.UTF_8).size <= 160)
+        org.junit.Assert.assertFalse(name.contains('\uFFFD'))
+        org.junit.Assert.assertNotEquals(name, RecordingNameFormatter.safeComponent("视频😀".repeat(99) + "different"))
+    }
     private val context = RecordingNameContext(
         platform = "虎牙直播",
         anchorName = "主播/A",

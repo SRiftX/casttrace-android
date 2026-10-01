@@ -17,9 +17,9 @@ data class PlatformCatalogEntry(
 object PlatformCatalog {
     val entries = listOf(
         PlatformCatalogEntry("custom", "HLS / FLV 直链", listOf(".m3u8", ".flv"), AndroidSupportStatus.AVAILABLE),
-        PlatformCatalogEntry("huya", "虎牙直播", listOf("huya.com"), AndroidSupportStatus.AVAILABLE),
+        PlatformCatalogEntry("huya", "虎牙直播", listOf("huya.com", "hy.fan"), AndroidSupportStatus.AVAILABLE),
         PlatformCatalogEntry("douyin", "抖音直播", listOf("douyin.com", "v.douyin.com"), AndroidSupportStatus.AVAILABLE),
-        PlatformCatalogEntry("bilibili", "B站直播", listOf("live.bilibili.com"), AndroidSupportStatus.AVAILABLE),
+        PlatformCatalogEntry("bilibili", "B站直播", listOf("live.bilibili.com", "b23.tv"), AndroidSupportStatus.AVAILABLE),
         PlatformCatalogEntry("douyu", "斗鱼直播", listOf("douyu.com"), AndroidSupportStatus.AVAILABLE),
         PlatformCatalogEntry("kuaishou", "快手直播", listOf("live.kuaishou.com"), AndroidSupportStatus.AVAILABLE),
         PlatformCatalogEntry("tiktok", "TikTok直播", listOf("tiktok.com"), AndroidSupportStatus.PLANNED),

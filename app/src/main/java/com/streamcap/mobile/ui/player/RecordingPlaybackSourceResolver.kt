@@ -10,22 +10,56 @@ import com.streamcap.mobile.recording.flv.FlvFileInspector
 import java.io.File
 import com.streamcap.mobile.recording.ffmpeg.FfmpegMp4Muxer
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.coroutineContext
 
 internal class RecordingPlaybackSourceResolver(private val context: Context) : AutoCloseable {
     private val snapshots = java.util.Collections.synchronizedList(mutableListOf<File>())
+    init { com.streamcap.mobile.storage.PreviewCache.acquire() }
     private var closed = false
-    override fun close() { synchronized(snapshots) { closed = true; snapshots.forEach(File::delete); snapshots.clear() } }
+    override fun close() { synchronized(snapshots) { if (!closed) com.streamcap.mobile.storage.PreviewCache.release(); closed = true; snapshots.forEach(File::delete); snapshots.clear() } }
 
-    suspend fun resolve(outputUri: String?, outputUris: List<String>, temporaryPath: String?, containerFormat: String): List<Uri> {
+    suspend fun resolve(outputUri: String?, outputUris: List<String>, temporaryPath: String?, containerFormat: String,
+        includeActiveTail: Boolean = false, refreshPublished: (suspend () -> List<String>)? = null): List<Uri> {
+        repeat(3) { attempt ->
+            val latest = refreshPublished?.invoke() ?: outputUris
+            val ownedBefore = synchronized(snapshots) { snapshots.toSet() }
+            try {
+                val result = resolveOnce(latest.firstOrNull() ?: outputUri, latest, temporaryPath, containerFormat, includeActiveTail)
+                if (refreshPublished == null || refreshPublished() == latest) return result
+            } catch (race: java.io.FileNotFoundException) {
+                if (refreshPublished == null) throw race
+            }
+            synchronized(snapshots) {
+                snapshots.filterNot { it in ownedBefore }.forEach { it.delete() }
+                snapshots.retainAll(ownedBefore)
+            }
+            if (attempt < 2) kotlinx.coroutines.delay(150)
+        }
+        error("分段正在保存，播放列表已变化，请稍后刷新已录内容")
+    }
+
+    private suspend fun resolveOnce(outputUri: String?, outputUris: List<String>, temporaryPath: String?, containerFormat: String,
+        includeActiveTail: Boolean): List<Uri> {
         val explicit = outputUris.mapNotNull { runCatching { Uri.parse(it) }.getOrNull() }
             .filter(::hasReadableMedia)
-        if (explicit.isNotEmpty()) {
-            return preparePublished(explicit, containerFormat)
+        if (outputUris.isNotEmpty()) {
+            val published = preparePublished(explicit, containerFormat)
+            if (!includeActiveTail) return published
+            // Count recorded URIs, including unreadable ones, so removing a saved
+            // file cannot shift indices and append an already published segment.
+            val remaining = temporaryPath?.let { temporaryParts(File(it)) }.orEmpty()
+                .filter { it.first > outputUris.size }
+            if (remaining.isNotEmpty() && remaining.first().first != outputUris.size + 1) {
+                throw java.io.FileNotFoundException("分段正在发布")
+            }
+            return published + remaining.map { snapshot(it.second) }
         }
         if (outputUri.isNullOrBlank() || !hasReadableMedia(Uri.parse(outputUri))) {
             return temporaryPath?.let { temporaryParts(File(it)) }
-                ?.map { Uri.fromFile(it) }
+                ?.map { snapshot(it.second) }
                 .orEmpty()
         }
         val current = Uri.parse(outputUri)
@@ -41,7 +75,7 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
         else -> uris
     }
 
-    private fun temporaryParts(first: File): List<File> {
+    private fun temporaryParts(first: File): List<Pair<Int, File>> {
         val marker = listOf(".ts.part", ".flv.part").firstOrNull { first.name.endsWith(it) }
         val prefix = marker?.let { first.name.removeSuffix(it) } ?: first.nameWithoutExtension
         val suffix = marker ?: ".${first.extension}"
@@ -55,46 +89,56 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
                 it.matchEntire(file.name)?.groupValues?.get(1)?.toIntOrNull()
             }
             index?.takeIf { file.length() > 1024 }?.let { it to file }
-        }.sortedBy { it.first }.map { it.second }
+        }.sortedBy { it.first }
     }
 
-    private suspend fun snapshot(source: File): Uri = snapshot(Uri.fromFile(source), source.length())
+    private suspend fun snapshot(source: File): Uri = snapshot(Uri.fromFile(source), source.length(),
+        isFlv = source.name.contains(".flv", true))
 
-    private suspend fun snapshot(source: Uri, frozenLength: Long? = null): Uri {
-        val copy = File.createTempFile("recording-preview-", ".part", context.cacheDir)
+    private suspend fun snapshot(source: Uri, frozenLength: Long? = null, isFlv: Boolean = true): Uri {
         val target = File.createTempFile("recording-preview-", ".mp4", context.cacheDir)
         try {
             // Freeze the length before copying a file that the recorder is still appending.
             val length = frozenLength ?: context.contentResolver.openAssetFileDescriptor(source, "r")?.use {
                 it.length.takeIf { size -> size >= 0 }
             }
-            if (length != null) check(length <= (context.cacheDir.usableSpace - 32L * 1024 * 1024) / 2) {
+            require(length == null || length > 0) { "录制文件为空，暂不能建立播放副本" }
+            if (length != null) check(length <= (context.cacheDir.usableSpace - PREVIEW_RESERVE_BYTES) / 11 * 10) {
                 "空间不足，无法为此录制建立可快进的播放副本"
             }
-            requireNotNull(context.contentResolver.openInputStream(source)) { "无法读取录制文件" }.use { input -> copy.outputStream().use { output ->
-                val buffer = ByteArray(64 * 1024)
-                var remaining = length ?: Long.MAX_VALUE
-                while (remaining > 0) {
-                    coroutineContext.ensureActive()
-                    check(context.cacheDir.usableSpace > 32L * 1024 * 1024) { "空间不足，无法准备播放" }
-                    val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                    if (read < 0) break
-                    output.write(buffer, 0, read)
-                    remaining -= read
+            requireNotNull(context.contentResolver.openInputStream(source)) { "无法读取录制文件" }.use { input ->
+                coroutineScope {
+                    val pipe = android.os.ParcelFileDescriptor.createPipe()
+                    val writer = async(Dispatchers.IO) {
+                        android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]).use { output ->
+                            val jobContext = coroutineContext
+                            // Active local sources always supply a frozen length. Some
+                            // providers cannot report saved-file size; stream those to EOF.
+                            com.streamcap.mobile.storage.FrozenMediaCopy.copy(input, output, length ?: Long.MAX_VALUE, isFlv) {
+                                jobContext.ensureActive()
+                                check(context.cacheDir.usableSpace > PREVIEW_RESERVE_BYTES) { "空间不足，无法准备播放" }
+                            }
+                        }
+                    }
+                    try {
+                        FfmpegMp4Muxer.convertPath("/proc/self/fd/${pipe[0].fd}", target)
+                        writer.await()
+                    } finally {
+                        pipe[0].close()
+                        writer.cancel()
+                    }
                 }
-            } }
-            check(copy.length() <= context.cacheDir.usableSpace - 32L * 1024 * 1024) { "空间不足，无法建立播放索引" }
-            FfmpegMp4Muxer.convert(copy, target)
+            }
             coroutineContext.ensureActive()
             synchronized(snapshots) {
                 check(!closed) { "播放页面已关闭" }
                 snapshots.add(target)
             }
             return Uri.fromFile(target)
-        } catch (failure: Exception) {
+        } catch (failure: Throwable) {
             target.delete()
             throw failure
-        } finally { copy.delete() }
+        }
     }
 
     private fun hasPlayableFlv(uri: Uri): Boolean = runCatching {
@@ -158,6 +202,8 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
     }
 
     private companion object {
+        // Leave more than the recorder's 128 MiB low-space threshold.
+        const val PREVIEW_RESERVE_BYTES = 256L * 1024 * 1024
         val PART_NAME = Regex("^(.*)_(\\d{3})(\\.[^.]+)$")
     }
 }

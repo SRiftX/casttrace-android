@@ -13,7 +13,7 @@ fun TaskStatus.displayName(): String = when (this) {
     TaskStatus.STARTING -> "正在启动"
     TaskStatus.RECORDING -> "录制中"
     TaskStatus.RECONNECTING -> "等待重连"
-    TaskStatus.FINALIZING -> "正在完成文件"
+    TaskStatus.FINALIZING -> "正在保存"
     TaskStatus.PAUSED -> "已暂停"
     TaskStatus.COMPLETED -> "已完成"
     TaskStatus.FAILED -> "异常"

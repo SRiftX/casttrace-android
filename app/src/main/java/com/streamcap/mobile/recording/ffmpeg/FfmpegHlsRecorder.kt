@@ -101,12 +101,12 @@ class FfmpegHlsRecorder(
                     )
                 }
                 if (running.stopped) break
-                running.session = FFmpegKit.executeWithArgumentsAsync(
+                running.session = FfmpegRuntime.run { FFmpegKit.executeWithArgumentsAsync(
                     buildCommand(attemptRequest).toTypedArray(),
                     { session -> completion.complete(session) },
                     logCallback,
                     statisticsCallback,
-                )
+                ) }
                 running.progress.value = running.progress.value.copy(state = RecorderState.RECORDING)
                 val session = completion.await()
                 val attemptDuration = ((session.getLastReceivedStatistics()?.time ?: 0.0) / 1_000.0).toLong()
@@ -119,7 +119,7 @@ class FfmpegHlsRecorder(
                 val backoff = (RECONNECT_BASE_DELAY_MILLIS * (1L shl reconnectAttempt.coerceIn(0, 5)))
                     .coerceAtMost(RECONNECT_MAX_DELAY_MILLIS)
                 delay(backoff)
-                val refreshed = runCatching { request.refreshSource?.invoke() }.getOrNull()
+                val refreshed = runCatching { request.refreshSource?.invoke(false) }.getOrNull()
                 if (refreshed == null) {
                     running.progress.value = RecordingProgress(
                         state = if (success) RecorderState.COMPLETED else RecorderState.FAILED,

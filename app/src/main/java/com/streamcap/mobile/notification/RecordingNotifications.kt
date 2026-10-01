@@ -15,6 +15,7 @@ class RecordingNotifications(private val context: Context) {
     companion object {
         const val CHANNEL_RECORDING = "recording"
         const val SERVICE_NOTIFICATION_ID = 91
+        const val ACTION_SERVICE_NOTIFICATION_DISMISSED = "com.streamcap.mobile.action.SERVICE_NOTIFICATION_DISMISSED"
     }
 
     private val manager = context.getSystemService(NotificationManager::class.java)
@@ -33,25 +34,28 @@ class RecordingNotifications(private val context: Context) {
     }
 
     fun serviceNotification(message: String): Notification = build(
-        title = "StreamCap 正在运行",
-        message = message,
-        roomId = null,
-        ongoing = true,
-    )
+        title = "StreamCap 正在运行", message = message, roomId = null, ongoing = true,
+    ).apply {
+        flags = flags or Notification.FLAG_NO_CLEAR
+        deleteIntent = PendingIntent.getBroadcast(context, SERVICE_NOTIFICATION_ID,
+            Intent(ACTION_SERVICE_NOTIFICATION_DISMISSED).setPackage(context.packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
 
     fun recordingNotification(
         roomId: Long,
         roomName: String,
         message: String,
         ongoing: Boolean,
-    ): Notification = build(roomName, message, roomId, ongoing)
+        recoverySessionId: Long? = null,
+    ): Notification = build(roomName, message, roomId, ongoing, recoverySessionId)
 
     fun notifyRoom(roomId: Long, notification: Notification) {
-        manager.notify(notificationId(roomId), notification)
+        manager.notify("room:$roomId", ROOM_NOTIFICATION_ID, notification)
     }
 
     fun cancelRoom(roomId: Long) {
-        manager.cancel(notificationId(roomId))
+        manager.cancel("room:$roomId", ROOM_NOTIFICATION_ID)
     }
 
     private fun build(
@@ -59,11 +63,15 @@ class RecordingNotifications(private val context: Context) {
         message: String,
         roomId: Long?,
         ongoing: Boolean,
+        recoverySessionId: Long? = null,
     ): Notification {
         val openIntent = PendingIntent.getActivity(
             context,
             roomId?.toInt() ?: 0,
-            Intent(context, MainActivity::class.java),
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                roomId?.let { putExtra("roomId", it); data = android.net.Uri.parse("streamcap://room/$it") }
+            },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_RECORDING)
@@ -73,19 +81,30 @@ class RecordingNotifications(private val context: Context) {
             .setContentIntent(openIntent)
             .setOnlyAlertOnce(true)
             .setOngoing(ongoing)
+            .setAutoCancel(!ongoing)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
 
-        if (roomId != null && ongoing) {
+        if (roomId != null && ongoing && !message.contains("正在保存")) {
             val stopIntent = PendingIntent.getService(
                 context,
                 roomId.toInt(),
-                RecordingService.stopIntent(context, roomId),
+                RecordingService.pauseIntent(context, roomId).setData(android.net.Uri.parse("streamcap://room/$roomId/stop")),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
-            builder.addAction(0, "停止录制", stopIntent)
+            builder.addAction(0, "暂停并保存", stopIntent)
+        }
+        if (roomId != null && recoverySessionId != null && (message.contains("失败") || message.contains("异常"))) {
+            val recoverIntent = PendingIntent.getService(
+                context,
+                (roomId * 31 + recoverySessionId).toInt(),
+                Intent(context, RecordingService::class.java).setAction("com.streamcap.mobile.action.RECOVER")
+                    .putExtra("recoverySessionId", recoverySessionId),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            builder.addAction(0, "重试保存", recoverIntent)
         }
         return builder.build()
     }
 
-    private fun notificationId(roomId: Long): Int = 1_000 + (roomId % 10_000).toInt()
+    private val ROOM_NOTIFICATION_ID = 1_000
 }

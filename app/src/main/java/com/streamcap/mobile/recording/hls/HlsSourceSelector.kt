@@ -1,22 +1,28 @@
 package com.streamcap.mobile.recording.hls
 
 import com.streamcap.mobile.domain.model.StreamSource
+import com.streamcap.mobile.platform.resolver.secureStreamUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
-class HlsSourceSelector(client: OkHttpClient) {
+class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis: Long = 30_000L) {
     private val client = client.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
 
-    suspend fun select(sources: List<StreamSource>): StreamSource = withContext(Dispatchers.IO) {
+    suspend fun select(sources: List<StreamSource>): StreamSource =
+        withTimeoutOrNull(selectionTimeoutMillis) { selectWithinDeadline(sources) }
+            ?: error("直播线路探测超时，请稍后重试")
+
+    private suspend fun selectWithinDeadline(sources: List<StreamSource>): StreamSource = withContext(Dispatchers.IO) {
         val failures = linkedSetOf<String>()
         for (source in sources) {
             coroutineContext.ensureActive()
             try {
-                var url = source.url
+                var url = secureStreamUrl(source.url)
                 repeat(4) {
                     val request = Request.Builder().url(url).apply { source.headers.forEach(::header) }.build()
                     client.newCall(request).execute().use { response ->
@@ -26,13 +32,15 @@ class HlsSourceSelector(client: OkHttpClient) {
                         if (!body.contains("#EXT-X-STREAM-INF")) {
                             check(body.contains("#EXTINF:"))
                             val segment = body.lines().map(String::trim).last { it.isNotEmpty() && !it.startsWith('#') }
-                            val segmentUrl = response.request.url.resolve(segment) ?: error("Invalid segment URL")
+                            val segmentUrl = secureStreamUrl(
+                                response.request.url.resolve(segment)?.toString() ?: error("Invalid segment URL"),
+                            )
                             val probe = Request.Builder().url(segmentUrl).apply { source.headers.forEach(::header) }.build()
                             client.newCall(probe).execute().use { media ->
                                 check(media.isSuccessful) { "Media segment HTTP ${media.code}" }
                                 check(media.body?.source()?.exhausted() == false) { "Empty media segment" }
                             }
-                            return@withContext source.copy(url = response.request.url.toString())
+                            return@withContext source.copy(url = secureStreamUrl(response.request.url.toString()))
                         }
                         val lines = body.lines().map(String::trim)
                         val variants = lines.mapIndexedNotNull { index, line ->
@@ -42,7 +50,9 @@ class HlsSourceSelector(client: OkHttpClient) {
                             val bandwidth = Regex("BANDWIDTH=(\\d+)").find(line)?.groupValues?.get(1)?.toLongOrNull() ?: 0
                             bandwidth to child
                         }
-                        url = response.request.url.resolve(variants.maxBy { it.first }.second)!!.toString()
+                        url = secureStreamUrl(
+                            response.request.url.resolve(variants.maxBy { it.first }.second)!!.toString(),
+                        )
                     }
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {

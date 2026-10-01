@@ -49,7 +49,7 @@ class DouyuResolver(private val client: OkHttpClient) : PlatformResolver {
             if (root.optInt("error") != 0) return
             val data = root.optJSONObject("data") ?: return
             val url = "${data.optString("rtmp_url")}/${data.optString("rtmp_live")}"
-            if (url.startsWith("http")) sources += StreamSource(url, StreamType.FLV, room.quality, headers = HEADERS)
+            if (url.startsWith("http")) sources += StreamSource(secureStreamUrl(url), StreamType.FLV, room.quality, headers = HEADERS)
         }
         addSource(first)
         val playData = first.optJSONObject("data")

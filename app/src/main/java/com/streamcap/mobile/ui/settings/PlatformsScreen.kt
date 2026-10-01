@@ -23,18 +23,30 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import com.streamcap.mobile.platform.AndroidSupportStatus
 import com.streamcap.mobile.platform.PlatformCatalog
 import com.streamcap.mobile.platform.PlatformCatalogEntry
+import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.ui.theme.LiveTeal
 import com.streamcap.mobile.ui.theme.WarningAmber
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlatformsScreen(onBack: () -> Unit) {
+fun PlatformsScreen(container: AppContainer, onBack: () -> Unit) {
     val entries = PlatformCatalog.entries
     Scaffold(
         topBar = {
@@ -63,13 +75,17 @@ fun PlatformsScreen(onBack: () -> Unit) {
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            items(entries, key = { it.key }) { entry -> PlatformRow(entry) }
+            items(entries, key = { it.key }) { entry -> PlatformRow(entry, container) }
         }
     }
 }
 
 @Composable
-private fun PlatformRow(entry: PlatformCatalogEntry) {
+private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer) {
+    val scope = rememberCoroutineScope()
+    var showCredential by remember { mutableStateOf(false) }
+    var cookie by remember { mutableStateOf("") }
+    val credentialSupported = entry.key in setOf("douyin", "bilibili", "kuaishou")
     val color = when (entry.status) {
         AndroidSupportStatus.AVAILABLE, AndroidSupportStatus.FIRST_BATCH -> LiveTeal
         AndroidSupportStatus.NEEDS_REVIEW -> WarningAmber
@@ -94,8 +110,41 @@ private fun PlatformRow(entry: PlatformCatalogEntry) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Text(entry.status.displayName(), style = MaterialTheme.typography.labelSmall, color = color)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(entry.status.displayName(), style = MaterialTheme.typography.labelSmall, color = color)
+                if (credentialSupported) {
+                    TextButton(onClick = {
+                        cookie = container.credentialStore.get(entry.key)?.cookie.orEmpty()
+                        showCredential = true
+                    }) { Text(if (container.credentialStore.get(entry.key) == null) "设置 Cookie" else "已设置") }
+                }
+            }
         }
+    }
+    if (showCredential) {
+        AlertDialog(
+            onDismissRequest = { showCredential = false },
+            title = { Text("${entry.name}登录 Cookie") },
+            text = {
+                OutlinedTextField(
+                    value = cookie,
+                    onValueChange = { cookie = it },
+                    label = { Text("Cookie") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    supportingText = { Text("仅保存在本机，用于解析需要登录态的直播源") },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        if (cookie.isBlank()) container.credentialStore.clear(entry.key)
+                        else container.credentialStore.set(entry.key, cookie.trim())
+                        showCredential = false
+                    }
+                }) { Text("保存") }
+            },
+            dismissButton = { TextButton(onClick = { showCredential = false }) { Text("取消") } },
+        )
     }
 }
 

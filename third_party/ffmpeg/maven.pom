@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>dev.ffmpegkit-maintained</groupId>
+  <artifactId>ffmpeg-kit-https</artifactId>
+  <version>7.1.6</version>
+  <packaging>aar</packaging>
+  <name>FFmpegKit Https</name>
+  <description>Actively maintained continuation of com.arthenica:ffmpeg-kit-https (retired, archived April 2025). Same com.arthenica.ffmpegkit API, drop-in replacement -- just change the groupId. TLS/https:// URL support (gmp+gnutls), Android SDK 35, 16 KB page size, security-tracked. By Jokobee -- jokobee.com</description>
+  <url>https://github.com/ffmpegkit-maintained/ffmpeg/releases</url>
+  <inceptionYear>2026</inceptionYear>
+  <licenses>
+    <license>
+      <name>GNU Lesser General Public License v3.0</name>
+      <url>https://github.com/ffmpegkit-maintained/ffmpeg/blob/main/LICENSE</url>
+      <distribution>repo</distribution>
+    </license>
+    <license>
+      <name>GNU Lesser General Public License v3.0</name>
+      <url>https://github.com/ffmpegkit-maintained/ffmpeg/blob/main/LICENSE</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <id>jokobee</id>
+      <name>Jokobee</name>
+      <email>contact@jokobee.com</email>
+      <url>https://www.jokobee.com</url>
+    </developer>
+    <developer>
+      <id>jokobee</id>
+      <name>Jokobee</name>
+      <email>contact@jokobee.com</email>
+      <url>https://www.jokobee.com</url>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:git://github.com/ffmpegkit-maintained/ffmpeg.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/ffmpegkit-maintained/ffmpeg.git</developerConnection>
+    <url>https://github.com/ffmpegkit-maintained/ffmpeg</url>
+  </scm>
+</project>

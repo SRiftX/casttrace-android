@@ -30,6 +30,8 @@ data class LiveRoomEntity(
     val scheduledMonitoringEnabled: Boolean = false,
     val notificationsEnabled: Boolean = true,
     val checkIntervalSeconds: Int = 60,
+    val oneTimeStartAt: Long? = null,
+    val oneTimeEndAt: Long? = null,
     val liveStatus: LiveStatus = LiveStatus.UNKNOWN,
     val taskStatus: TaskStatus = TaskStatus.WAITING,
     val lastCheckAt: Long? = null,
@@ -58,6 +60,9 @@ data class RecordingSessionEntity(
     val durationSeconds: Long = 0,
     val stopAtMillis: Long? = null,
     val errorMessage: String? = null,
+    val danmakuPath: String? = null,
+    val danmakuEventCount: Long = 0,
+    val danmakuDroppedCount: Long = 0,
 )
 
 @Entity(

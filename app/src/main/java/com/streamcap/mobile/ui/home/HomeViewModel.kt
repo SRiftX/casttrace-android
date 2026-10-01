@@ -24,6 +24,8 @@ class HomeViewModel(private val repository: StreamCapRepository) : ViewModel() {
         emptyList(),
     )
 
+    fun latestErrorForRoom(roomId: Long) = repository.observeLatestErrorForRoom(roomId)
+
     fun setEnabled(roomId: Long, enabled: Boolean, afterChange: () -> Unit = {}) {
         viewModelScope.launch {
             repository.setEnabled(roomId, enabled)
@@ -33,6 +35,12 @@ class HomeViewModel(private val repository: StreamCapRepository) : ViewModel() {
 
     fun refresh(roomId: Long, afterRefresh: (LiveStatus) -> Unit = {}) {
         viewModelScope.launch { afterRefresh(repository.refresh(roomId)) }
+    }
+
+    fun refreshMonitoredRooms() {
+        viewModelScope.launch {
+            repository.monitoredRooms().forEach { repository.refresh(it.id) }
+        }
     }
 
     fun setScheduledMonitoringEnabled(roomId: Long, enabled: Boolean, afterChange: () -> Unit = {}) {

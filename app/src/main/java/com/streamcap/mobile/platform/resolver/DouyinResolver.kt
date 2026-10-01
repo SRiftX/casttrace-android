@@ -13,7 +13,7 @@ import okhttp3.OkHttpClient
  */
 class DouyinResolver(private val client: OkHttpClient) : PlatformResolver {
     override val platformId = "douyin"
-    override fun supports(url: String) = url.contains("douyin.com", true)
+    override fun supports(url: String) = url.hasHost("douyin.com", "webcast.amemv.com")
 
     override suspend fun resolveRoom(url: String): LiveRoomInfo {
         val data = load(url, null)
@@ -36,7 +36,11 @@ class DouyinResolver(private val client: OkHttpClient) : PlatformResolver {
 
     private suspend fun load(input: String, credential: PlatformCredential?): DouyinData {
         val headers = HEADERS + credential?.cookie?.takeIf(String::isNotBlank)?.let { mapOf("Cookie" to it) }.orEmpty()
-        val response = client.getText(input, headers)
+        val expanded = client.expandRoomShareUrl(input, "v.douyin.com",
+            listOf("douyin.com", "webcast.amemv.com"), headers + ("User-Agent" to MOBILE_USER_AGENT))
+        val sharePage = expanded.hasHost("webcast.amemv.com")
+        val pageHeaders = if (sharePage) headers + ("User-Agent" to MOBILE_USER_AGENT) else headers
+        val response = client.getText(expanded, pageHeaders)
         val page = DouyinPageParser.parse(response.body)
         val normalized = page.sourceText
             .replace("\\u0026", "&")
@@ -49,19 +53,27 @@ class DouyinResolver(private val client: OkHttpClient) : PlatformResolver {
             .replace("\\u005F", "_")
             .replace("\\/", "/")
             .replace("&amp;", "&")
-        val urls = URL_PATTERN.findAll(normalized).map { match ->
+        val urls = page.sources.map { it.copy(headers = headers) }.ifEmpty { URL_PATTERN.findAll(normalized).map { match ->
             match.value.trimEnd('\\', '"', '\'', ',', '}').replace("\\u0026", "&")
         }.filter { it.contains(".flv", true) || it.contains(".m3u8", true) }
             .distinct()
-            .map { url -> StreamSource(url, streamTypeOf(url), qualityFromUrl(url), headers = headers) }
-            .toList()
+            .map { url ->
+                val secureUrl = secureStreamUrl(url)
+                StreamSource(secureUrl, streamTypeOf(secureUrl), qualityFromUrl(secureUrl), headers = headers)
+            }
+            .toList() }
         val nickname = page.anchor
             ?: "抖音主播 ${response.finalUrl.substringBefore('?').substringAfterLast('/')}"
         val title = page.title
         if (urls.isEmpty() && normalized.contains("verify-center", true)) {
             throw IllegalStateException("抖音触发了访问验证，请稍后重试或更换网络")
         }
-        return DouyinData(response.finalUrl.substringBefore('?'), nickname, title, urls)
+        if (urls.isEmpty() && page.roomStatus != 4) {
+            throw IllegalStateException("抖音页面未返回可识别的直播线路，无法确认是否下播，请检查登录态或稍后重试")
+        }
+        val canonicalUrl = page.webRoomId?.takeIf { it.all(Char::isDigit) }
+            ?.let { "https://live.douyin.com/$it" } ?: response.finalUrl.substringBefore('?')
+        return DouyinData(canonicalUrl, nickname, title, if (page.roomStatus == 4) emptyList() else urls)
     }
 
     private fun qualityFromUrl(url: String): String = when {
@@ -74,6 +86,8 @@ class DouyinResolver(private val client: OkHttpClient) : PlatformResolver {
     private data class DouyinData(val url: String, val anchor: String, val title: String?, val sources: List<StreamSource>)
 
     companion object {
+        private const val MOBILE_USER_AGENT = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
         private val URL_PATTERN = Regex("https?://[^\\s\\\"'<>]+?(?:\\.flv|\\.m3u8)[^\\s\\\"'<>]*", RegexOption.IGNORE_CASE)
         private val HEADERS = mapOf(
             "User-Agent" to DESKTOP_USER_AGENT,

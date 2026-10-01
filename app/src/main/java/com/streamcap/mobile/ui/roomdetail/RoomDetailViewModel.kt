@@ -38,10 +38,19 @@ class RoomDetailViewModel(
 
     fun setOutputFormat(format: String) = updateOptions { it.copy(outputFormat = format) }
     fun setSegmentEnabled(enabled: Boolean) = updateOptions { it.copy(segmentEnabled = enabled) }
+    fun setSegmentSeconds(seconds: Int) = updateOptions { it.copy(segmentSeconds = seconds) }
     fun setNotificationsEnabled(enabled: Boolean) = updateOptions { it.copy(notificationsEnabled = enabled) }
+    fun setCheckIntervalSeconds(value: Int) = updateOptions { it.copy(checkIntervalSeconds = value) }
     fun setScheduledMonitoringEnabled(enabled: Boolean, afterChange: () -> Unit = {}) {
         viewModelScope.launch {
             repository.setScheduledMonitoringEnabled(roomId, enabled)
+            afterChange()
+        }
+    }
+
+    fun setOneTimeWindow(startAt: Long?, endAt: Long?, afterChange: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.setOneTimeWindow(roomId, startAt, endAt)
             afterChange()
         }
     }
@@ -58,6 +67,7 @@ class RoomDetailViewModel(
             segmentSeconds = current.segmentSeconds,
             scheduledMonitoringEnabled = current.scheduledMonitoringEnabled,
             notificationsEnabled = current.notificationsEnabled,
+            checkIntervalSeconds = current.checkIntervalSeconds,
         )
         viewModelScope.launch { repository.updateRecordingOptions(roomId, change(options)) }
     }

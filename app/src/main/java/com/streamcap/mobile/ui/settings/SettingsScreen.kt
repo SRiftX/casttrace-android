@@ -1,10 +1,12 @@
 package com.streamcap.mobile.ui.settings
 
+import androidx.compose.foundation.layout.heightIn
 import android.content.Intent
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,8 +19,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -57,6 +62,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamcap.mobile.BuildConfig
 import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.ui.ViewModelFactory
+import com.streamcap.mobile.data.preferences.RecordingTemplate
+import com.streamcap.mobile.ui.theme.ThemePalette
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -64,16 +71,22 @@ fun SettingsScreen(
     container: AppContainer,
     contentPadding: PaddingValues,
     onOpenLogs: () -> Unit,
+    onOpenStorage: () -> Unit,
+    onOpenBackup: () -> Unit,
+    onOpenLicenses: () -> Unit,
+    onOpenUserGuide: () -> Unit,
     onOpenPlatforms: () -> Unit,
 ) {
+    val context = LocalContext.current
     val viewModel: SettingsViewModel = viewModel(
-        factory = ViewModelFactory { SettingsViewModel(container.preferences, container.repository) },
+        factory = ViewModelFactory { SettingsViewModel(context, container.preferences, container.repository) },
     )
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var showFormatDialog by remember { mutableStateOf(false) }
     var showQualityDialog by remember { mutableStateOf(false) }
-    var showLanguageDialog by remember { mutableStateOf(false) }
-    val context = LocalContext.current
+    var showIntervalDialog by remember { mutableStateOf(false) }
+    var showTemplateDialog by remember { mutableStateOf(false) }
+    val templates by viewModel.templates.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     var powerUnrestricted by remember { mutableStateOf(false) }
     var notificationsEnabled by remember { mutableStateOf(false) }
@@ -104,6 +117,7 @@ fun SettingsScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .widthIn(max = 1120.dp)
             .padding(contentPadding),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -114,13 +128,6 @@ fun SettingsScreen(
         }
         item {
             SettingsSection("基础设置") {
-                SettingsRow(
-                    title = "程序语言",
-                    value = settings.language,
-                    modifier = Modifier.clickable { showLanguageDialog = true },
-                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
-                )
-                HorizontalDivider()
                 SettingsRow(
                     title = "录制通知",
                     value = if (notificationsEnabled) "已开启" else "未开启，建议打开",
@@ -134,16 +141,40 @@ fun SettingsScreen(
             }
         }
         item {
-            SettingsSection("录制") {
+            SettingsSection("外观") {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ThemePalette.entries.forEach { palette ->
+                        FilterChip(
+                            selected = settings.themePalette == palette.id,
+                            onClick = { viewModel.setThemePalette(palette.id) },
+                            label = { Text(palette.label) },
+                            leadingIcon = {
+                                Spacer(
+                                    Modifier.size(20.dp)
+                                        .background(palette.preview, CircleShape),
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            SettingsSection("录制默认值 · 格式、画质和间隔仅用于新直播间") {
                 SettingsRow(
-                    title = "可用存储空间",
-                    value = formatStorage(container.recordingStorage.recordingRoot().usableSpace),
+                    title = "存储管理",
+                    value = "查看视频、待恢复媒体和预览缓存",
+                    modifier = Modifier.clickable(onClick = onOpenStorage),
                 )
                 HorizontalDivider()
                 SettingsRow(
                     icon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
                     title = "保存目录",
-                    value = settings.storageDirectoryUri?.let { "已选择自定义目录" } ?: "Movies/StreamCap",
+                    value = settings.storageDirectoryUri?.let { "已选择自定义目录" } ?: "Movies/StreamCap · 未指定房间目录时使用",
                     modifier = Modifier.clickable { directoryPicker.launch(null) },
                     trailing = settings.storageDirectoryUri?.let {
                         {
@@ -173,7 +204,7 @@ fun SettingsScreen(
             SettingsSection("后台运行") {
                 SettingsRow(
                     title = "电池优化",
-                    value = if (powerUnrestricted) "已关闭优化，允许后台录制" else "未豁免，可能被系统暂停",
+                    value = if (powerUnrestricted) "已豁免电池优化" else "未豁免，可能被系统暂停",
                     modifier = Modifier.clickable {
                         val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                             data = android.net.Uri.parse("package:${context.packageName}")
@@ -187,18 +218,46 @@ fun SettingsScreen(
                 HorizontalDivider()
                 SettingsRow(
                     title = "后台启动与自启动",
-                    value = "部分厂商需要手动允许",
-                    modifier = Modifier.clickable {
-                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = android.net.Uri.parse("package:${context.packageName}")
-                        })
-                    },
+                    value = if (isHuaweiDevice()) "应用启动管理：手动管理，允许自启动、关联启动和后台活动" else "部分厂商需要手动允许",
+                    modifier = Modifier.clickable { openBackgroundLaunchSettings(context) },
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开应用设置") },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "视频与存储权限",
+                    value = "允许访问录制视频和删除旧文件",
+                    modifier = Modifier.clickable {
+                        context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:${context.packageName}")))
+                    },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开应用权限设置") },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "全局自动录制",
+                    value = if (settings.globalAutoRecordEnabled) "开播后自动开始录制" else "仅手动录制",
+                    trailing = {
+                        Switch(
+                            checked = settings.globalAutoRecordEnabled,
+                            onCheckedChange = viewModel::setGlobalAutoRecordEnabled,
+                        )
+                    },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "后台持续检测",
+                    value = if (settings.backgroundMonitoringEnabled) "应用关闭后继续检查" else "只在打开应用时检查",
+                    trailing = {
+                        Switch(
+                            checked = settings.backgroundMonitoringEnabled,
+                            onCheckedChange = viewModel::setBackgroundMonitoringEnabled,
+                        )
+                    },
                 )
             }
         }
         item {
-            SettingsSection("文件命名") {
+            SettingsSection("文件命名 · 下次录制时读取，不重命名已有文件") {
                 SettingsRow(
                     title = "文件名包含标题",
                     value = if (settings.includeTitleInFileName) "已包含" else "不包含",
@@ -267,11 +326,24 @@ fun SettingsScreen(
             }
         }
         item {
+            SettingsSection("录制任务模板") {
+                Text("模板只保存格式、画质、分段和检查间隔，不包含账号、密钥、视频或目录授权。", modifier = Modifier.padding(14.dp), style = MaterialTheme.typography.bodySmall)
+                templates.forEach { template ->
+                    HorizontalDivider()
+                    SettingsRow(title = template.name, value = "${template.format} · ${template.quality} · ${template.segmentSeconds / 60} 分钟分段 · ${template.intervalSeconds} 秒检查", trailing = {
+                        androidx.compose.material3.IconButton(onClick = { viewModel.deleteTemplate(template.name) }) { Icon(Icons.Outlined.Restore, contentDescription = "删除模板") }
+                    })
+                }
+                HorizontalDivider()
+                TextButton(onClick = { showTemplateDialog = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("从当前默认值保存模板") }
+            }
+        }
+        item {
             SettingsSection("运行条件") {
                 SettingsRow(
                     icon = { Icon(Icons.Outlined.NetworkCell, contentDescription = null) },
                     title = "允许移动数据",
-                    value = if (settings.allowMobileData) "已允许" else "仅 Wi-Fi",
+                    value = (if (settings.allowMobileData) "已允许" else "仅 Wi-Fi") + " · 立即影响全部录制及直播预览",
                     trailing = {
                         Switch(
                             checked = settings.allowMobileData,
@@ -291,6 +363,20 @@ fun SettingsScreen(
                         )
                     },
                 )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "默认开播检查间隔",
+                    value = "${settings.checkIntervalSeconds} 秒 · 仅新直播间",
+                    modifier = Modifier.clickable { showIntervalDialog = true },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                )
+            }
+        }
+        item {
+            SettingsSection("迁移") {
+                SettingsRow(title = "配置备份与迁移", value = "预览后导入，重复房间不覆盖",
+                    modifier = Modifier.clickable(onClick = onOpenBackup),
+                    trailing = { Icon(Icons.Outlined.ChevronRight, null) })
             }
         }
         item {
@@ -299,14 +385,25 @@ fun SettingsScreen(
                     modifier = Modifier.clickable(onClick = onOpenLogs),
                     icon = { Icon(Icons.Outlined.History, contentDescription = null) },
                     title = "任务日志",
-                    value = "查看并导出错误日志",
+                    value = "预览脱敏诊断，再选择导出",
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
                 )
             }
         }
         item {
+            SettingsSection("关于") {
+                SettingsRow(title = "使用说明", value = "第一次使用的操作步骤和故障排查",
+                    modifier = Modifier.clickable(onClick = onOpenUserGuide),
+                    trailing = { Icon(Icons.Outlined.ChevronRight, null) })
+                HorizontalDivider()
+                SettingsRow(title = "开源许可", value = "FFmpeg 与第三方组件的许可和源码说明",
+                    modifier = Modifier.clickable(onClick = onOpenLicenses),
+                    trailing = { Icon(Icons.Outlined.ChevronRight, null) })
+            }
+        }
+        item {
             Text(
-                "StreamCap Android ${BuildConfig.VERSION_NAME}",
+                "CastTrace ${BuildConfig.VERSION_NAME}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
@@ -338,17 +435,24 @@ fun SettingsScreen(
             },
         )
     }
-    if (showLanguageDialog) {
+    if (showIntervalDialog) {
         ChoiceDialog(
-            title = "程序语言",
-            selected = settings.language,
-            options = listOf("简体中文"),
-            onDismiss = { showLanguageDialog = false },
+            title = "默认开播检查间隔",
+            selected = "${settings.checkIntervalSeconds} 秒",
+            options = listOf(15, 30, 60, 120, 300, 600).map { "$it 秒" },
+            onDismiss = { showIntervalDialog = false },
             onSelect = {
-                viewModel.setLanguage(it)
-                showLanguageDialog = false
+                viewModel.setCheckIntervalSeconds(it.removeSuffix(" 秒").toInt())
+                showIntervalDialog = false
             },
         )
+    }
+    if (showTemplateDialog) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(onDismissRequest = { showTemplateDialog = false }, title = { Text("保存录制模板") },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("模板名称") }, singleLine = true) },
+            confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { viewModel.saveTemplate(RecordingTemplate(name.trim().take(32), settings.defaultFormat, settings.defaultQuality, settings.checkIntervalSeconds)); showTemplateDialog = false }) { Text("保存") } },
+            dismissButton = { TextButton(onClick = { showTemplateDialog = false }) { Text("取消") } })
     }
 }
 
@@ -423,8 +527,8 @@ private fun SettingsRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(66.dp)
-            .padding(horizontal = 14.dp),
+            .heightIn(min = 66.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         icon?.let {

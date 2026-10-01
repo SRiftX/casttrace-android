@@ -10,7 +10,29 @@ SHA256 of the development binary:
 E80E5EE52248A3DCB1DDA0524DD784FE4BBB212DCD4D575E82E15D21A002D860
 ```
 
-This checksum identifies the tested file, not its source or licensing.
-Do not substitute an arbitrary artifact with the same filename. No verified
-public download coordinate for this exact build is asserted here. See
-../../THIRD_PARTY.md before distributing the binary or a linked APK.
+The checksum matches Maven Central exactly:
+`dev.ffmpegkit-maintained:ffmpeg-kit-https:7.1.6`.
+
+Download URL:
+https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar
+
+Gradle and CI enforce this pin. This is the LGPLv3 build containing FFmpeg
+n7.1.5 for arm64-v8a and x86_64. Do not substitute an arbitrary artifact.
+The upstream native source cache remains unavailable, so public binary
+redistribution is not yet cleared. See `THIRD_PARTY.md`
+and `third_party/ffmpeg/manifest.json` for evidence and outstanding source gaps.
+
+The build uses a generated compatibility AAR under `app/build/ffmpeg/`.
+`prepareCompatibleFfmpeg` changes only ELF64 `PT_GNU_RELRO.p_memsz` where
+16 KiB alignment padding extends beyond every mapped `PT_LOAD` segment at
+4 KiB page granularity. The pinned input remains unchanged. On Android 10
+the original arm64 `libswresample.so` asks `mprotect` to protect unmapped
+pages, producing ENOMEM even with ample memory. The generated artifact
+trims only that unmapped padding; all RELRO file data, code, load segments,
+alignment and license files are preserved. The x86_64 artifact also needs
+this correction in `libavdevice.so` and `libswresample.so`.
+
+This is a local binary modification, not an upstream rebuild. Any future
+artifact update must review/remove this transformation and rerun device
+loading, remuxing, decoding and seek tests, including a 16 KiB-page device.
+The source/compliance gaps above still apply to the derived artifact.
