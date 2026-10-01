@@ -96,6 +96,7 @@ class RecordingEnginesTest {
             val expected = flvHeader() + firstTag + secondTag + thirdTag
             withTimeout(25000) { recorder.observe(handle).first { it.bytesWritten >= expected.size } }
             recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.PAUSE)
+            withTimeout(5000) { recorder.observe(handle).first { it.state == RecorderState.STOPPED } }
             assertTrue(attempts.get() >= 11)
             assertArrayEquals(expected, file.readBytes())
         } finally { scope.cancel(); server.shutdown(); file.delete() }
