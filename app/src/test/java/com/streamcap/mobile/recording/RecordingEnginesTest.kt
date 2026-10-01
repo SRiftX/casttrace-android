@@ -461,9 +461,12 @@ class RecordingEnginesTest {
             val handle = recorder.start(
                 RecordingRequest(server.url("/live.flv").toString(), emptyMap(), StreamType.FLV, output, 1),
             )
-            val expectedBytes = 2L * flvHeader().size + firstTag.size + secondTag.size
             withTimeout(5_000) {
-                recorder.observe(handle).first { it.outputFiles.size >= 2 && it.bytesWritten >= expectedBytes }
+                recorder.observe(handle).first {
+                    it.outputFiles.size >= 2 && it.outputFiles.all { file ->
+                        file.length() >= flvHeader().size + firstTag.size
+                    }
+                }
             }
             recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.USER)
             val terminal = withTimeout(5_000) {
