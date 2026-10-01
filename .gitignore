@@ -25,6 +25,7 @@ keystore.properties
 *.mp4
 *.flv
 *.ts
+!app/src/androidTest/assets/preview.ts
 *.part
 /verification/
 /captures/
@@ -33,3 +34,5 @@ __pycache__/
 
 # Local documentation and device QA evidence stay off GitHub.
 /docs/
+/scripts/Test-Mate20Endurance.ps1
+/scripts/package_release_candidate.py

@@ -8,7 +8,7 @@ Set-StrictMode -Version Latest
 $root = Split-Path $PSScriptRoot -Parent
 $key = Join-Path $SigningDirectory 'casttrace-release.p12'
 $secret = Join-Path $SigningDirectory 'password.dpapi.xml'
-if (!(Test-Path -LiteralPath $key) -or !(Test-Path -LiteralPath $secret)) { throw 'Release signing is not initialized. See docs/RELEASE-SIGNING.md.' }
+if (!(Test-Path -LiteralPath $key) -or !(Test-Path -LiteralPath $secret)) { throw 'Release signing is not initialized. See CONTRIBUTING.md.' }
 $names = @('CASTTRACE_KEYSTORE','CASTTRACE_STORE_PASSWORD','CASTTRACE_KEY_ALIAS','CASTTRACE_KEY_PASSWORD')
 $previous = @{}
 foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }

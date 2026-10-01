@@ -19,7 +19,7 @@ No restriction is imposed on modification of these LGPL libraries or reverse
 engineering for debugging such modifications. Public distribution is intended to use
 LGPLv3 section 4(d)(0), with corresponding application and library source materials.
 This local candidate is not cleared for public distribution: the exact native source
-cache used upstream has not been recovered. See docs/FFMPEG-LICENSE.md and
+cache used upstream has not been recovered. See THIRD_PARTY.md and
 casttrace-ffmpeg-7.1.6-source-materials.zip for evidence and remaining source gaps.
 casttrace-application-source.zip contains the application snapshot and relinking notes.
 Modified APKs may be signed using the recipient's own key; our release private key

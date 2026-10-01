@@ -102,3 +102,5 @@ adb shell am instrument -w -e class com.streamcap.mobile.PlaybackAcceptanceTest 
 感谢 [StreamCap](https://github.com/ihmily/StreamCap) 作者及贡献者，以及 [FFmpeg](https://ffmpeg.org/)、Jetpack Compose、Media3、OkHttp 等开源项目。
 
 问题和建议可提交到 [Issues](https://github.com/lsr-05/casttrace-android/issues)。反馈前请去除 Cookie、账号信息、设备标识和私人录制内容。
+
+贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)，安全问题报告见 [SECURITY.md](SECURITY.md)。
