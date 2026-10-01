@@ -461,10 +461,14 @@ class RecordingEnginesTest {
             val handle = recorder.start(
                 RecordingRequest(server.url("/live.flv").toString(), emptyMap(), StreamType.FLV, output, 1),
             )
-            val terminal = withTimeout(5_000) {
-                recorder.observe(handle).first { it.outputFiles.size >= 2 }
+            val expectedBytes = 2L * flvHeader().size + firstTag.size + secondTag.size
+            withTimeout(5_000) {
+                recorder.observe(handle).first { it.outputFiles.size >= 2 && it.bytesWritten >= expectedBytes }
             }
             recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.USER)
+            val terminal = withTimeout(5_000) {
+                recorder.observe(handle).first { it.state == RecorderState.STOPPED }
+            }
             assertEquals(2, terminal.outputFiles.size)
             assertTrue(terminal.outputFiles.all { it.length() > flvHeader().size })
             terminal.outputFiles.forEach { file ->
