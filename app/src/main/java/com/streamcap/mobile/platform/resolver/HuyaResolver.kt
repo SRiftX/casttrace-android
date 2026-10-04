@@ -68,11 +68,17 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
             val list = stream?.optJSONArray("baseSteamInfoList")
             val items = if (list == null) emptyList() else (0 until list.length())
                 .mapNotNull(list::optJSONObject)
+                // The mobile API commonly lists AL/TX first. Those endpoints
+                // return a short-lived 302 redirect on Mate 20, while HS serves
+                // the signed FLV directly with keep-alive. Prefer the direct
+                // route so background recording does not reconnect every few
+                // seconds.
                 .sortedBy { item ->
-                    when (item.optString("sCdnType")) {
-                        "TX" -> 0
-                        "HW" -> 1
-                        else -> 2
+                    when (item.optString("sCdnType").uppercase()) {
+                        "HS" -> 0
+                        "AL" -> 1
+                        "TX" -> 2
+                        else -> 3
                     }
                 }
             for (item in items) {
@@ -89,11 +95,8 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
                 if (flv.startsWith("http")) sources += StreamSource(secureStreamUrl(flv), StreamType.FLV, "原画", headers = STREAM_HEADERS)
                 if (hls.startsWith("http")) sources += StreamSource(secureStreamUrl(hls), StreamType.HLS, "原画", headers = STREAM_HEADERS)
             }
-            // Try intact server-issued signatures before locally reconstructed ones.
-            sources += runCatching { loadWebSources(liveUrl) }.onFailure {
-                if (it is kotlinx.coroutines.CancellationException) throw it
-                android.util.Log.w("StreamCapSource", "Huya web resolution failed: ${it.message}")
-            }.getOrDefault(emptyList())
+            // The mobile API supplies signed URLs in CDN priority order. Avoid
+            // reparsing the large web page on every short FLV reconnect.
         }
         return HuyaData(
             liveUrl = liveUrl,

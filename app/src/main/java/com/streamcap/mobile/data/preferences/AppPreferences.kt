@@ -27,6 +27,7 @@ data class UserSettings(
     val removeEmojiFromFileName: Boolean = false,
     val globalAutoRecordEnabled: Boolean = true,
     val backgroundMonitoringEnabled: Boolean = true,
+    val powerSavingMonitoring: Boolean = false,
 )
 
 class AppPreferences(private val context: Context) {
@@ -46,6 +47,7 @@ class AppPreferences(private val context: Context) {
         val recordingViewMode = stringPreferencesKey("recording_view_mode")
         val globalAutoRecordEnabled = booleanPreferencesKey("global_auto_record_enabled")
         val backgroundMonitoringEnabled = booleanPreferencesKey("background_monitoring_enabled")
+        val powerSavingMonitoring = booleanPreferencesKey("power_saving_monitoring")
         val danmakuFontSize = floatPreferencesKey("danmaku_font_size")
         val danmakuOpacity = floatPreferencesKey("danmaku_opacity")
         val danmakuSpeed = floatPreferencesKey("danmaku_speed")
@@ -70,6 +72,7 @@ class AppPreferences(private val context: Context) {
             removeEmojiFromFileName = values[Keys.removeEmojiFromFileName] ?: false,
             globalAutoRecordEnabled = values[Keys.globalAutoRecordEnabled] ?: true,
             backgroundMonitoringEnabled = values[Keys.backgroundMonitoringEnabled] ?: true,
+            powerSavingMonitoring = values[Keys.powerSavingMonitoring] ?: false,
         )
     }
 
@@ -136,6 +139,10 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setBackgroundMonitoringEnabled(value: Boolean) {
         context.dataStore.edit { it[Keys.backgroundMonitoringEnabled] = value }
+    }
+
+    suspend fun setPowerSavingMonitoring(value: Boolean) {
+        context.dataStore.edit { it[Keys.powerSavingMonitoring] = value }
     }
 
     val templates: Flow<List<RecordingTemplate>> = context.dataStore.data.map { decodeTemplates(it[Keys.recordingTemplates].orEmpty()) }

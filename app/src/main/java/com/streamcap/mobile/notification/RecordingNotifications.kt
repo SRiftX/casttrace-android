@@ -50,6 +50,10 @@ class RecordingNotifications(private val context: Context) {
         recoverySessionId: Long? = null,
     ): Notification = build(roomName, message, roomId, ongoing, recoverySessionId)
 
+    fun blockedNotification(): Notification = build(
+        "后台启动受限", "点击打开应用恢复检测；并检查应用启动管理", null, false,
+    )
+
     fun notifyRoom(roomId: Long, notification: Notification) {
         manager.notify("room:$roomId", ROOM_NOTIFICATION_ID, notification)
     }

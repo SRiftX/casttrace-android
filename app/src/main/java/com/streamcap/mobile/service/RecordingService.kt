@@ -14,12 +14,11 @@ import androidx.core.content.ContextCompat
 import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.data.database.RecordingSessionEntity
 import com.streamcap.mobile.domain.model.LiveStatus
-import com.streamcap.mobile.domain.model.MAX_SEGMENT_SECONDS
-import com.streamcap.mobile.domain.model.MIN_SEGMENT_SECONDS
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.notification.RecordingNotifications
 import com.streamcap.mobile.recording.engine.RecorderState
+import com.streamcap.mobile.recording.RecordingSegmentPolicy
 import com.streamcap.mobile.recording.engine.Recorder
 import com.streamcap.mobile.recording.engine.RecordingHandle
 import com.streamcap.mobile.recording.engine.RecordingRequest
@@ -73,6 +72,7 @@ class RecordingService : Service() {
         val removeEmojiFromFileName: Boolean,
         val danmakuController: DanmakuController? = null,
         val checkpointedFiles: MutableSet<String> = ConcurrentHashMap.newKeySet(),
+        @Volatile var stopReason: StopReason? = null,
         var timerJob: Job? = null,
     )
 
@@ -85,9 +85,11 @@ class RecordingService : Service() {
     private val starting = ConcurrentHashMap.newKeySet<Long>()
     private val stopRequested = ConcurrentHashMap.newKeySet<Long>()
     private val pauseRequested = ConcurrentHashMap.newKeySet<Long>()
+    private val resumeRequested = ConcurrentHashMap.newKeySet<Long>()
     private val retryCounts = ConcurrentHashMap<Long, Int>()
     private val sourceAttempts = ConcurrentHashMap<Long, Int>()
     private var monitorJob: Job? = null
+    @Volatile private var powerSavingMonitoring = false
     private val monitoringPreparationMutex = Mutex()
     @Volatile private var monitoringActive = false
     private val notificationDismissReceiver = object : android.content.BroadcastReceiver() {
@@ -119,7 +121,7 @@ class RecordingService : Service() {
             if (container.networkPolicy.allowsRequests()) return@launch
             (active.keys + starting).distinct().forEach { roomId ->
                 if (pauseRequested.contains(roomId)) return@forEach
-                pauseRecording(roomId)
+                pauseRecording(roomId, StopReason.NETWORK_POLICY)
                 repository.log(roomId, active[roomId]?.sessionId, "WARN", "NETWORK_POLICY_PAUSED",
                     "仅 Wi-Fi 模式阻止当前网络，正在保存已录内容；恢复网络后可手动继续")
             }
@@ -169,6 +171,7 @@ class RecordingService : Service() {
                     retries.cancel(roomId)
                     stopRequested.remove(roomId)
                     pauseRequested.remove(roomId)
+                    resumeRequested.add(roomId)
                     sourceAttempts.remove(roomId)
                     startRecording(roomId, stopAt)
                 }
@@ -206,6 +209,7 @@ class RecordingService : Service() {
         active.values.forEach { recording ->
             CoroutineScope(Dispatchers.IO).launch {
                 runCatching { recording.danmakuController?.stop("service-destroyed") }
+                recording.stopReason = StopReason.SERVICE_DESTROYED
                 runCatching { recording.recorder.stop(recording.handle, StopReason.SERVICE_DESTROYED) }
             }
         }
@@ -222,11 +226,16 @@ class RecordingService : Service() {
         monitorJob = serviceScope.launch {
             monitoringActive = true
             try {
-                acquireWakeLock()
+                powerSavingMonitoring = container.preferences.settings.first().powerSavingMonitoring
+                if (!powerSavingMonitoring) acquireWakeLock()
                 repository.log(null, null, "INFO", "BACKGROUND_MONITOR_STARTED", "后台持续检测已启动，熄屏时继续等待开播")
                 while (true) {
+                    powerSavingMonitoring = container.preferences.settings.first().powerSavingMonitoring
+                    BackgroundMonitorStatus.running(applicationContext)
+                    if (powerSavingMonitoring && active.isEmpty() && starting.isEmpty()) releasePowerLocks()
+                    else acquireWakeLock()
                     if (!container.networkPolicy.allowsRequests()) {
-                        delay(MONITOR_POLL_MILLIS)
+                        delay(if (powerSavingMonitoring) POWER_SAVING_POLL_MILLIS else MONITOR_POLL_MILLIS)
                         continue
                     }
                     repository.resetStaleChecks()
@@ -254,6 +263,7 @@ class RecordingService : Service() {
                         repository.log(room.id, null, "INFO", "BACKGROUND_CHECK", "后台检查开播状态，房间自动录制已启用，检查间隔 ${room.checkIntervalSeconds} 秒")
                         runCatching { repository.refresh(room.id) }
                             .onSuccess { status ->
+                                if (status != LiveStatus.ERROR) BackgroundMonitorStatus.checked(applicationContext)
                                 if (status == LiveStatus.LIVE) {
                                     repository.log(room.id, null, "INFO", "BACKGROUND_LIVE_DETECTED", "后台已检测到开播，准备启动录制")
                                     startRecording(room.id, null)
@@ -269,7 +279,7 @@ class RecordingService : Service() {
                                 )
                             }
                     }
-                    delay(MONITOR_POLL_MILLIS)
+                    delay(if (powerSavingMonitoring) POWER_SAVING_POLL_MILLIS else MONITOR_POLL_MILLIS)
                 }
             } catch (error: Throwable) {
                 if (error is kotlinx.coroutines.CancellationException) throw error
@@ -281,6 +291,7 @@ class RecordingService : Service() {
                 }
             } finally {
                 monitoringActive = false
+                BackgroundMonitorStatus.stopped(applicationContext)
                 monitorJob = null
                 stopIfIdle()
             }
@@ -317,6 +328,7 @@ class RecordingService : Service() {
             if (room.taskStatus == TaskStatus.PAUSED || retries.isPending(room.id) || active.containsKey(room.id) || starting.contains(room.id)) return@forEach
             runCatching { repository.refresh(room.id) }
                 .onSuccess { status ->
+                    if (status != LiveStatus.ERROR) BackgroundMonitorStatus.checked(applicationContext)
                     if (status == LiveStatus.LIVE) startRecording(room.id, null)
                 }
                 .onFailure { error ->
@@ -335,7 +347,7 @@ class RecordingService : Service() {
                 starting.remove(roomId)
                 return@launch
             }
-            if (!room.enabled) {
+            if (!room.enabled || (room.taskStatus == TaskStatus.PAUSED && !resumeRequested.remove(roomId)) || pauseRequested.contains(roomId)) {
                 starting.remove(roomId)
                 return@launch
             }
@@ -368,7 +380,16 @@ class RecordingService : Service() {
                 val huyaMp4 = requestedFormat == "MP4" && room.platform in setOf("huya", "虎牙直播")
                 val preferHuyaFlv = room.platform in setOf("huya", "虎牙直播") &&
                     (huyaMp4 || room.flvDirectDownload) && availableSources.any { it.type == StreamType.FLV }
-                val preferredCandidates = when (requestedFormat) {
+                // Huya's mobile HLS signatures are frequently rejected by its CDN
+                // (HTTP 403) even while the FLV stream is valid. Falling back to HLS
+                // after a short FLV disconnect turns a recoverable reconnect into a
+                // guaranteed failure, so keep Huya on the probed FLV path.
+                val preferHlsAfterFlvFailures = room.platform !in setOf("huya", "虎牙直播") &&
+                    (sourceAttempts[roomId] ?: 0) >= 3 &&
+                    availableSources.any { it.type == StreamType.HLS }
+                val preferredCandidates = if (preferHlsAfterFlvFailures) {
+                    availableSources.filter { it.type == StreamType.HLS }
+                } else when (requestedFormat) {
                     "FLV" -> availableSources.filter { it.type == StreamType.FLV }
                     "MP4" -> availableSources.filter { it.type == if (preferHuyaFlv) StreamType.FLV else StreamType.HLS }
                     "TS" -> availableSources.filter { it.type == StreamType.HLS }
@@ -377,7 +398,12 @@ class RecordingService : Service() {
                 // MP4 is an output container; Huya uses the desktop resolver's FLV preference.
                 val candidates = preferredCandidates
                     .ifEmpty {
-                        availableSources.filter { it.type == StreamType.HLS || it.type == StreamType.FLV }
+                        val fallbackTypes = if (room.platform in setOf("huya", "虎牙直播")) {
+                            setOf(StreamType.FLV)
+                        } else {
+                            setOf(StreamType.HLS, StreamType.FLV)
+                        }
+                        availableSources.filter { it.type in fallbackTypes }
                     }
                     .distinctBy { it.url }
                 val initialSource = candidates.getOrNull(
@@ -483,9 +509,16 @@ class RecordingService : Service() {
                         streamType = source.type,
                         destination = temporary,
                         // 旧数据库可能仍保存 1 分钟等历史值，录制入口再次兜底到 30 分钟。
-                        segmentSeconds = room.segmentSeconds
-                            .coerceIn(MIN_SEGMENT_SECONDS, MAX_SEGMENT_SECONDS)
-                            .takeIf { room.segmentEnabled },
+                        segmentSeconds = RecordingSegmentPolicy.effectiveSeconds(room.segmentEnabled, room.segmentSeconds),
+                        eventLogger = { type, fields ->
+                            serviceScope.launch {
+                                val details = (mapOf("time" to System.currentTimeMillis().toString(),
+                                    "sessionId" to sessionId.toString()) + fields)
+                                    .entries.joinToString(" ") { (key, value) -> "$key=$value" }
+                                android.util.Log.i("StreamCapEvent", "$type $details")
+                                repository.log(roomId, sessionId, "INFO", type, details)
+                            }
+                        },
                         // HLS 签名过期与 CDN 断流和是否开启自动监控无关，手动录制也必须能刷新线路。
                         refreshSource = if (source.type == StreamType.HLS) {
                             val refresh: suspend (Boolean) -> StreamSource? = { _ ->
@@ -628,25 +661,37 @@ class RecordingService : Service() {
 
     private suspend fun observeRecording(recording: ActiveRecording) {
         var lastPersistAt = 0L
+        var lastNotificationAt = 0L
+        var lastRoomStateAt = 0L
+        var lastRoomState: RecorderState? = null
         val terminal = recording.recorder.observe(recording.handle)
             .onEach { progress ->
                 val now = System.currentTimeMillis()
                 if (progress.state == RecorderState.RECORDING && container.recordingStorage.recordingRoot().usableSpace < MIN_RUNTIME_FREE_BYTES) {
                     repository.log(recording.roomId, recording.sessionId, "WARN", "STORAGE_LOW", "可用空间低于 128 MB，正在停止并保存已有内容")
+                    recording.stopReason = StopReason.STORAGE_LOW
                     recording.recorder.stop(recording.handle, StopReason.STORAGE_LOW)
                 }
-                if (recording.notificationsEnabled) {
+                if (recording.notificationsEnabled && now - lastNotificationAt >= 5_000L) {
                     notifications.notifyRoom(
                         recording.roomId,
                         notifications.recordingNotification(
                             recording.roomId,
                             recording.roomName,
-                            "已录制 ${formatBytes(progress.bytesWritten)} · ${formatDuration(progress.durationSeconds)}",
-                            ongoing = progress.state == RecorderState.STARTING || progress.state == RecorderState.RECORDING,
+                            if (progress.state == RecorderState.RECONNECTING) "断流重试中 · 已录制 ${formatBytes(progress.bytesWritten)}"
+                            else "已录制 ${formatBytes(progress.bytesWritten)} · ${formatDuration(progress.durationSeconds)}",
+                            ongoing = progress.state == RecorderState.STARTING || progress.state == RecorderState.RECORDING || progress.state == RecorderState.RECONNECTING,
                         ),
                     )
+                    lastNotificationAt = now
                 }
                 checkpointCompletedParts(recording, progress.completedOutputFiles)
+                if (progress.state != lastRoomState && now - lastRoomStateAt >= 5_000L &&
+                    (progress.state == RecorderState.RECONNECTING || progress.state == RecorderState.RECORDING)) {
+                    repository.setRoomTaskStatus(recording.roomId, LiveStatus.LIVE, progress.state.toTaskStatus())
+                    lastRoomState = progress.state
+                    lastRoomStateAt = now
+                }
                 if (now - lastPersistAt >= 5_000) {
                     repository.session(recording.sessionId)?.let { session ->
                         repository.updateSession(
@@ -662,6 +707,13 @@ class RecordingService : Service() {
                 }
             }
             .first { it.state in TERMINAL_STATES }
+
+        repository.log(recording.roomId, recording.sessionId, "INFO", "RECORDING_STOP_REASON",
+            "time=${System.currentTimeMillis()} sessionId=${recording.sessionId} reason=${recording.stopReason ?: when {
+                terminal.liveEnded -> "LIVE_ENDED"
+                terminal.state == RecorderState.FAILED -> "STREAM_RETRY_EXHAUSTED"
+                else -> "STREAM_ENDED"
+            }} bytes=${terminal.bytesWritten} part=${terminal.outputFiles.size}")
 
         recording.timerJob?.cancel()
         val danmakuStats = runCatching {
@@ -701,10 +753,10 @@ class RecordingService : Service() {
         // accumulated outputUris (and their duration) with the session-start snapshot.
         session = repository.session(recording.sessionId) ?: session
         // An explicit pause wins over a transport error raised while cancelling the HTTP call.
-        val paused = pauseRequested.contains(recording.roomId)
+        val userPaused = pauseRequested.contains(recording.roomId)
         val persistedOutputUris = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
         val persistedPublishedDuration = publishedDurationSeconds(persistedOutputUris)
-        if (paused && terminal.bytesWritten == 0L) {
+        if (userPaused && terminal.bytesWritten == 0L) {
             repository.updateSession(
                 session.copy(
                     status = TaskStatus.PAUSED,
@@ -729,6 +781,13 @@ class RecordingService : Service() {
             else -> currentRoom?.liveStatus ?: LiveStatus.UNKNOWN
         }
         val liveEnded = liveStatus == LiveStatus.OFFLINE && !intentionalStop
+        val isHuya = recording.platform in setOf("huya", "虎牙直播")
+        val hlsFallback = !isHuya && terminal.retryExhausted && recording.streamType == StreamType.FLV && runCatching {
+            val candidates = recordingSources(recording.roomId).filter { it.type == StreamType.HLS }
+            candidates.isNotEmpty() && HlsSourceSelector(container.httpClient).select(candidates).url.isNotBlank()
+        }.getOrDefault(false)
+        val disconnectPaused = terminal.retryExhausted && !liveEnded && !hlsFallback
+        val paused = userPaused || disconnectPaused
         val stopTimeNotReached = recording.stopAtMillis?.let { it > System.currentTimeMillis() } ?: true
         // A live transport may end at any duration, including manual long recordings.
         val liveDisconnect = terminal.state == RecorderState.COMPLETED &&
@@ -739,6 +798,7 @@ class RecordingService : Service() {
         val terminalError = terminal.errorMessage ?: "没有写入有效媒体数据"
         val retryCount = retryCounts[recording.roomId] ?: 0
         val shouldRetry = terminal.state == RecorderState.FAILED &&
+            (!terminal.retryExhausted || hlsFallback) &&
             !liveEnded &&
             !stopRequested.contains(recording.roomId) &&
             !pauseRequested.contains(recording.roomId) &&
@@ -747,7 +807,7 @@ class RecordingService : Service() {
                 room.enabled && (retryCount < MAX_START_RETRIES || room.scheduledMonitoringEnabled)
             } == true
         // 断流前已经写入的媒体必须保留。先发布当前有效段，再刷新线路继续录制。
-        val publishBeforeRetry = (shouldRetry || liveDisconnect) && terminal.bytesWritten > 0L
+        val publishBeforeRetry = (shouldRetry || liveDisconnect || hlsFallback) && terminal.bytesWritten > 0L
         if (liveEnded) {
             repository.log(recording.roomId, recording.sessionId, "INFO", "LIVE_ENDED", "主播已下播，保存已有内容并结束本次录制")
             if (terminal.bytesWritten == 0L && persistedOutputUris.isEmpty()) {
@@ -760,10 +820,17 @@ class RecordingService : Service() {
                 return
             }
         }
-        if (!liveEnded && ((terminal.state == RecorderState.FAILED && !intentionalStop) || terminal.bytesWritten == 0L)) {
+        if (disconnectPaused && terminal.bytesWritten == 0L && persistedOutputUris.isEmpty()) {
+            repository.updateSession(session.copy(status = TaskStatus.PAUSED,
+                endedAt = System.currentTimeMillis(), errorMessage = "断流已暂停，当前没有可保存的媒体"))
+            repository.setRoomTaskStatus(recording.roomId, LiveStatus.LIVE, TaskStatus.PAUSED)
+            finishActive(recording.roomId)
+            return
+        }
+        if (!liveEnded && !disconnectPaused && ((terminal.state == RecorderState.FAILED && !intentionalStop) || terminal.bytesWritten == 0L)) {
             if (shouldRetry && terminal.bytesWritten == 0L) {
                 retryCounts[recording.roomId] = retryCount + 1
-                sourceAttempts[recording.roomId] = (sourceAttempts[recording.roomId] ?: 0) + 1
+                sourceAttempts[recording.roomId] = if (hlsFallback) 3 else (sourceAttempts[recording.roomId] ?: 0) + 1
                 repository.updateSession(
                     session.copy(
                         status = TaskStatus.FAILED,
@@ -937,7 +1004,7 @@ class RecordingService : Service() {
                     outputUris = outputUris.toList(),
                     totalBytes = terminal.bytesWritten,
                     durationSeconds = finalDurationSeconds,
-                    errorMessage = null,
+                    errorMessage = if (disconnectPaused) "断流已暂停，已保存当前内容" else null,
                 ),
             )
             repository.setRoomTaskStatus(
@@ -951,6 +1018,7 @@ class RecordingService : Service() {
                 "INFO",
                 if (paused) "RECORDING_PAUSED" else "RECORDING_COMPLETED",
                 when {
+                    disconnectPaused -> "断流已暂停，已保存当前内容；点击继续后可恢复录制"
                     paused -> "录制已暂停，当前内容已保存；点击继续后会建立新的录制分段"
                     liveEnded -> "主播已下播，录制文件已保存"
                     publishBeforeRetry -> "直播地址过期，已保存当前文件并准备自动续录"
@@ -964,7 +1032,9 @@ class RecordingService : Service() {
                         notifications.recordingNotification(
                             recording.roomId,
                             recording.roomName,
-                            if (paused) {
+                            if (disconnectPaused) {
+                                "断流已暂停，已保存当前内容"
+                            } else if (paused) {
                                 "录制已暂停，当前内容已保存"
                             } else if (liveEnded) {
                                 "主播已下播，录制文件已保存"
@@ -1005,7 +1075,9 @@ class RecordingService : Service() {
         }
         if (publishResult.isSuccess && publishBeforeRetry) {
             retryCounts[recording.roomId] = 0
-            sourceAttempts[recording.roomId] = (sourceAttempts[recording.roomId] ?: 0) + 1
+            sourceAttempts[recording.roomId] = if (hlsFallback) 3 else (sourceAttempts[recording.roomId] ?: 0) + 1
+            if (hlsFallback) repository.log(recording.roomId, recording.sessionId, "INFO", "STREAM_REFRESH_RESULT",
+                "FLV 线路连续失败；当前分段已保存，下一次尝试 HLS")
             repository.setRoomTaskStatus(recording.roomId, LiveStatus.LIVE, TaskStatus.RECONNECTING)
             scheduleRetry(recording.roomId, recording.stopAtMillis, retryCounts[recording.roomId] ?: 0)
             active.remove(recording.roomId)
@@ -1042,6 +1114,8 @@ class RecordingService : Service() {
         completed.distinctBy { it.absolutePath }.forEach { file ->
             val key = file.absolutePath
             if (key in recording.checkpointedFiles || !file.exists() || file.length() <= 0L) return@forEach
+            val expectedPart = outputUris.size + 1
+            if (com.streamcap.mobile.storage.TemporaryRecordingParts.index(recording.temporaryFile, file) != expectedPart) return
             try {
                 withContext(Dispatchers.IO) {
                     if (recording.outputFormat == "FLV" || file.extension.equals("flv", true)) {
@@ -1117,6 +1191,7 @@ class RecordingService : Service() {
         val stopAt = recording.stopAtMillis ?: return
         recording.timerJob = serviceScope.launch {
             delay((stopAt - System.currentTimeMillis()).coerceAtLeast(0))
+            recording.stopReason = StopReason.TIMER
             recording.recorder.stop(recording.handle, StopReason.TIMER)
             repository.log(recording.roomId, recording.sessionId, "INFO", "TIMER_STOP", "定时停止已触发")
         }
@@ -1174,6 +1249,7 @@ class RecordingService : Service() {
         sourceAttempts.remove(roomId)
         val recording = active[roomId]
         if (recording != null) {
+            recording.stopReason = reason
             serviceScope.launch { recording.recorder.stop(recording.handle, reason) }
         } else {
             serviceScope.launch {
@@ -1183,15 +1259,17 @@ class RecordingService : Service() {
         }
     }
 
-    private fun pauseRecording(roomId: Long) {
+    private fun pauseRecording(roomId: Long, reason: StopReason = StopReason.PAUSE) {
         retries.cancel(roomId)
         pauseRequested.add(roomId)
+        resumeRequested.remove(roomId)
         retryCounts.remove(roomId)
         sourceAttempts.remove(roomId)
         val recording = active[roomId]
         if (recording != null) {
+            recording.stopReason = reason
             recording.timerJob?.cancel()
-            serviceScope.launch { recording.recorder.stop(recording.handle, StopReason.PAUSE) }
+            serviceScope.launch { recording.recorder.stop(recording.handle, reason) }
         } else {
             serviceScope.launch {
                 val room = repository.room(roomId) ?: return@launch
@@ -1210,6 +1288,7 @@ class RecordingService : Service() {
         pauseRequested.remove(roomId)
         retries.cancel(roomId)
         active[roomId]?.let { recording ->
+            recording.stopReason = StopReason.USER
             serviceScope.launch { recording.recorder.stop(recording.handle, StopReason.USER) }
         }
         starting.remove(roomId)
@@ -1298,13 +1377,16 @@ class RecordingService : Service() {
         var duration = publishedDuration
         val existingPartCount = outputUris.size
         val totalParts = existingPartCount + files.size
-        files.forEachIndexed { index, file ->
+        files.forEach { file ->
+            check(com.streamcap.mobile.storage.TemporaryRecordingParts.index(first, file) == outputUris.size + 1) {
+                "分段序号不连续，未发布的源文件已保留"
+            }
             if (session.streamType == StreamType.FLV || file.extension.equals("flv", true)) {
                 RecordingFileRepair.repairFlv(file)
             } else {
                 RecordingFileRepair.repairTransportStream(file)
             }
-            val suffix = if (totalParts > 1) "_${(existingPartCount + index + 1).toString().padStart(3, '0')}" else ""
+            val suffix = if (totalParts > 1) "_${(outputUris.size + 1).toString().padStart(3, '0')}" else ""
             val published = if (session.containerFormat.equals("mp4", true)) {
                 val target = File(file.parentFile, "${file.nameWithoutExtension}.mp4")
                 val tracks = RecordingMp4Remuxer.convert(file, target)
@@ -1386,6 +1468,7 @@ class RecordingService : Service() {
 
     private fun stopIfIdle() {
         if (monitoringActive) {
+            if (powerSavingMonitoring && active.isEmpty() && starting.isEmpty()) releasePowerLocks()
             val message = if (active.isEmpty()) "正在检测直播状态" else "${active.size} 个录制任务正在运行"
             getSystemService(android.app.NotificationManager::class.java).notify(
                 RecordingNotifications.SERVICE_NOTIFICATION_ID,
@@ -1422,7 +1505,8 @@ class RecordingService : Service() {
                 while (monitoringActive || active.isNotEmpty() || starting.isNotEmpty() || retries.hasPending()) {
                     delay(WAKE_LOCK_REFRESH_MILLIS)
                     synchronized(powerLockGuard) {
-                        if (!powerLocksClosed && (monitoringActive || active.isNotEmpty() || starting.isNotEmpty() || retries.hasPending())) {
+                        if (!powerLocksClosed && (!powerSavingMonitoring || active.isNotEmpty() || starting.isNotEmpty()) &&
+                            (monitoringActive || active.isNotEmpty() || starting.isNotEmpty() || retries.hasPending())) {
                             wakeLock.acquire(WAKE_LOCK_TIMEOUT_MILLIS)
                             wifiLock?.let { lock -> runCatching { if (!lock.isHeld) lock.acquire() } }
                         }
@@ -1443,6 +1527,7 @@ class RecordingService : Service() {
     private fun RecorderState.toTaskStatus(): TaskStatus = when (this) {
         RecorderState.STARTING -> TaskStatus.STARTING
         RecorderState.RECORDING -> TaskStatus.RECORDING
+        RecorderState.RECONNECTING -> TaskStatus.RECONNECTING
         RecorderState.COMPLETED, RecorderState.STOPPED -> TaskStatus.FINALIZING
         RecorderState.FAILED -> TaskStatus.FAILED
     }
@@ -1475,6 +1560,7 @@ class RecordingService : Service() {
         private const val WAKE_LOCK_REFRESH_MILLIS = 8 * 60 * 1_000L
         private const val MAX_START_RETRIES = 4
         private const val MONITOR_POLL_MILLIS = 15_000L
+        private const val POWER_SAVING_POLL_MILLIS = 60_000L
         private const val MIN_MONITOR_INTERVAL_SECONDS = 15
         private val TERMINAL_STATES = setOf(
             RecorderState.COMPLETED,

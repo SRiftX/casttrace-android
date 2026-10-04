@@ -116,6 +116,8 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
     val scope = rememberCoroutineScope()
     val progressStore = remember { PlaybackProgressStore(context) }
     var progress by remember(recording.id) { mutableStateOf(progressStore.read(recording.id)) }
+    var pageIndex by remember(recording.id) { mutableIntStateOf(progressStore.readPart(recording.id)) }
+    var pageCount by remember(recording.id) { mutableIntStateOf(0) }
     var openedPartCount by remember(recording.id) { mutableIntStateOf(recording.outputUris.size) }
     var live by rememberSaveable(recording.id) { mutableStateOf(false) }
     var fullscreen by rememberSaveable(recording.id) { mutableStateOf(false) }
@@ -158,11 +160,11 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
     }
     // A checkpoint changes the database list, not the user's current playback.
     // Keep the opened snapshot stable until an explicit refresh or mode change.
-    val resolver = remember(recording.id, live, retry) {
+    val resolver = remember(recording.id, live, retry, pageIndex) {
         RecordingPlaybackSourceResolver(context)
     }
     DisposableEffect(resolver) { onDispose { resolver.close() } }
-    LaunchedEffect(recording.id, live, retry) {
+    LaunchedEffect(recording.id, live, retry, pageIndex) {
         loading = true
         error = null
         items = emptyList()
@@ -187,15 +189,33 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                     .setMimeType(if (source.type == StreamType.HLS) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_FLV)
                     .build())
             } else {
+                val pages = withContext(Dispatchers.IO) {
+                    val durations = recording.outputUris.map { raw ->
+                        runCatching {
+                            context.contentResolver.query(Uri.parse(raw), arrayOf("duration"), null, null, null)?.use {
+                                if (it.moveToFirst()) it.getLong(0) else 0L
+                            } ?: 0L
+                        }.getOrDefault(0L)
+                    }
+                    PlaybackPages.group(recording.outputUris, durations)
+                }
+                pageCount = pages.size
+                val selectedPage = pageIndex.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+                if (pageIndex != selectedPage) {
+                    pageIndex = selectedPage
+                    progressStore.writePart(recording.id, selectedPage)
+                }
+                val paging = pages.isNotEmpty()
+                val selected = pages.getOrNull(selectedPage).orEmpty()
                 val uris = withContext(Dispatchers.IO) {
-                    resolver.resolve(recording.outputUri, recording.outputUris,
-                        recording.temporaryPath, recording.containerFormat,
-                        includeActiveTail = recording.status == com.streamcap.mobile.domain.model.TaskStatus.RECORDING,
+                    resolver.resolve(selected.firstOrNull() ?: recording.outputUri, selected,
+                        if (paging) null else recording.temporaryPath, recording.containerFormat,
+                        includeActiveTail = !paging && recording.status == com.streamcap.mobile.domain.model.TaskStatus.RECORDING,
                         refreshPublished = {
-                            container.repository.session(recording.id)?.outputUris.orEmpty()
+                            if (paging) selected else container.repository.session(recording.id)?.outputUris.orEmpty()
                         })
                 }
-                if (uris.size < recording.outputUris.distinct().size) {
+                if (uris.size < selected.distinct().size) {
                     requestedProgress = PlaybackProgress(0, false)
                     error = "部分分段无法读取，已从可用内容开头暂停；请检查目录权限。"
                 }
@@ -267,8 +287,23 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                     onDanmakuSettings = { showDanmakuSettings = true }, onExport = onExport,
                     onSwitchSource = { live = !live },
                     onRefresh = { retry++ }, hasNewParts = recording.outputUris.size > openedPartCount,
+                    pageIndex = pageIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0)), pageCount = pageCount,
+                    onSelectPage = { index ->
+                        if (index != pageIndex && index in 0 until pageCount) {
+                            progress = PlaybackProgress(0, true)
+                            requestedProgress = progress
+                            progressStore.write(recording.id, progress)
+                            progressStore.writePart(recording.id, index)
+                            pageIndex = index
+                        }
+                    },
                     initialProgress = requestedProgress ?: progress,
-                    onProgress = { progress = it; progressStore.write(recording.id, it) },
+                    onProgress = {
+                        if (progressStore.readPart(recording.id) == pageIndex) {
+                            progress = it
+                            progressStore.write(recording.id, it)
+                        }
+                    },
                     onReady = {
                         liveFailures = 0
                         requestedProgress?.let { progress = it; progressStore.write(recording.id, it); requestedProgress = null }
@@ -305,6 +340,7 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                          externalPanelOpen: Boolean,
                          onDanmakuSettings: () -> Unit, onExport: () -> Unit, onSwitchSource: () -> Unit,
                          onRefresh: () -> Unit, hasNewParts: Boolean,
+                         pageIndex: Int, pageCount: Int, onSelectPage: (Int) -> Unit,
                          initialProgress: PlaybackProgress, onProgress: (PlaybackProgress) -> Unit, onReady: () -> Unit, onError: (String) -> Unit) {
     val context = LocalContext.current
     // Recreate the data source when a live retry returns different request headers.
@@ -350,6 +386,9 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() { onReady() }
+            override fun onPlaybackStateChanged(state: Int) {
+                if (!live && state == Player.STATE_ENDED && pageIndex + 1 < pageCount) onSelectPage(pageIndex + 1)
+            }
             override fun onPlayerError(error: PlaybackException) {
                 android.util.Log.e("StreamCapPlayer", "Playback failed", error)
                 if (!live && player.hasNextMediaItem()) {
@@ -500,7 +539,7 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                                 onClick = { close(); onExport() })
                         }
                         if (!live) {
-                            DropdownMenuItem(text = { Text("分段 ${currentWindow + 1}/${items.size}") },
+                            DropdownMenuItem(text = { Text("分段 ${pageIndex + 1}/${pageCount.coerceAtLeast(1)}") },
                                 leadingIcon = { Icon(Icons.Outlined.VideoLibrary, null) }, onClick = { close(); panel = "parts" })
                             DropdownMenuItem(text = { Text("从头播放") }, leadingIcon = { Icon(Icons.Outlined.RestartAlt, null) },
                                 onClick = { close(); seekGlobal(player, timelineDurations, 0); player.play() })
@@ -544,12 +583,12 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                                 touch()
                             })
                         if (!live) {
-                            if (wide && items.size > 1) PlayerIcon(Icons.Outlined.SkipPrevious, "上一段",
-                                { player.seekToPreviousMediaItem(); touch() }, enabled = player.hasPreviousMediaItem())
+                            if (wide && pageCount > 1) PlayerIcon(Icons.Outlined.SkipPrevious, "上一段",
+                                { onSelectPage(pageIndex - 1); touch() }, enabled = pageIndex > 0)
                             PlayerIcon(Icons.Outlined.Replay10, "后退10秒", { player.seekBack(); touch() }, enabled = seekable)
                             PlayerIcon(Icons.Outlined.Forward10, "快进10秒", { player.seekForward(); touch() }, enabled = seekable)
-                            if (wide && items.size > 1) PlayerIcon(Icons.Outlined.SkipNext, "下一段",
-                                { player.seekToNextMediaItem(); touch() }, enabled = player.hasNextMediaItem())
+                            if (wide && pageCount > 1) PlayerIcon(Icons.Outlined.SkipNext, "下一段",
+                                { onSelectPage(pageIndex + 1); touch() }, enabled = pageIndex + 1 < pageCount)
                         }
                         if (timeOnOwnLine) Spacer(Modifier.weight(1f)) else Text(time,
                             style = MaterialTheme.typography.labelMedium, maxLines = 1,
@@ -595,14 +634,14 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                                 Text("${rate}x")
                             }
                         }
-                        "parts" -> items.indices.forEach { index ->
-                            Row(Modifier.fillMaxWidth().clickable { player.seekTo(index, 0); panel = null; touch() },
+                        "parts" -> (0 until pageCount.coerceAtLeast(items.size)).forEach { index ->
+                            Row(Modifier.fillMaxWidth().clickable { onSelectPage(index); panel = null; touch() },
                                 verticalAlignment = Alignment.CenterVertically) {
-                                RadioButton(currentWindow == index, onClick = { player.seekTo(index, 0); panel = null; touch() })
-                                Text("第 ${index + 1} 段 · ${timeLabel(timelineDurations.getOrElse(index) { 0 })}")
+                                RadioButton(pageIndex == index, onClick = { onSelectPage(index); panel = null; touch() })
+                                Text("第 ${index + 1} 段")
                             }
                         }
-                        else -> Text(videoProperties.ifBlank { "视频规格暂不可用" } + "\n分段 ${currentWindow + 1}/${items.size}")
+                        else -> Text(videoProperties.ifBlank { "视频规格暂不可用" } + "\n分段 ${pageIndex + 1}/${pageCount.coerceAtLeast(1)}")
                     }
                 }
             }, confirmButton = { TextButton(onClick = { panel = null; touch() }) { Text("完成") } })

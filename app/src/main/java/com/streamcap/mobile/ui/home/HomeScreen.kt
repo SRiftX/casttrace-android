@@ -83,6 +83,10 @@ import com.streamcap.mobile.ui.theme.RecordingRed
 import com.streamcap.mobile.ui.theme.WarningAmber
 import com.streamcap.mobile.ui.common.MotionTokens
 import com.streamcap.mobile.service.RecordingService
+import com.streamcap.mobile.service.BackgroundMonitorStatus
+import com.streamcap.mobile.service.BackgroundMonitorSnapshot
+import com.streamcap.mobile.ui.settings.openBackgroundLaunchSettings
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private enum class RoomFilter(val label: String) {
@@ -118,6 +122,13 @@ fun HomeScreen(
     }
     val failedCount = rooms.count { it.taskStatus == TaskStatus.FAILED }
     val context = LocalContext.current
+    var monitorSnapshot by remember { mutableStateOf(BackgroundMonitorStatus.read(context)) }
+    androidx.compose.runtime.LaunchedEffect(context) {
+        while (true) {
+            monitorSnapshot = BackgroundMonitorStatus.read(context)
+            delay(15_000L)
+        }
+    }
     val scope = rememberCoroutineScope()
     var selectedFilter by rememberSaveable { mutableStateOf(RoomFilter.ALL) }
     val recordAction = rememberRecordingAction()
@@ -192,10 +203,11 @@ fun HomeScreen(
                     recordingCount = recordingCount,
                     failedCount = failedCount,
                     pausedCount = pausedMonitoredCount,
+                    monitorSnapshot = monitorSnapshot,
+                    onOpenBackgroundSettings = { openBackgroundLaunchSettings(context) },
                     onEnabledChange = { value -> scope.launch {
                         container.preferences.setGlobalAutoRecordEnabled(value)
                         if (value) {
-                            container.repository.resumePausedMonitoredRooms()
                             RecordingService.monitor(context)
                             viewModel.refreshMonitoredRooms()
                         } else {
@@ -288,6 +300,8 @@ private fun AutoRecordCard(
     recordingCount: Int,
     failedCount: Int,
     pausedCount: Int,
+    monitorSnapshot: BackgroundMonitorSnapshot,
+    onOpenBackgroundSettings: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     onBackgroundChange: (Boolean) -> Unit,
 ) {
@@ -315,6 +329,20 @@ private fun AutoRecordCard(
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
+                if (enabled && backgroundEnabled) {
+                    val running = monitorSnapshot.isRunning()
+                    Text(
+                        when {
+                            monitoredCount == 0 -> "暂无后台检测任务"
+                            monitorSnapshot.isBlocked() -> "后台启动受限 · 检测服务未运行"
+                            running -> "后台检测运行中"
+                            else -> "后台检测未运行 · 系统兜底检查可能延迟 15 分钟以上"
+                        } + " · 上次成功检测：" +
+                            (monitorSnapshot.lastCheckAt.takeIf { it > 0L }?.let(::formatDateTime) ?: "暂无"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (running) MaterialTheme.colorScheme.onSurfaceVariant else WarningAmber,
+                    )
+                }
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -324,6 +352,9 @@ private fun AutoRecordCard(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("后台检测", style = MaterialTheme.typography.labelMedium)
                     Switch(checked = backgroundEnabled, onCheckedChange = onBackgroundChange)
+                }
+                if (enabled && backgroundEnabled && monitoredCount > 0 && !monitorSnapshot.isRunning()) {
+                    TextButton(onClick = onOpenBackgroundSettings) { Text("后台设置") }
                 }
             }
         }
@@ -441,7 +472,7 @@ private fun RoomTaskRow(
     }
     val statusText = when {
         room.taskStatus == TaskStatus.STARTING -> "正在启动录制"
-        room.taskStatus == TaskStatus.RECONNECTING -> "等待重连"
+        room.taskStatus == TaskStatus.RECONNECTING -> "断流重试中"
         room.taskStatus == TaskStatus.FINALIZING -> "正在保存录制"
         room.taskStatus == TaskStatus.RECORDING -> "录制中"
         room.taskStatus == TaskStatus.PAUSED -> "已暂停"

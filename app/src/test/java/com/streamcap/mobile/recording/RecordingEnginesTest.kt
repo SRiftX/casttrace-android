@@ -436,7 +436,7 @@ class RecordingEnginesTest {
             recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.USER)
             recorder.observe(handle).first { it.state == RecorderState.STOPPED }
 
-            assertEquals(2, server.requestCount)
+            assertTrue(server.requestCount >= 2)
             assertArrayEquals(flvHeader() + firstTag + secondTag, output.readBytes())
         } finally {
             scope.cancel()

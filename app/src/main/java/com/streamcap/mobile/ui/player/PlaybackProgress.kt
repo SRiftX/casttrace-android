@@ -13,6 +13,10 @@ class PlaybackProgressStore(context: Context) {
         preferences.edit().putLong("$id:position", progress.positionMs.coerceAtLeast(0))
             .putBoolean("$id:playing", progress.playWhenReady).apply()
     }
+    fun readPart(id: Long): Int = preferences.getInt("$id:part", 0).coerceAtLeast(0)
+    fun writePart(id: Long, index: Int) {
+        preferences.edit().putInt("$id:part", index.coerceAtLeast(0)).apply()
+    }
     fun readOptions() = PlaybackOptions(preferences.getFloat("speed", 1f).coerceIn(.25f, 4f),
         preferences.getFloat("volume", 1f).coerceIn(0f, 1f), preferences.getBoolean("muted", false))
     fun writeOptions(options: PlaybackOptions) {

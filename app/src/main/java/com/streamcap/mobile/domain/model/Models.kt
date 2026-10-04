@@ -3,6 +3,8 @@ package com.streamcap.mobile.domain.model
 const val MIN_SEGMENT_SECONDS = 60
 const val DEFAULT_SEGMENT_SECONDS = 1_800
 const val MAX_SEGMENT_SECONDS = 604_800
+/** Maximum unsaved tail even when the user disables normal segmentation. */
+const val MAX_UNPUBLISHED_SEGMENT_SECONDS = 3_600
 const val MIN_MONITOR_INTERVAL_SECONDS = 15
 const val MAX_MONITOR_INTERVAL_SECONDS = 3_600
 

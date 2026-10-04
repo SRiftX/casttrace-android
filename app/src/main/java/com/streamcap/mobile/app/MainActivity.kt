@@ -36,11 +36,8 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val settings = (application as StreamCapApplication).container.preferences.settings.first()
             if (settings.globalAutoRecordEnabled) {
-                (application as StreamCapApplication).container.repository.resumePausedMonitoredRooms()
                 RecordingService.monitor(this@MainActivity)
-            } else {
-                RecordingService.stopMonitoring(this@MainActivity)
-            }
+            } else RecordingService.recover(this@MainActivity)
         }
         setContent {
             val settings by (application as StreamCapApplication).container.preferences.settings
@@ -67,7 +64,6 @@ class MainActivity : ComponentActivity() {
             val app = application as StreamCapApplication
             val settings = app.container.preferences.settings.first()
             if (settings.globalAutoRecordEnabled) {
-                app.container.repository.resumePausedMonitoredRooms()
                 RecordingService.monitor(this@MainActivity)
             }
         }

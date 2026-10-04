@@ -8,6 +8,7 @@ import com.streamcap.mobile.recording.engine.RecordingHandle
 import com.streamcap.mobile.recording.engine.RecordingProgress
 import com.streamcap.mobile.recording.engine.RecordingRequest
 import com.streamcap.mobile.recording.engine.StopReason
+import com.streamcap.mobile.recording.engine.StreamRetryExhaustedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,9 +29,8 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.SequenceInputStream
 import java.util.UUID
-import java.security.MessageDigest
-import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import java.net.URI
 
 class DirectHttpRecorder(
     private val client: OkHttpClient,
@@ -43,6 +43,8 @@ class DirectHttpRecorder(
         var audioOffset: Long = 0L,
         var lastVideo: Long = Long.MIN_VALUE,
         var lastAudio: Long = Long.MIN_VALUE,
+        var firstMedia: Long = Long.MIN_VALUE,
+        var lastMedia: Long = Long.MIN_VALUE,
         val recentPackets: LinkedHashSet<String> = linkedSetOf(),
     )
     private data class RunningRecording(
@@ -62,7 +64,6 @@ class DirectHttpRecorder(
         val running = RunningRecording(MutableStateFlow(RecordingProgress(RecorderState.STARTING)))
         recordings[handle.id] = running
         running.job = scope.launch(Dispatchers.IO) {
-            val startedAt = System.currentTimeMillis()
             var written = 0L
             var lastReportAt = 0L
             var lastReportedFileCount = 0
@@ -74,16 +75,39 @@ class DirectHttpRecorder(
             val outputFiles = mutableListOf(request.destination)
             val completedFiles = mutableListOf<File>()
             val timestampState = TimestampState()
+            fun mediaDurationSeconds(): Long =
+                if (timestampState.firstMedia == Long.MIN_VALUE) 0L
+                else (timestampState.lastMedia - timestampState.firstMedia).coerceAtLeast(0L) / 1_000L
             var partStartedAt: Long? = null
+            var lastMediaAt = 0L
+            var mediaPackets = 0L
+            var lastHttpStatus = 0
+            fun host(url: String): String = runCatching { URI(url).host ?: "unknown" }.getOrDefault("unknown")
+            fun event(type: String, oldUrl: String = streamUrl, newUrl: String = streamUrl) {
+                request.eventLogger?.invoke(type, mapOf(
+                    "retry" to reconnectCount.toString(), "oldHost" to host(oldUrl),
+                    "newHost" to host(newUrl), "httpStatus" to lastHttpStatus.toString(),
+                    "lastMediaAt" to lastMediaAt.toString(), "bytes" to written.toString(),
+                    "part" to outputFiles.size.toString(),
+                    "result" to when {
+                        type != "STREAM_REFRESH_RESULT" -> "-"
+                        newUrl.isBlank() -> "no_new_source"
+                        newUrl == oldUrl -> "same_url_failed"
+                        else -> "switched_source"
+                    },
+                ))
+            }
             try {
                 while (!running.stopped) {
-                    val beforeResponse = written
+                    val beforeMediaPackets = mediaPackets
                     try {
                         val requestBuilder = Request.Builder().url(secureStreamUrl(streamUrl))
                         streamHeaders.forEach { (name, value) -> requestBuilder.header(name, value) }
                         val call = client.newCall(requestBuilder.build())
                         running.call = call
                         call.execute().use { response ->
+                            lastHttpStatus = response.code
+                            if (!response.isSuccessful) event("STREAM_HTTP_ERROR")
                             check(response.isSuccessful) { "直播源响应 ${response.code}" }
                             val body = checkNotNull(response.body) { "直播源没有返回媒体数据" }
                             body.byteStream().buffered().use { input ->
@@ -93,7 +117,7 @@ class DirectHttpRecorder(
                                         running.progress.value = RecordingProgress(
                                             state = RecorderState.RECORDING,
                                             bytesWritten = written,
-                                            durationSeconds = (now - startedAt) / 1_000,
+                                            durationSeconds = mediaDurationSeconds(),
                                             outputFiles = outputFiles.toList(),
                                             completedOutputFiles = completedFiles.toList(),
                                         )
@@ -115,7 +139,14 @@ class DirectHttpRecorder(
                                         timestampState = timestampState,
                                         partStartedAt = partStartedAt,
                                         completedFiles = completedFiles,
-                                        onProgress = { total, partStart -> written = total; partStartedAt = partStart; report() },
+                                        onProgress = { total, partStart, media ->
+                                            if (media) {
+                                                lastMediaAt = System.currentTimeMillis()
+                                                mediaPackets++
+                                            }
+                                            written = total; partStartedAt = partStart
+                                            if (media) report()
+                                        },
                                     ).also { result ->
                                         written = result.totalBytes
                                         partStartedAt = result.partStartedAt
@@ -128,6 +159,8 @@ class DirectHttpRecorder(
                                             if (read < 0) break
                                             output.write(buffer, 0, read)
                                             written += read
+                                            lastMediaAt = System.currentTimeMillis()
+                                            mediaPackets++
                                             report()
                                         }
                                     }
@@ -136,39 +169,56 @@ class DirectHttpRecorder(
                         }
                     } catch (error: Exception) {
                         if (error is CancellationException || running.stopped || request.refreshSource == null) throw error
+                        event("STREAM_HTTP_ERROR")
                         // Preserve complete tags already written and renew the URL
                         // inside this recording rather than publishing a short session.
                     }
-                    if (written > 0L) {
-                        running.progress.value = RecordingProgress(
-                            state = RecorderState.RECORDING,
-                            bytesWritten = written,
-                            durationSeconds = (System.currentTimeMillis() - startedAt) / 1_000,
-                            outputFiles = outputFiles.toList(),
-                            completedOutputFiles = completedFiles.toList(),
-                        )
-                    }
+                    if (running.stopped) break
+                    event("STREAM_READ_EOF")
+                    // copyFlv closes the writer on every disconnect. Keep this
+                    // unpublished tail for recovery and resume appending on the
+                    // next connection; only normal segment boundaries publish it.
+                    // Huya's HS CDN closes short chunked FLV responses after
+                    // delivering valid media. Reopening the same CDN is a
+                    // seamless continuation, not a user-visible outage.
+                    val receivedMedia = mediaPackets > beforeMediaPackets
+                    running.progress.value = RecordingProgress(
+                        state = if (receivedMedia) RecorderState.RECORDING else RecorderState.RECONNECTING,
+                        bytesWritten = written,
+                        durationSeconds = mediaDurationSeconds(),
+                        outputFiles = outputFiles.toList(),
+                        completedOutputFiles = completedFiles.toList(),
+                    )
                     firstResponse = written == 0L
-                    reconnectCount++
-                    if (!reconnectWindow.shouldContinue(written > beforeResponse, written > 13L, System.nanoTime())) {
-                        error("直播源连续断开，未收到新的媒体数据")
+                    reconnectCount = if (receivedMedia) 0 else reconnectCount + 1
+                    if (!reconnectWindow.shouldContinue(receivedMedia, written > 13L, System.nanoTime())) {
+                        event("STREAM_RETRY_EXHAUSTED")
+                        throw StreamRetryExhaustedException("直播源连续断开，未收到新的媒体数据")
                     }
                     if (!running.stopped && request.refreshSource != null) {
-                        val refreshed = try { request.refreshSource.invoke(written > beforeResponse) }
+                        event("STREAM_REFRESH_STARTED")
+                        val previousUrl = streamUrl
+                        val refreshed = try { request.refreshSource.invoke(receivedMedia) }
                         catch (cancelled: CancellationException) { throw cancelled }
                         catch (ended: com.streamcap.mobile.recording.engine.LiveStreamEndedException) { throw ended }
                         catch (_: Exception) { null }
                         if (refreshed != null) {
+                            event("STREAM_REFRESH_RESULT", previousUrl, refreshed.url)
                             streamUrl = refreshed.url
                             streamHeaders = refreshed.headers
+                        } else {
+                            event("STREAM_REFRESH_RESULT", previousUrl, "")
                         }
                     }
-                    if (!running.stopped && reconnectCount > 0) delay(RECONNECT_DELAY_MILLIS)
+                    if (!running.stopped) {
+                        event("STREAM_RETRY_WAIT")
+                        delay(RECONNECT_DELAY_MILLIS)
+                    }
                 }
                 running.progress.value = RecordingProgress(
                     state = if (running.stopped) RecorderState.STOPPED else RecorderState.COMPLETED,
                     bytesWritten = written,
-                    durationSeconds = (System.currentTimeMillis() - startedAt) / 1_000,
+                    durationSeconds = mediaDurationSeconds(),
                     outputFiles = outputFiles,
                     completedOutputFiles = completedFiles.toList(),
                 )
@@ -188,11 +238,12 @@ class DirectHttpRecorder(
                             else -> RecorderState.FAILED
                         },
                         bytesWritten = written,
-                        durationSeconds = (System.currentTimeMillis() - startedAt) / 1_000,
+                        durationSeconds = mediaDurationSeconds(),
                         errorMessage = if (error is com.streamcap.mobile.recording.engine.LiveStreamEndedException) null else error.message ?: "录制失败",
                         outputFiles = outputFiles,
                         completedOutputFiles = completedFiles.toList(),
                         liveEnded = error is com.streamcap.mobile.recording.engine.LiveStreamEndedException,
+                        retryExhausted = error is StreamRetryExhaustedException,
                     )
                 }
             }
@@ -222,7 +273,7 @@ class DirectHttpRecorder(
         timestampState: TimestampState,
         partStartedAt: Long?,
         completedFiles: MutableList<File>,
-        onProgress: (Long, Long?) -> Unit,
+        onProgress: (Long, Long?, Boolean) -> Unit,
     ): FlvCopyResult {
         val prefix = input.readExactOrNull(13) ?: return FlvCopyResult(totalBefore, partStartedAt)
         val hasHeader = prefix.copyOfRange(0, 3).contentEquals(FLV_SIGNATURE)
@@ -232,7 +283,7 @@ class DirectHttpRecorder(
         val currentFile = files.lastOrNull() ?: firstFile
         var output = BufferedOutputStream(FileOutputStream(currentFile, append))
         if (!append) output.write(header)
-        var total = if (append) totalBefore else header.size.toLong()
+        var total = if (append) totalBefore else totalBefore + header.size
         var currentPartStartedAt = partStartedAt
         var part = files.size
         val initTags = linkedMapOf<String, ByteArray>()
@@ -254,10 +305,9 @@ class DirectHttpRecorder(
                     // rollback alone must not turn identical cached frames into
                     // extra video. Include the original timestamp so static frames
                     // at different times are still preserved.
-                    val digest = Base64.getEncoder().encodeToString(
-                        MessageDigest.getInstance("SHA-256").digest(bodyAndPreviousSize),
-                    )
-                    val fingerprint = "$type:$timestamp:$digest"
+                    // This runs for every audio/video tag. A cryptographic digest
+                    // here saturates older devices during high-bitrate Huya streams.
+                    val fingerprint = "$type:$timestamp:${bodyAndPreviousSize.contentHashCode()}"
                     if (!timestampState.recentPackets.add(fingerprint)) continue
                     if (timestampState.recentPackets.size > 10_000) {
                         val iterator = timestampState.recentPackets.iterator()
@@ -284,6 +334,8 @@ class DirectHttpRecorder(
                     }
                     if (isVideo) timestampState.lastVideo = maxOf(timestampState.lastVideo, normalizedTimestamp)
                     else timestampState.lastAudio = maxOf(timestampState.lastAudio, normalizedTimestamp)
+                    if (timestampState.firstMedia == Long.MIN_VALUE) timestampState.firstMedia = normalizedTimestamp
+                    timestampState.lastMedia = maxOf(timestampState.lastMedia, normalizedTimestamp)
                     // FLV 时间戳是 32 位低位 + 8 位扩展，重连后重新从 0 开始时补偿为连续时间轴。
                 }
                 tagHeader[4] = (normalizedTimestamp ushr 16).toByte()
@@ -317,10 +369,10 @@ class DirectHttpRecorder(
                 }
                 output.write(tag)
                 total += tag.size
-                onProgress(total, currentPartStartedAt)
+                onProgress(total, currentPartStartedAt, isMediaTag)
             }
         } catch (incomplete: EOFException) {
-            if (total <= if (append) totalBefore else header.size.toLong()) throw incomplete
+            if (total <= if (append) totalBefore else totalBefore + header.size) throw incomplete
             // 连接在最后一个 Tag 中途结束时，丢弃这个未完成 Tag，保留此前完整数据。
         } finally {
             output.flush()

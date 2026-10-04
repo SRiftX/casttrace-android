@@ -8,6 +8,7 @@ import com.streamcap.mobile.recording.engine.RecordingHandle
 import com.streamcap.mobile.recording.engine.RecordingProgress
 import com.streamcap.mobile.recording.engine.RecordingRequest
 import com.streamcap.mobile.recording.engine.StopReason
+import com.streamcap.mobile.recording.engine.StreamRetryExhaustedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +47,7 @@ class HlsRecorder(
         val progress: MutableStateFlow<RecordingProgress>,
         var job: Job? = null,
         var call: Call? = null,
+        @Volatile var lastHttpStatus: Int = 0,
         @Volatile var stopped: Boolean = false,
     )
 
@@ -85,6 +87,7 @@ class HlsRecorder(
         val files = mutableListOf(request.destination)
         val completedFiles = mutableListOf<File>()
         val seen = linkedSetOf<String>()
+        var liveEdgeInitialized = false
         val keyCache = mutableMapOf<String, ByteArray>()
         var playlistUrl = request.url
         var headers = request.headers
@@ -100,6 +103,21 @@ class HlsRecorder(
         var stalledRefreshes = 0
         var consecutiveErrors = 0
         var terminal: RecordingProgress? = null
+        fun host(url: String): String = runCatching { URI(url).host ?: "unknown" }.getOrDefault("unknown")
+        fun event(type: String, oldUrl: String = playlistUrl, newUrl: String = playlistUrl) {
+            request.eventLogger?.invoke(type, mapOf(
+                "retry" to consecutiveErrors.toString(), "oldHost" to host(oldUrl),
+                "newHost" to host(newUrl), "httpStatus" to running.lastHttpStatus.toString(),
+                "lastMediaAt" to lastMediaAt.toString(), "bytes" to totalBytes.toString(),
+                "part" to part.toString(),
+                "result" to when {
+                    type != "STREAM_REFRESH_RESULT" -> "-"
+                    newUrl.isBlank() -> "no_new_source"
+                    newUrl == oldUrl -> "same_url_failed"
+                    else -> "switched_source"
+                },
+            ))
+        }
         // 线路切换后分开保存，避免不同时间轴的 TS 生硬拼接导致后段卡顿。
         suspend fun rotateOutput() {
             if (partBytes <= 0L) return
@@ -123,8 +141,16 @@ class HlsRecorder(
                 } catch (error: Throwable) {
                     if (error is CancellationException || running.stopped) throw error
                     if (error is com.streamcap.mobile.recording.engine.LiveStreamEndedException) throw error
-                    if (++consecutiveErrors >= 3) throw error
+                    event("STREAM_HTTP_ERROR")
+                    running.progress.value = running.progress.value.copy(state = RecorderState.RECONNECTING)
+                    if (++consecutiveErrors >= 3) {
+                        event("STREAM_RETRY_EXHAUSTED")
+                        throw StreamRetryExhaustedException("HLS 线路连续失败", error)
+                    }
+                    event("STREAM_REFRESH_STARTED")
+                    val previousUrl = playlistUrl
                     val refreshed = refreshSource(request) ?: throw error
+                    event("STREAM_REFRESH_RESULT", previousUrl, refreshed.url)
                     headers = refreshed.headers
                     playlistUrl = refreshed.url
                     delay(END_LIST_REFRESH_DELAY_MILLIS)
@@ -141,6 +167,15 @@ class HlsRecorder(
                         continue
                     }
                     val playlist = parseMediaPlaylist(playlistUrl, playlistText)
+                    // A live playlist normally contains a rolling backlog. Do not
+                    // count that backlog as newly recorded time; start near the
+                    // live edge and keep the latest segment for continuity.
+                    if (!liveEdgeInitialized && !playlist.endList && playlist.segments.size > 3) {
+                        playlist.segments.dropLast(1).forEach { seen += it.id }
+                        liveEdgeInitialized = true
+                    } else if (!liveEdgeInitialized) {
+                        liveEdgeInitialized = true
+                    }
                     val playlistFirstSequence = playlist.segments.firstOrNull()?.sequence
                     if (playlistFirstSequence != null &&
                         maxSequenceSeen != Long.MIN_VALUE &&
@@ -192,6 +227,9 @@ class HlsRecorder(
                         partBytes += bytes.size
                         downloaded = true
                         consecutiveErrors = 0
+                        if (running.progress.value.state == RecorderState.RECONNECTING) {
+                            running.progress.value = running.progress.value.copy(state = RecorderState.RECORDING)
+                        }
                         lastMediaAt = System.currentTimeMillis()
                         stalledRefreshes = 0
                         running.progress.value = RecordingProgress(
@@ -203,8 +241,13 @@ class HlsRecorder(
                         )
                     }
                     if (playlist.endList) {
+                        event("STREAM_READ_EOF")
+                        running.progress.value = running.progress.value.copy(state = RecorderState.RECONNECTING)
+                        event("STREAM_REFRESH_STARTED")
+                        val previousUrl = playlistUrl
                         val refreshed = refreshSource(request) ?: if (request.refreshSource == null) break
                             else error("直播播放列表结束，刷新线路失败")
+                        event("STREAM_REFRESH_RESULT", previousUrl, refreshed.url)
                         delay(END_LIST_REFRESH_DELAY_MILLIS)
                         headers = refreshed.headers
                         val nextPlaylistUrl = runCatching { resolveMediaPlaylist(refreshed.url, headers, running) }
@@ -222,29 +265,44 @@ class HlsRecorder(
                     val keep = playlist.segments.mapTo(hashSetOf()) { it.id }
                     if (seen.size > 1_000) seen.retainAll(keep)
                     if (!downloaded && System.currentTimeMillis() - lastMediaAt >= STALL_TIMEOUT_MILLIS) {
+                        event("STREAM_READ_EOF")
+                        running.progress.value = running.progress.value.copy(state = RecorderState.RECONNECTING)
                         check(++stalledRefreshes < MAX_STALLED_REFRESHES) { "直播线路长时间没有新媒体分片" }
+                        event("STREAM_REFRESH_STARTED")
+                        val previousUrl = playlistUrl
                         val refreshed = refreshSource(request)
                         if (refreshed != null) {
+                            event("STREAM_REFRESH_RESULT", previousUrl, refreshed.url)
                             headers = refreshed.headers
                             val nextPlaylistUrl = runCatching { resolveMediaPlaylist(refreshed.url, headers, running) }
                                 .getOrElse { refreshed.url }
                             playlistUrl = nextPlaylistUrl
-                            lastMediaAt = System.currentTimeMillis()
                             continue
                         }
+                        event("STREAM_REFRESH_RESULT", previousUrl, "")
                         error("直播线路停止更新")
                     }
                     delay(if (downloaded) 500L else (playlist.targetDuration * 500).toLong().coerceIn(1_000, 8_000))
                 } catch (error: Throwable) {
                     if (error is CancellationException || running.stopped) throw error
                     if (error is com.streamcap.mobile.recording.engine.LiveStreamEndedException) throw error
+                    event("STREAM_HTTP_ERROR")
+                    running.progress.value = running.progress.value.copy(state = RecorderState.RECONNECTING)
                     System.err.println("StreamCap HLS retry: ${error.message}")
-                    if (++consecutiveErrors >= 6) throw error
+                    if (++consecutiveErrors >= 6) {
+                        event("STREAM_RETRY_EXHAUSTED")
+                        throw StreamRetryExhaustedException("HLS 线路连续失败", error)
+                    }
+                    event("STREAM_REFRESH_STARTED")
+                    val previousUrl = playlistUrl
                     val refreshed = refreshSource(request)
                     if (refreshed == null) {
+                        event("STREAM_REFRESH_RESULT", previousUrl, "")
+                        event("STREAM_RETRY_WAIT")
                         delay(END_LIST_REFRESH_DELAY_MILLIS)
                         continue
                     }
+                    event("STREAM_REFRESH_RESULT", previousUrl, refreshed.url)
                     // 403、Socket closed 等线路错误只刷新签名，不结束当前录制会话。
                     delay(END_LIST_REFRESH_DELAY_MILLIS)
                     headers = refreshed.headers
@@ -281,6 +339,7 @@ class HlsRecorder(
                 files,
                 completedFiles.toList(),
                 liveEnded = error is com.streamcap.mobile.recording.engine.LiveStreamEndedException,
+                retryExhausted = error is StreamRetryExhaustedException,
             )
         } finally {
             runCatching { output.flush() }
@@ -354,7 +413,9 @@ class HlsRecorder(
             val request = Request.Builder().url(url).apply { headers.forEach(::header) }.build()
             val call = requestClient.newCall(request)
             running.call = call
+            running.lastHttpStatus = 0
             call.execute().use { response ->
+                running.lastHttpStatus = response.code
                 check(response.isSuccessful) {
                     "下载 HLS 数据失败：HTTP ${response.code}（${response.request.url.host}${response.request.url.encodedPath}）"
                 }

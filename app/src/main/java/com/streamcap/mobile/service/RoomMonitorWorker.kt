@@ -42,8 +42,10 @@ class RoomMonitorWorker(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (restricted: IllegalStateException) {
+            BackgroundMonitorStatus.blocked(applicationContext, restricted.message ?: "后台启动被系统限制")
             repository.log(null, null, "WARN", "BACKGROUND_START_BLOCKED", "系统限制了后台启动录制服务；请允许应用启动和后台活动，当前将继续检查开播状态")
         } catch (restricted: SecurityException) {
+            BackgroundMonitorStatus.blocked(applicationContext, restricted.message ?: "后台启动被系统拒绝")
             repository.log(null, null, "WARN", "BACKGROUND_START_BLOCKED", "系统拒绝启动后台服务；请检查应用启动管理")
         }
         val semaphore = Semaphore(4)
@@ -61,6 +63,7 @@ class RoomMonitorWorker(
                 semaphore.withPermit {
                     val status = try {
                         repository.refresh(room.id)
+                            .also { if (it != LiveStatus.ERROR) BackgroundMonitorStatus.checked(applicationContext) }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
@@ -71,8 +74,10 @@ class RoomMonitorWorker(
                     try {
                         RecordingService.start(applicationContext, room.id)
                     } catch (restricted: IllegalStateException) {
+                        BackgroundMonitorStatus.blocked(applicationContext, restricted.message ?: "后台录制启动被限制")
                         repository.log(room.id, null, "WARN", "BACKGROUND_START_BLOCKED", "已检测到开播，但系统限制后台启动，请允许应用自动启动和后台活动")
                     } catch (restricted: SecurityException) {
+                        BackgroundMonitorStatus.blocked(applicationContext, restricted.message ?: "后台录制启动被拒绝")
                         repository.log(room.id, null, "WARN", "BACKGROUND_START_BLOCKED", "已检测到开播，但系统拒绝启动录制服务")
                     } catch (error: Exception) {
                         repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", error.message ?: "自动检查开播失败")

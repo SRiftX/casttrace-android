@@ -27,6 +27,9 @@ class HuyaDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
             .header("User-Agent", USER_AGENT).header("Origin", "https://www.huya.com")
             .apply { context.cookie?.takeIf(String::isNotBlank)?.let { header("Cookie", it) } }.build()
         val listener = object : WebSocketListener() {
+            private var windowStartedAt = 0L
+            private var parsedThisWindow = 0
+
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 trySend(DanmakuFrame.Status("connected-real"))
                 // Huya's browser-compatible handshake is a command-1 join.
@@ -38,6 +41,12 @@ class HuyaDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+                val now = SystemClock.elapsedRealtime()
+                if (now - windowStartedAt >= 1_000L) {
+                    windowStartedAt = now
+                    parsedThisWindow = 0
+                }
+                if (++parsedThisWindow > 20) return
                 try {
                     val outer = TarsWire.decode(bytes.toByteArray())
                     val cmd = (outer[0] as? Number)?.toInt() ?: return

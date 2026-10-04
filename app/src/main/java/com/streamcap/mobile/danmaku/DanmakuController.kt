@@ -66,8 +66,8 @@ class DanmakuController(
     }
     suspend fun stop(reason: String): DanmakuStoreStats {
         generation++
-        job?.cancelAndJoin(); job = null
         runCatching { client.close(reason) }
+        job?.cancelAndJoin(); job = null
         store.close()
         return store.stats()
     }

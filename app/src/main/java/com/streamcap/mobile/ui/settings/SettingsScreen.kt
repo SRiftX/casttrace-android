@@ -254,6 +254,15 @@ fun SettingsScreen(
                         )
                     },
                 )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "省电检测",
+                    value = if (settings.powerSavingMonitoring) "空闲时每分钟检查；系统可能进一步延迟" else "及时检测，空闲时保持唤醒",
+                    trailing = {
+                        Switch(checked = settings.powerSavingMonitoring,
+                            onCheckedChange = viewModel::setPowerSavingMonitoring)
+                    },
+                )
             }
         }
         item {

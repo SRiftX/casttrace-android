@@ -85,6 +85,10 @@ class SettingsViewModel(
         }
     }
 
+    fun setPowerSavingMonitoring(value: Boolean) {
+        viewModelScope.launch { preferences.setPowerSavingMonitoring(value) }
+    }
+
     fun setLanguage(value: String) {
         viewModelScope.launch { preferences.setLanguage(value) }
     }
