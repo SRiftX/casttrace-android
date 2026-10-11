@@ -578,7 +578,7 @@ private fun RecordingRow(
             .clickable(enabled = canOpen || selectionMode) {
                 if (selectionMode) onSelect(!selected) else onOpenRecording(recording.id)
             },
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
@@ -639,7 +639,7 @@ private fun RecordingRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(18.dp),
                     color = when {
                         recording.status == TaskStatus.FAILED -> MaterialTheme.colorScheme.errorContainer
                         recording.status in activeRecordingStatuses -> MaterialTheme.colorScheme.primaryContainer

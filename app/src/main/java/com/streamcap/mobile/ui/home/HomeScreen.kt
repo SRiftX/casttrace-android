@@ -307,11 +307,33 @@ private fun AutoRecordCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp,
     ) {
-        Row(
-            Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val compact = maxWidth < 600.dp
+        if (compact) Column(
+            Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("自动录制", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("监控 $monitoredCount/$totalRooms · 录制 $recordingCount" +
+                if (failedCount > 0) " · 异常 $failedCount" else "",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (failedCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+            Text(automaticMonitoringSummary(enabled, backgroundEnabled, monitoredCount, pausedCount, unmonitoredCount),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Column { Text("自动录制", style = MaterialTheme.typography.labelMedium); Text("后台检测", style = MaterialTheme.typography.labelMedium) }
+                Column { Switch(checked = enabled, onCheckedChange = onEnabledChange);
+                    Switch(checked = backgroundEnabled, onCheckedChange = onBackgroundChange) }
+            }
+            if (enabled && backgroundEnabled && monitoredCount > 0 && !monitorSnapshot.isRunning())
+                TextButton(onClick = onOpenBackgroundSettings) { Text("后台设置") }
+        } else Row(
+            Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(24.dp),
         ) {
@@ -357,6 +379,7 @@ private fun AutoRecordCard(
                     TextButton(onClick = onOpenBackgroundSettings) { Text("后台设置") }
                 }
             }
+        }
         }
     }
 }
@@ -430,9 +453,8 @@ private fun EmptyRooms(onAddRoom: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .height(150.dp),
-        shape = RoundedCornerShape(6.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        color = Color.Transparent,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface,
     ) {
         Column(
             modifier = Modifier.padding(24.dp),
@@ -490,8 +512,8 @@ private fun RoomTaskRow(
             // Landscape cards use a fixed rhythm so the action area cannot stretch
             // the item and push the metadata out of the measured bounds.
             .heightIn(min = 164.dp),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, animatedColor.copy(alpha = .6f)),
+        shape = RoundedCornerShape(18.dp),
+        shadowElevation = 1.dp,
         color = MaterialTheme.colorScheme.surface,
     ) {
         BoxWithConstraints(Modifier.fillMaxWidth().wrapContentHeight()) {

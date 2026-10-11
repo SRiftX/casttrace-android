@@ -7,6 +7,9 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
+import androidx.compose.ui.unit.dp
 
 enum class ThemePalette(val id: String, val label: String, val preview: Color) {
     CLASSIC("classic", "经典", Ink),
@@ -21,33 +24,33 @@ enum class ThemePalette(val id: String, val label: String, val preview: Color) {
 }
 
 private val LightColors = lightColorScheme(
-    primary = Ink,
-    onPrimary = Paper,
-    secondary = LiveTeal,
+    primary = Color(0xFF0A84FF),
+    onPrimary = Color.White,
+    secondary = Color(0xFF5E5CE6),
     onSecondary = Paper,
     tertiary = RecordingRed,
-    background = Porcelain,
-    onBackground = Ink,
+    background = Color(0xFFF2F2F7),
+    onBackground = Color(0xFF1C1C1E),
     surface = Paper,
     onSurface = Ink,
-    surfaceVariant = Color(0xFFEEEFEA),
-    onSurfaceVariant = MutedInk,
-    outline = Hairline,
+    surfaceVariant = Color(0xFFE5E5EA),
+    onSurfaceVariant = Color(0xFF636366),
+    outline = Color(0xFFD1D1D6),
     error = RecordingRed,
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFE5E6E1),
-    onPrimary = DeepSurface,
+    primary = Color(0xFF0A84FF),
+    onPrimary = Color.White,
     secondary = Color(0xFF68C8BF),
     tertiary = Color(0xFFFF8C83),
-    background = Color(0xFF111312),
-    onBackground = Color(0xFFE5E6E1),
-    surface = DeepSurface,
-    onSurface = Color(0xFFE5E6E1),
-    surfaceVariant = Color(0xFF292C2A),
-    onSurfaceVariant = Color(0xFFB9BDB7),
-    outline = Color(0xFF454945),
+    background = Color(0xFF000000),
+    onBackground = Color(0xFFF2F2F7),
+    surface = Color(0xFF1C1C1E),
+    onSurface = Color(0xFFF2F2F7),
+    surfaceVariant = Color(0xFF2C2C2E),
+    onSurfaceVariant = Color(0xFFAEAEB2),
+    outline = Color(0xFF48484A),
     error = Color(0xFFFF8C83),
 )
 
@@ -56,9 +59,18 @@ fun StreamCapTheme(palette: ThemePalette = ThemePalette.CLASSIC, content: @Compo
     MaterialTheme(
         colorScheme = palette.colorScheme(isSystemInDarkTheme()),
         typography = StreamCapTypography,
+        shapes = StreamCapShapes,
         content = content,
     )
 }
+
+private val StreamCapShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+)
 
 private fun ThemePalette.colorScheme(dark: Boolean): ColorScheme {
     val base = if (dark) DarkColors else LightColors

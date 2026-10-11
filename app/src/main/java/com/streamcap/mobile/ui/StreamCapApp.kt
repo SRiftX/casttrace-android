@@ -11,6 +11,9 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -89,7 +92,7 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     Scaffold(
         bottomBar = {
             if (currentRoute in topLevelRoutes && !wideNavigation) {
-                NavigationBar {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
                     listOf(
                         Triple(Routes.HOME, "直播间", Icons.Outlined.Home),
                         Triple(Routes.RECORDINGS, "视频库", Icons.Outlined.VideoLibrary),
@@ -108,6 +111,9 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                             },
                             icon = { Icon(icon, contentDescription = label) },
                             label = { Text(label) },
+                            colors = NavigationBarItemDefaults.colors(
+                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            ),
                         )
                     }
                 }
@@ -115,7 +121,9 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
         },
     ) { padding ->
         Row(Modifier.fillMaxHeight()) {
-        if (wideNavigation && currentRoute in topLevelRoutes) NavigationRail {
+        if (wideNavigation && currentRoute in topLevelRoutes) NavigationRail(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
             listOf(
                 Triple(Routes.HOME, "直播间", Icons.Outlined.Home),
                 Triple(Routes.RECORDINGS, "视频库", Icons.Outlined.VideoLibrary),
@@ -130,6 +138,9 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                     } },
                     icon = { Icon(icon, contentDescription = label) },
                     label = { Text(label) },
+                    colors = NavigationRailItemDefaults.colors(
+                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    ),
                 )
             }
         }

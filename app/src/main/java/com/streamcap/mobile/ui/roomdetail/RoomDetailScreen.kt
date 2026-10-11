@@ -428,7 +428,7 @@ private fun DetailSection(title: String, content: @Composable () -> Unit) {
         Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(6.dp),
+            shape = RoundedCornerShape(18.dp),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         ) { Column(content = { content() }) }
     }

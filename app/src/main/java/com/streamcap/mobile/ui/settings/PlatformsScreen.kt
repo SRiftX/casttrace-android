@@ -94,8 +94,8 @@ private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer) {
     }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(6.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        shape = RoundedCornerShape(16.dp),
+        shadowElevation = 1.dp,
     ) {
         Row(
             modifier = Modifier

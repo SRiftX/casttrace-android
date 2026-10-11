@@ -120,8 +120,8 @@ fun SettingsScreen(
             .fillMaxSize()
             .widthIn(max = 1120.dp)
             .padding(contentPadding),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
             Text("设置", style = MaterialTheme.typography.headlineLarge)
@@ -525,8 +525,8 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(
-            shape = RoundedCornerShape(6.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+            shape = RoundedCornerShape(18.dp),
+            shadowElevation = 1.dp,
         ) { Column { content() } }
     }
 }

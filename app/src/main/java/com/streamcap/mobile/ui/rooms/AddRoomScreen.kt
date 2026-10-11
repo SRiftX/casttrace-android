@@ -145,7 +145,7 @@ fun AddRoomScreen(
                         .semantics { contentDescription = "确认主播并添加" }
                         .padding(horizontal = 24.dp, vertical = 10.dp)
                         .heightIn(min = 52.dp),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(14.dp),
                 ) {
                     if (state.isSaving || state.batchBusy) {
                         CircularProgressIndicator(modifier = Modifier.height(18.dp), strokeWidth = 2.dp)
@@ -404,7 +404,7 @@ private fun FormSection(title: String, content: @Composable () -> Unit) {
         Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         ) { Column { content() } }
     }
