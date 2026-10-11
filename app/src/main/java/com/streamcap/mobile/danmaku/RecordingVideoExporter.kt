@@ -23,8 +23,6 @@ class RecordingVideoExporter(private val context: Context, private val repositor
             check(session.status in setOf(TaskStatus.COMPLETED, TaskStatus.PAUSED, TaskStatus.FAILED)) { "录制尚未结束" }
             val index = sources.indexOf(source)
             check(index >= 0) { "文件记录已变化，请刷新后重试" }
-            val events = DanmakuAssetManager(context, repository).events(recordingId)
-            check(events.any { it.mediaTimeMs != null }) { "这场录制没有可用弹幕" }
             var offset = 0L
             for (part in 0..index) {
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -33,17 +31,24 @@ class RecordingVideoExporter(private val context: Context, private val repositor
                     val uri = withContext(Dispatchers.IO) {
                         resolver.resolve(sources[part], listOf(sources[part]), null, session.containerFormat).single()
                     }
-                    if (part < index) {
-                        offset += withContext(Dispatchers.IO) {
+                    val duration = withContext(Dispatchers.IO) {
                             val metadata = MediaMetadataRetriever()
                             try {
                                 metadata.setDataSource(context, uri)
                                 requireNotNull(metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()) {
-                                    "无法读取前序片段时长，不能正确同步弹幕"
-                                }.also { check(it > 0) { "前序片段时长不可用" } }
+                                    "无法读取片段时长，不能正确同步弹幕"
+                                }.also { check(it > 0) { "片段时长不可用" } }
                             } finally { metadata.release() }
-                        }
-                    } else DanmakuVideoExporter(context).export(uri, destination, events, appearance, offset, onProgress)
+                    }
+                    if (part < index) offset += duration
+                    else {
+                        // Include bullets that entered shortly before the cut and remain visible.
+                        val events = DanmakuAssetManager(context, repository).eventsWindow(
+                            recordingId, (offset - 10_000L).coerceAtLeast(0L), offset + duration, 100_001)
+                        check(events.any { it.mediaTimeMs != null }) { "当前视频片段没有可用弹幕" }
+                        check(events.size <= 100_000) { "当前片段弹幕超过 10 万条，请缩小导出范围" }
+                        DanmakuVideoExporter(context).export(uri, destination, events, appearance, offset, onProgress)
+                    }
                 }
             }
         } catch (failure: Throwable) {

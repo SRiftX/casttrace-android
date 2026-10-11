@@ -69,8 +69,9 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
     }
 
     private suspend fun preparePublished(uris: List<Uri>, format: String): List<Uri> = when (format.lowercase()) {
-        // Media3 can seek TS directly and playing each segment avoids copying a multi-GB recording into cache.
-        "ts" -> uris
+        // Media3 reports some saved transport streams as duration 0 and unseekable.
+        // Build an indexed, disposable MP4 preview without changing the recording.
+        "ts" -> uris.map { snapshot(it, isFlv = false) }
         "flv" -> uris.filter(::hasPlayableFlv).map { snapshot(it) }
         else -> uris
     }

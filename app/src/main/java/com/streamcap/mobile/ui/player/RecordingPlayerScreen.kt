@@ -7,6 +7,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.streamcap.mobile.danmaku.DanmakuAssetManager
 import com.streamcap.mobile.danmaku.DanmakuEvent
+import com.streamcap.mobile.danmaku.DanmakuEventPage
+import com.streamcap.mobile.danmaku.DanmakuEventType
+import com.streamcap.mobile.danmaku.DanmakuFilter
+import com.streamcap.mobile.danmaku.DanmakuCoverage
 import com.streamcap.mobile.danmaku.DanmakuSubtitleExporter
 import com.streamcap.mobile.danmaku.DanmakuSubtitleFormat
 import com.streamcap.mobile.data.preferences.DanmakuAppearance
@@ -18,6 +22,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
@@ -76,8 +82,8 @@ fun RecordingPlayerScreen(recordingId: Long, container: AppContainer, onBack: ()
                 val temp = File(context.cacheDir, "danmaku-export-${current.id}.${exportFormat.name.lowercase()}")
                 try {
                     withContext(Dispatchers.IO) {
-                        if (exportFormat == DanmakuSubtitleFormat.JSONL) File(path).copyTo(temp, overwrite = true)
-                        else DanmakuSubtitleExporter.export(DanmakuAssetManager(context, container.repository).events(current.id), temp, exportFormat, exportAppearance)
+                        val exportJob = kotlinx.coroutines.currentCoroutineContext()
+                        DanmakuSubtitleExporter.exportFile(File(path), current.id, temp, exportFormat, exportAppearance) { !exportJob.isActive }
                         requireNotNull(context.contentResolver.openOutputStream(destination, "w")) { "导出目录不可写" }.use { output ->
                             temp.inputStream().use { it.copyTo(output) }
                         }
@@ -101,11 +107,118 @@ fun RecordingPlayerScreen(recordingId: Long, container: AppContainer, onBack: ()
             text = { Column { DanmakuSubtitleFormat.entries.forEach { format ->
                 TextButton(onClick = {
                     showExportMenu = false; exportFormat = format
-                    exportPicker.launch("弹幕_${recordingId}.${format.name.lowercase()}")
+                    exportPicker.launch("弹幕_${recordingId}.${if (format == DanmakuSubtitleFormat.COVERAGE) "coverage.json" else format.name.lowercase()}")
                 }, modifier = Modifier.fillMaxWidth()) { Text("导出 ${format.name}") }
             } } }, confirmButton = { TextButton(onClick = { showExportMenu = false }) { Text("取消") } })
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun DanmakuSpeechSheet(sessionId: Long, container: AppContainer, filter: DanmakuFilter,
+                               onFilter: (DanmakuFilter) -> Unit, eventCount: Long,
+                               onDismiss: () -> Unit, onSeek: (DanmakuEvent) -> Unit) {
+    val context = LocalContext.current
+    var requestedPage by remember(sessionId, filter) { mutableIntStateOf(0) }
+    var page by remember(sessionId, filter) { mutableStateOf(DanmakuEventPage(emptyList(), 0L, 0L, 0L)) }
+    var loading by remember(sessionId, filter) { mutableStateOf(false) }
+    var problem by remember(sessionId, filter) { mutableStateOf<String?>(null) }
+    var typeMenu by remember { mutableStateOf(false) }
+    var coverage by remember(sessionId) { mutableStateOf(DanmakuCoverage(null, emptyMap())) }
+    var userCount by remember(sessionId, filter.user) { mutableStateOf<Long?>(null) }
+    LaunchedEffect(sessionId) {
+        coverage = DanmakuAssetManager(context, container.repository).coverage(sessionId)
+    }
+    LaunchedEffect(sessionId, filter.user) {
+        if (filter.user.isNotBlank()) {
+            userCount = DanmakuAssetManager(context, container.repository).countMatching(sessionId, DanmakuFilter(user = filter.user))
+        }
+    }
+    LaunchedEffect(sessionId, filter, requestedPage) {
+        loading = true
+        problem = null
+        try {
+            val next = DanmakuAssetManager(context, container.repository).eventsPage(
+                sessionId, if (requestedPage == 0) 0L else page.nextOffset ?: 0L, 100, filter)
+            page = next.copy(events = (if (requestedPage == 0) next.events else page.events + next.events).takeLast(500))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            problem = failure.message ?: "读取发言失败"
+        } finally { loading = false }
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(.86f).padding(horizontal = 16.dp)) {
+            Text("发言列表", style = MaterialTheme.typography.titleMedium)
+            Text("已记录 $eventCount 条 · 丢弃 ${coverage.dropped?.toString() ?: "未知"} 条 · 当前显示 ${page.events.size} 条 · 已扫描 ${page.scannedBytes / 1024} / ${page.totalBytes / 1024} KiB",
+                style = MaterialTheme.typography.labelSmall)
+            if (filter.user.isNotBlank()) Text("该用户发言 ${userCount?.toString() ?: "统计中"} 条", style = MaterialTheme.typography.labelSmall)
+            if (coverage.eventTypes.isNotEmpty()) Text(
+                coverage.eventTypes.filterValues { it > 0L }.entries.joinToString(" · ") { (type, count) -> "${type.displayName()} $count" },
+                style = MaterialTheme.typography.labelSmall)
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(filter.query, { onFilter(filter.copy(query = it)) }, label = { Text("搜索内容") },
+                singleLine = true, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(filter.user, { onFilter(filter.copy(user = it)) }, label = { Text("用户") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(filter.platform, { onFilter(filter.copy(platform = it)) }, label = { Text("平台") },
+                    singleLine = true, modifier = Modifier.weight(1f))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    TextButton(onClick = { typeMenu = true }) {
+                        Text("事件：${filter.eventType?.displayName() ?: "全部"}")
+                        Icon(Icons.Outlined.ArrowDropDown, null)
+                    }
+                    DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
+                        (listOf<DanmakuEventType?>(null) + DanmakuEventType.entries).forEach { type ->
+                            DropdownMenuItem(text = { Text(type?.displayName() ?: "全部") }, onClick = {
+                                onFilter(filter.copy(eventType = type)); typeMenu = false
+                            })
+                        }
+                    }
+                }
+                if (filter != DanmakuFilter()) TextButton(onClick = { onFilter(DanmakuFilter()) }) { Text("清除筛选") }
+            }
+            if (problem != null) Text(problem.orEmpty(), color = MaterialTheme.colorScheme.error)
+            LazyColumn(Modifier.weight(1f)) {
+                items(page.events) { event ->
+                    Column(Modifier.fillMaxWidth().clickable(enabled = event.mediaTimeMs != null) { onSeek(event) }
+                        .padding(vertical = 8.dp)) {
+                        Text("${event.mediaTimeMs?.let(::timeLabel) ?: "时间未知"}  ${event.platform}  ${event.eventType.displayName()}",
+                            style = MaterialTheme.typography.labelSmall)
+                        Text((event.user?.name ?: event.userName ?: event.userId ?: "匿名") + "：" + event.text,
+                            maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        val name = event.user?.name ?: event.userName
+                        if (!name.isNullOrBlank()) TextButton(onClick = { onFilter(filter.copy(user = name)) }) {
+                            Text("查看该用户")
+                        }
+                    }
+                    HorizontalDivider()
+                }
+                item {
+                    if (loading) CircularProgressIndicator(Modifier.padding(16.dp))
+                    else if (page.nextOffset != null) TextButton(onClick = { requestedPage++ }) { Text("加载更多") }
+                    else if (page.events.isEmpty()) Text("没有匹配的发言", Modifier.padding(16.dp))
+                }
+            }
+        }
+    }
+}
+
+private fun DanmakuEventType.displayName(): String = when (this) {
+    DanmakuEventType.CHAT -> "发言"
+    DanmakuEventType.EMOTE -> "表情"
+    DanmakuEventType.GIFT -> "礼物"
+    DanmakuEventType.SUPER_CHAT -> "醒目留言"
+    DanmakuEventType.GUARD -> "守护"
+    DanmakuEventType.LIKE -> "点赞"
+    DanmakuEventType.FOLLOW -> "关注"
+    DanmakuEventType.SHARE -> "分享"
+    DanmakuEventType.SYSTEM -> "系统"
+    DanmakuEventType.UNKNOWN -> "其他"
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -144,12 +257,25 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
     var loading by remember { mutableStateOf(true) }
     var liveFailures by remember(recording.id, live) { mutableIntStateOf(0) }
     var danmakuEvents by remember(recording.id, recording.danmakuPath) { mutableStateOf<List<DanmakuEvent>>(emptyList()) }
+    var pageStartMs by remember(recording.id) { mutableLongStateOf(0L) }
+    var pageStarts by remember(recording.id) { mutableStateOf<List<Long>>(emptyList()) }
+    var danmakuWindow by remember(recording.id) { mutableLongStateOf(0L) }
+    var showSpeech by remember(recording.id) { mutableStateOf(false) }
+    var filter by remember(recording.id) { mutableStateOf(DanmakuFilter()) }
+    var seekRequest by remember(recording.id) { mutableStateOf<Long?>(null) }
     var showDanmaku by rememberSaveable(recording.id) { mutableStateOf(progressStore.readDanmakuVisible()) }
     var showDanmakuSettings by remember(recording.id) { mutableStateOf(false) }
     val danmakuAppearance by container.preferences.danmakuAppearance.collectAsStateWithLifecycle(DanmakuAppearance())
-    LaunchedEffect(recording.danmakuPath) {
-        danmakuEvents = if (recording.danmakuPath == null) emptyList()
-            else runCatching { DanmakuAssetManager(context, container.repository).events(recording.id) }.getOrDefault(emptyList())
+    LaunchedEffect(recording.danmakuPath, pageStartMs, pageIndex, danmakuWindow, live, filter, danmakuAppearance.timeOffsetMs) {
+        danmakuEvents = if (recording.danmakuPath == null || live) emptyList() else try {
+            val from = (pageStartMs + danmakuWindow - 10_000L).coerceAtLeast(0L)
+            DanmakuAssetManager(context, container.repository)
+                .eventsWindow(recording.id, from - danmakuAppearance.timeOffsetMs,
+                    pageStartMs + danmakuWindow + 130_000L - danmakuAppearance.timeOffsetMs, filter = filter)
+                .map { it.copy(mediaTimeMs = it.mediaTimeMs?.plus(danmakuAppearance.timeOffsetMs)?.minus(pageStartMs)) }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) { emptyList() }
     }
     LaunchedEffect(error, live) {
         if (live && error != null && liveFailures < 3) {
@@ -189,7 +315,7 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                     .setMimeType(if (source.type == StreamType.HLS) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_FLV)
                     .build())
             } else {
-                val pages = withContext(Dispatchers.IO) {
+                val (pages, durations) = withContext(Dispatchers.IO) {
                     val durations = recording.outputUris.map { raw ->
                         runCatching {
                             context.contentResolver.query(Uri.parse(raw), arrayOf("duration"), null, null, null)?.use {
@@ -197,10 +323,21 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                             } ?: 0L
                         }.getOrDefault(0L)
                     }
-                    PlaybackPages.group(recording.outputUris, durations)
+                    PlaybackPages.group(recording.outputUris, durations) to durations
                 }
                 pageCount = pages.size
+                var elapsed = 0L
+                pageStarts = pages.mapIndexed { pageNumber, page ->
+                    val start = elapsed
+                    elapsed += durations.drop(pages.take(pageNumber).sumOf { it.size })
+                        .take(page.size).sumOf { it.takeIf { length -> length > 0L } ?: 3_600_000L }
+                    start
+                }
                 val selectedPage = pageIndex.coerceIn(0, (pages.size - 1).coerceAtLeast(0))
+                val precedingParts = pages.take(selectedPage).sumOf { it.size }
+                pageStartMs = pageStarts.getOrElse(selectedPage) {
+                    durations.take(precedingParts).sumOf { it.takeIf { length -> length > 0L } ?: 3_600_000L }
+                }
                 if (pageIndex != selectedPage) {
                     pageIndex = selectedPage
                     progressStore.writePart(recording.id, selectedPage)
@@ -281,10 +418,11 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                         activity?.requestedOrientation = if (configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
                             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                     },
-                    hasDanmaku = danmakuEvents.isNotEmpty(), showDanmaku = showDanmaku,
+                    hasDanmaku = recording.danmakuPath != null, showDanmaku = showDanmaku,
                     onDanmakuToggle = { showDanmaku = !showDanmaku; progressStore.writeDanmakuVisible(showDanmaku) },
-                    externalPanelOpen = showDanmakuSettings || exportMenuOpen || error != null,
+                    externalPanelOpen = showDanmakuSettings || showSpeech || exportMenuOpen || error != null,
                     onDanmakuSettings = { showDanmakuSettings = true }, onExport = onExport,
+                    onSpeech = { showSpeech = true }, seekRequest = seekRequest,
                     onSwitchSource = { live = !live },
                     onRefresh = { retry++ }, hasNewParts = recording.outputUris.size > openedPartCount,
                     pageIndex = pageIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0)), pageCount = pageCount,
@@ -301,12 +439,15 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                     onProgress = {
                         if (progressStore.readPart(recording.id) == pageIndex) {
                             progress = it
+                            danmakuWindow = (it.positionMs.coerceAtLeast(0L) / 120_000L) * 120_000L
                             progressStore.write(recording.id, it)
                         }
                     },
                     onReady = {
                         liveFailures = 0
+                        danmakuWindow = (progress.positionMs.coerceAtLeast(0L) / 120_000L) * 120_000L
                         requestedProgress?.let { progress = it; progressStore.write(recording.id, it); requestedProgress = null }
+                        seekRequest = null
                     }) { error = it }
             }
         }
@@ -323,6 +464,23 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
     if (showDanmakuSettings) DanmakuSettingsPanel(danmakuAppearance, onDismiss = { showDanmakuSettings = false }) { value ->
         scope.launch { container.preferences.setDanmakuAppearance(value) }
     }
+    if (showSpeech && recording.danmakuPath != null) DanmakuSpeechSheet(
+        recording.id, container, filter, onFilter = { filter = it },
+        eventCount = recording.danmakuEventCount,
+        onDismiss = { showSpeech = false }, onSeek = { event ->
+            event.mediaTimeMs?.let { time ->
+                val targetPage = pageStarts.indexOfLast { it <= time }.coerceAtLeast(0)
+                val target = (time - pageStarts.getOrElse(targetPage) { 0L }).coerceAtLeast(0L)
+                showSpeech = false
+                live = false
+                if (targetPage != pageIndex) {
+                    progress = PlaybackProgress(target, true)
+                    requestedProgress = progress
+                    progressStore.writePart(recording.id, targetPage)
+                    pageIndex = targetPage
+                } else seekRequest = target
+            }
+        })
     error?.let { message ->
         AlertDialog(onDismissRequest = { error = null }, title = { Text("播放提示") }, text = { Text(message) },
             confirmButton = { TextButton(onClick = { retry++ }) { Text("重试播放") } },
@@ -338,7 +496,8 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                          title: String, fullscreen: Boolean, onBack: () -> Unit, onFullscreen: () -> Unit, onRotate: () -> Unit,
                          hasDanmaku: Boolean, showDanmaku: Boolean, onDanmakuToggle: () -> Unit,
                          externalPanelOpen: Boolean,
-                         onDanmakuSettings: () -> Unit, onExport: () -> Unit, onSwitchSource: () -> Unit,
+                         onDanmakuSettings: () -> Unit, onExport: () -> Unit, onSpeech: () -> Unit,
+                         seekRequest: Long?, onSwitchSource: () -> Unit,
                          onRefresh: () -> Unit, hasNewParts: Boolean,
                          pageIndex: Int, pageCount: Int, onSelectPage: (Int) -> Unit,
                          initialProgress: PlaybackProgress, onProgress: (PlaybackProgress) -> Unit, onReady: () -> Unit, onError: (String) -> Unit) {
@@ -372,6 +531,7 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     var timelineDurations by remember { mutableStateOf<List<Long>>(emptyList()) }
     var playing by remember { mutableStateOf(false) }
     var seekable by remember { mutableStateOf(false) }
+    var renderedFirstFrame by remember(player) { mutableStateOf(false) }
     val optionsStore = remember { PlaybackProgressStore(context) }
     val options = remember { optionsStore.readOptions() }
     var speed by rememberSaveable { mutableFloatStateOf(options.speed) }
@@ -385,7 +545,7 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     var videoProperties by remember { mutableStateOf("") }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
-            override fun onRenderedFirstFrame() { onReady() }
+            override fun onRenderedFirstFrame() { renderedFirstFrame = true; onReady() }
             override fun onPlaybackStateChanged(state: Int) {
                 if (!live && state == Player.STATE_ENDED && pageIndex + 1 < pageCount) onSelectPage(pageIndex + 1)
             }
@@ -407,6 +567,7 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
     // Items can change while this composable stays in the slot (for example after
     // a failed preview retry), so loading them belongs in an effect keyed by items.
     LaunchedEffect(player, items) {
+        renderedFirstFrame = false
         player.setMediaItems(items, /* resetPosition = */ true)
         if (!live && knownDurations.all { it > 0 } && knownDurations.isNotEmpty()) {
             val resume = initialProgress.positionMs.takeIf { it < knownDurations.sum() - 1000 } ?: 0L
@@ -416,6 +577,20 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
         player.setPlaybackSpeed(if (live) 1f else speed)
         player.volume = if (muted) 0f else volume
         player.playWhenReady = live || initialProgress.playWhenReady
+    }
+    LaunchedEffect(player, items, live) {
+        if (live && items.isNotEmpty()) {
+            delay(45_000)
+            if (!renderedFirstFrame && player.playbackState != Player.STATE_ENDED) {
+                onError("直播预览在 45 秒内没有收到首帧，可能是线路过期、平台限流或网络不可用；请点击重试")
+            }
+        }
+    }
+    LaunchedEffect(player, seekRequest) {
+        seekRequest?.let { target ->
+            seekGlobal(player, knownDurations, target)
+            player.play()
+        }
     }
     LaunchedEffect(player, live) {
         while (!live && isActive) {
@@ -535,6 +710,8 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                         DropdownMenuItem(text = { Text("弹幕设置") }, leadingIcon = { Icon(Icons.Outlined.Tune, null) },
                             onClick = { close(); onDanmakuSettings() })
                         if (hasDanmaku && !live) {
+                            DropdownMenuItem(text = { Text("发言列表") }, leadingIcon = { Icon(Icons.Outlined.Chat, null) },
+                                onClick = { close(); onSpeech() })
                             DropdownMenuItem(text = { Text("导出弹幕") }, leadingIcon = { Icon(Icons.Outlined.Download, null) },
                                 onClick = { close(); onExport() })
                         }

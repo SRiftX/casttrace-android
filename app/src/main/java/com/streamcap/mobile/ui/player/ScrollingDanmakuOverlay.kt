@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamcap.mobile.danmaku.DanmakuEvent
+import com.streamcap.mobile.danmaku.DanmakuPresentation
 import com.streamcap.mobile.danmaku.ScrollingDanmakuTimeline
 import com.streamcap.mobile.danmaku.TimedBullet
 import com.streamcap.mobile.data.preferences.DanmakuAppearance
@@ -48,10 +49,11 @@ internal fun ScrollingDanmakuOverlay(
     val availableHeight = (contentHeight * appearance.area - inset).coerceAtLeast(lineHeight)
     val lanes = (availableHeight / lineHeight).toInt().coerceAtLeast(1).coerceAtMost(appearance.laneLimit)
     val laneSpacing = lineHeight
-    val timeline = remember(events, contentWidth, lanes, paint, appearance.speed) {
+    val timeline = remember(events, contentWidth, lanes, paint, appearance) {
         ScrollingDanmakuTimeline(events.mapNotNull { event ->
             val time = event.mediaTimeMs ?: return@mapNotNull null
-            val singleLine = event.text.replace(Regex("[\\r\\n\\t]+"), " ")
+            if (appearance.density < 1f && (event.eventId ?: "${event.receivedElapsedMs}:${event.text}").hashCode().toUInt().toLong() % 10_000 >= (appearance.density * 10_000).toLong()) return@mapNotNull null
+            val singleLine = DanmakuPresentation.text(event, appearance) ?: return@mapNotNull null
             val text = TextUtils.ellipsize(singleLine, paint, contentWidth * 1.5f, TextUtils.TruncateAt.END).toString()
             TimedBullet(text, time, paint.measureText(text))
         }, contentWidth.coerceAtLeast(1f), lanes, with(density) { 24.dp.toPx() },

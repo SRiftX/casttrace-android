@@ -25,14 +25,16 @@ class DanmakuController(
         job = scope.launch {
             previous?.join()
             val recent = LinkedHashSet<String>()
-            var receivedFirst = false
             var attempts = 0
+            var lastFailureStatusAt = 0L
             while (currentCoroutineContext().isActive && generation == current) {
+                var receivedThisConnection = 0
+                val connectionStartedAt = System.nanoTime()
                 try {
                     client.connect(context).collect { frame ->
                         if (!currentCoroutineContext().isActive || generation != current) return@collect
                         if (frame is DanmakuFrame.Status) {
-                            if (frame.state == "connected-real") attempts = 0
+                            if (frame.state == "subscribed-real") attempts = 0
                             onStatus(frame.state)
                             return@collect
                         }
@@ -48,15 +50,22 @@ class DanmakuController(
                             mediaTimeMs = context.mediaStartedElapsedMs?.let { (event.receivedElapsedMs - it).coerceAtLeast(0) },
                             timeQuality = if (context.mediaStartedElapsedMs != null) "received-estimate" else event.timeQuality,
                         )
-                        if (store.append(saved) && !receivedFirst) {
-                            receivedFirst = true
-                            onStatus("receiving-real")
+                        if (store.append(saved)) {
+                            receivedThisConnection++
+                            if (receivedThisConnection == 1) onStatus("receiving-real")
+                            if (receivedThisConnection >= 10 || System.nanoTime() - connectionStartedAt >= 30_000_000_000L) attempts = 0
                         }
                     }
                 } catch (error: CancellationException) {
                     throw error
-                } catch (_: Exception) {
-                    onStatus("error-real-connection")
+                } catch (error: Exception) {
+                    val now = System.nanoTime()
+                    if (now - lastFailureStatusAt >= 30_000_000_000L || lastFailureStatusAt == 0L) {
+                        onStatus(if (error is IllegalStateException && error.message == "弹幕文件保存失败")
+                            "error-real-storage" else "error-real-connection")
+                        lastFailureStatusAt = now
+                    }
+                    if (error is IllegalStateException && error.message == "弹幕文件保存失败") break
                 }
                 attempts++
                 onStatus("reconnecting:$attempts")

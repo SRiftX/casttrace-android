@@ -133,6 +133,10 @@ class DouyinDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient 
                 userId = user?.let { ProtoWire.firstLong(it, 1)?.let(java.lang.Long::toUnsignedString) },
                 userName = user?.let { ProtoWire.firstString(it, 3) },
                 text = text,
+                user = DanmakuUser(
+                    user?.let { ProtoWire.firstLong(it, 1)?.let(java.lang.Long::toUnsignedString) },
+                    user?.let { ProtoWire.firstString(it, 3) },
+                ),
                 rawType = method,
                 parserVersion = "douyin-pushframe-1",
             )))

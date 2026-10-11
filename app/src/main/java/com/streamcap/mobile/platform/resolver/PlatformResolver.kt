@@ -44,6 +44,8 @@ class UnsupportedPlatformException(url: String) : IllegalArgumentException(messa
                     "已识别为${entry.name}，该平台正在等待 Android 适配"
                 AndroidSupportStatus.NEEDS_REVIEW ->
                     "已识别为${entry.name}，平台状态需要重新验证"
+                AndroidSupportStatus.DISCONTINUED ->
+                    "已识别为${entry.name}，该直播平台已停止运营"
                 AndroidSupportStatus.AVAILABLE ->
                     "已识别地址，但没有找到可用解析器"
             }

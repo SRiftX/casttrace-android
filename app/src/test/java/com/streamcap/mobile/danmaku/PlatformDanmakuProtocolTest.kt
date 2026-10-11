@@ -5,6 +5,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlatformDanmakuProtocolTest {
+    @Test fun factoryAdvertisesOnlyVerifiedChatCapability() {
+        val factory = RealDanmakuClientFactory(okhttp3.OkHttpClient())
+        assertEquals(setOf(DanmakuEventType.CHAT), factory.capability("bilibili").events)
+        assertTrue(factory.capability("huya").enabled)
+        assertTrue(!factory.capability("kuaishou").enabled)
+    }
+
+    @Test fun huyaWebSocketDoesNotNegotiateCompression() {
+        okhttp3.mockwebserver.MockWebServer().use { server ->
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(400))
+            val client = HuyaDanmakuClient.withoutWebSocketCompression(okhttp3.OkHttpClient())
+            val socket = client.newWebSocket(
+                okhttp3.Request.Builder().url(server.url("/")).build(),
+                object : okhttp3.WebSocketListener() {},
+            )
+            val handshake = server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertTrue(handshake != null)
+            assertEquals(null, handshake?.getHeader("Sec-WebSocket-Extensions"))
+            socket.cancel()
+            client.dispatcher.executorService.shutdown()
+        }
+    }
+
     @Test fun wbiMatchesPublishedReferenceVector() {
         assertEquals("bar=514&foo=114&wts=1702204169&zab=1919810&w_rid=8f6f2b5b3d485fe1886cec6a0be8c5d4",
             BilibiliWbi.sign(mapOf("foo" to "114", "bar" to "514", "zab" to "1919810"),

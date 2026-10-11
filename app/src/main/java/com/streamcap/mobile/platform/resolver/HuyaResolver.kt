@@ -52,15 +52,18 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
         }
         val api = httpUrl(
             "https://mp.huya.com/cache.php",
-            mapOf("m" to "Live", "do" to "profileRoom", "roomid" to roomId, "showSecret" to "1"),
+            mapOf(
+                "m" to "Live", "do" to "profileRoom", "roomid" to roomId,
+                "showSecret" to "1", "_ts" to System.currentTimeMillis().toString(),
+            ),
         )
         val root = JSONObject(client.getText(api, DEFAULT_HEADERS).body)
         val data = root.optJSONObject("data") ?: error(root.optString("message", "虎牙接口没有返回房间数据"))
         val profile = data.optJSONObject("profileInfo")
         val liveData = data.optJSONObject("liveData")
         val status = data.optString("realLiveStatus")
-        check(status in setOf("ON", "OFF")) { "虎牙没有返回有效开播状态，无法确认是否下播" }
-        val live = status == "ON"
+        check(status in setOf("ON", "OFF", "REPLAY")) { "虎牙没有返回有效开播状态，无法确认是否下播" }
+        val live = isLiveStatus(status)
         val liveUrl = "https://www.huya.com/$roomId"
         val sources = mutableListOf<StreamSource>()
         if (live) {
@@ -95,8 +98,10 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
                 if (flv.startsWith("http")) sources += StreamSource(secureStreamUrl(flv), StreamType.FLV, "原画", headers = STREAM_HEADERS)
                 if (hls.startsWith("http")) sources += StreamSource(secureStreamUrl(hls), StreamType.HLS, "原画", headers = STREAM_HEADERS)
             }
-            // The mobile API supplies signed URLs in CDN priority order. Avoid
-            // reparsing the large web page on every short FLV reconnect.
+            // The mobile response already contains fresh HS/AL/TX signatures.
+            // Do not fetch and parse the full webpage on every reconnect: that
+            // was an avoidable hot-path cost during long recordings. The web
+            // parser remains available for diagnostics and resolver fixtures.
         }
         return HuyaData(
             liveUrl = liveUrl,
@@ -109,11 +114,11 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
 
     private suspend fun loadWebSources(liveUrl: String): List<StreamSource> {
         val html = client.getText(liveUrl, DEFAULT_HEADERS).body
-        val encoded = Regex(
-            "stream:\\s*(\\{\\\"data\\\".*?),\\\"iWebDefaultBitRate\\\"",
-            RegexOption.DOT_MATCHES_ALL,
-        ).find(html)?.groupValues?.get(1) ?: error("虎牙网页没有返回直播线路")
-        val first = JSONObject("$encoded}").optJSONArray("data")?.optJSONObject(0)
+        val marker = html.indexOf("stream:")
+        val jsonStart = html.indexOf('{', marker).takeIf { marker >= 0 && it >= 0 }
+            ?: error("虎牙网页没有返回直播线路")
+        val stream = JSONObject(extractJsonObject(html, jsonStart))
+        val first = stream.optJSONArray("data")?.optJSONObject(0)
             ?: error("虎牙网页直播线路格式异常")
         val list = first.optJSONArray("gameStreamInfoList") ?: return emptyList()
         // Preserve the website's CDN priority, as streamget does. Forcing TX/HW
@@ -177,6 +182,31 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
         url.replace(Regex("([?&]ratio=)[^&]*"), "$1$ratio")
     } else {
         "$url&ratio=$ratio"
+    }
+
+    internal fun isLiveStatus(status: String): Boolean = status == "ON"
+
+    internal fun extractJsonObject(text: String, start: Int): String {
+        require(start in text.indices && text[start] == '{') { "JSON object must start with '{'" }
+        var depth = 0
+        var quoted = false
+        var escaped = false
+        for (index in start until text.length) {
+            val ch = text[index]
+            if (quoted) {
+                if (escaped) escaped = false else if (ch == '\\') escaped = true else if (ch == '"') quoted = false
+                continue
+            }
+            when (ch) {
+                '"' -> quoted = true
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return text.substring(start, index + 1)
+                }
+            }
+        }
+        error("虎牙网页直播线路 JSON 不完整")
     }
 
     companion object {

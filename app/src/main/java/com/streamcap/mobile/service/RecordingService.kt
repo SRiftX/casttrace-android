@@ -34,6 +34,7 @@ import com.streamcap.mobile.recording.repair.RecordingFileRepair
 import com.streamcap.mobile.danmaku.DanmakuConnectContext
 import com.streamcap.mobile.danmaku.DanmakuController
 import com.streamcap.mobile.danmaku.DanmakuEventStore
+import com.streamcap.mobile.danmaku.DanmakuSegmentArchive
 import com.streamcap.mobile.storage.RecordingNameContext
 import com.streamcap.mobile.storage.RecordingNameFormatter
 import kotlinx.coroutines.CoroutineScope
@@ -47,6 +48,8 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.time.LocalDateTime
@@ -201,6 +204,28 @@ class RecordingService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (monitoringActive || active.isNotEmpty() || starting.isNotEmpty() || retries.hasPending()) {
+            val prefs = getSharedPreferences(RECOVERY_PREFS, MODE_PRIVATE)
+            val generation = prefs.getLong(RECOVERY_GENERATION, 0L) + 1L
+            prefs.edit().putLong(RECOVERY_GENERATION, generation).apply()
+            val intent = Intent(this, ServiceRestartReceiver::class.java).apply {
+                action = ServiceRestartReceiver.ACTION_RESTART
+                putExtra(ServiceRestartReceiver.EXTRA_GENERATION, generation)
+            }
+            val pending = android.app.PendingIntent.getBroadcast(
+                this, RESTART_REQUEST_CODE, intent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+            )
+            getSystemService(android.app.AlarmManager::class.java).setAndAllowWhileIdle(
+                android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                android.os.SystemClock.elapsedRealtime() + RESTART_DELAY_MILLIS,
+                pending,
+            )
+        }
+    }
 
     override fun onDestroy() {
         unregisterReceiver(notificationDismissReceiver)
@@ -378,6 +403,13 @@ class RecordingService : Service() {
                 // renews expired URLs within the same session and preserves its
                 // timestamp state and segmentation across reconnects.
                 val huyaMp4 = requestedFormat == "MP4" && room.platform in setOf("huya", "虎牙直播")
+                // Douyin commonly exposes both HLS and FLV. Its HLS playlist can
+                // keep downloading while the segment timestamps fall far behind
+                // wall time, producing short media after a long recording. FLV
+                // carries a continuous timestamp timeline and is preferable for
+                // MP4/default recording; HLS remains a fallback when FLV is absent.
+                val preferDouyinFlv = room.platform in setOf("douyin", "抖音直播") &&
+                    requestedFormat in setOf("MP4", "FLV") && availableSources.any { it.type == StreamType.FLV }
                 val preferHuyaFlv = room.platform in setOf("huya", "虎牙直播") &&
                     (huyaMp4 || room.flvDirectDownload) && availableSources.any { it.type == StreamType.FLV }
                 // Huya's mobile HLS signatures are frequently rejected by its CDN
@@ -391,7 +423,9 @@ class RecordingService : Service() {
                     availableSources.filter { it.type == StreamType.HLS }
                 } else when (requestedFormat) {
                     "FLV" -> availableSources.filter { it.type == StreamType.FLV }
-                    "MP4" -> availableSources.filter { it.type == if (preferHuyaFlv) StreamType.FLV else StreamType.HLS }
+                    "MP4" -> availableSources.filter {
+                        it.type == if (preferHuyaFlv || preferDouyinFlv) StreamType.FLV else StreamType.HLS
+                    }
                     "TS" -> availableSources.filter { it.type == StreamType.HLS }
                     else -> availableSources.filter { it.type == if (room.flvDirectDownload) StreamType.FLV else StreamType.HLS }
                 }
@@ -887,7 +921,7 @@ class RecordingService : Service() {
             }
         }
 
-        val publishResult = runCatching {
+        val publishResult = heavyPublicationPermit.withPermit { withContext(Dispatchers.IO) { runCatching {
             val extension = recording.outputFormat.lowercase()
             val now = LocalDateTime.now()
             val baseName = RecordingNameFormatter.format(
@@ -923,6 +957,7 @@ class RecordingService : Service() {
             }
             var muxedDurationSeconds = 0L
             val outputUris = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }.toMutableList()
+            var publishedDuration = publishedDurationSeconds(outputUris)
             files.forEachIndexed { index, file ->
                 val indexedOutput = outputUris.isNotEmpty() || files.size > 1
                 val partSuffix = if (indexedOutput) "_${(outputUris.size + 1).toString().padStart(3, '0')}" else ""
@@ -974,7 +1009,7 @@ class RecordingService : Service() {
                 outputUris += outputUri
                 // Persist every successfully published part immediately. If the process dies
                 // while a later part is being muxed, the earlier parts remain playable and visible.
-                val publishedDuration = publishedDurationSeconds(outputUris)
+                publishedDuration += publishedDurationSeconds(listOf(outputUri))
                 repository.updateSession(session.copy(
                     status = TaskStatus.FINALIZING,
                     outputUri = outputUris.firstOrNull(),
@@ -988,11 +1023,7 @@ class RecordingService : Service() {
                 file.delete()
                 container.recordingStorage.acknowledgePublication(file.absolutePath)
             }
-            // MP4 的实际轨道时长比下载循环的累计分片时长更可信，尤其是断流换线路后。
-            // Re-read every published URI so checkpointed parts are included in the
-            // list duration. The recorder's terminal duration only covers the current
-            // in-memory run after a process restart or a pause/resume cycle.
-            val publishedDuration = publishedDurationSeconds(outputUris)
+            // Media duration is queried once for the existing prefix and once per new part.
             val finalDurationSeconds = publishedDuration.takeIf { it > 0L }
                 ?: muxedDurationSeconds.takeIf { recording.outputFormat == "MP4" && it > 0L }
                 ?: terminal.durationSeconds
@@ -1048,7 +1079,7 @@ class RecordingService : Service() {
                     ),
                 )
             }
-        }.onFailure { error ->
+        } } }.onFailure { error ->
             val latestSession = repository.session(recording.sessionId) ?: session
             repository.updateSession(
                 latestSession.copy(
@@ -1073,6 +1104,25 @@ class RecordingService : Service() {
                 )
             }
         }
+        if (publishResult.isSuccess) {
+            val saved = repository.session(recording.sessionId)
+            val danmakuPath = saved?.danmakuPath
+            val mediaUris = saved?.outputUris.orEmpty().ifEmpty { listOfNotNull(saved?.outputUri) }
+            if (danmakuPath != null && mediaUris.isNotEmpty()) {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        val durations = mediaUris.map { raw ->
+                            contentResolver.query(Uri.parse(raw), arrayOf(MediaStore.Video.VideoColumns.DURATION), null, null, null)
+                                ?.use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 0L } ?: 0L
+                        }
+                        DanmakuSegmentArchive.seal(File(danmakuPath), recording.sessionId, mediaUris, durations)
+                    }.onFailure { error ->
+                        repository.log(recording.roomId, recording.sessionId, "WARN", "DANMAKU_SEGMENT_DEFERRED",
+                            "弹幕分段封存失败，可从原始文件重建：${error.message}")
+                    }
+                }
+            }
+        }
         if (publishResult.isSuccess && publishBeforeRetry) {
             retryCounts[recording.roomId] = 0
             sourceAttempts[recording.roomId] = if (hlsFallback) 3 else (sourceAttempts[recording.roomId] ?: 0) + 1
@@ -1094,10 +1144,12 @@ class RecordingService : Service() {
      * segment remains private until it is closed at the next boundary, so a process kill
      * can recover it without exposing a half-written media file.
      */
-    private suspend fun checkpointCompletedParts(recording: ActiveRecording, completed: List<File>) {
-        if (completed.isEmpty()) return
-        var session = repository.session(recording.sessionId) ?: return
-        val room = repository.room(recording.roomId) ?: return
+    private suspend fun checkpointCompletedParts(recording: ActiveRecording, completed: List<File>) = withContext(Dispatchers.IO) {
+        if (completed.isEmpty()) return@withContext
+        if (completed.none { it.absolutePath !in recording.checkpointedFiles }) return@withContext
+        heavyPublicationPermit.withPermit {
+        var session = repository.session(recording.sessionId) ?: return@withPermit
+        val room = repository.room(recording.roomId) ?: return@withPermit
         val settings = container.preferences.settings.first()
         val baseName = RecordingNameFormatter.format(
             template = recording.fileNameTemplate,
@@ -1115,7 +1167,7 @@ class RecordingService : Service() {
             val key = file.absolutePath
             if (key in recording.checkpointedFiles || !file.exists() || file.length() <= 0L) return@forEach
             val expectedPart = outputUris.size + 1
-            if (com.streamcap.mobile.storage.TemporaryRecordingParts.index(recording.temporaryFile, file) != expectedPart) return
+            if (com.streamcap.mobile.storage.TemporaryRecordingParts.index(recording.temporaryFile, file) != expectedPart) return@withPermit
             try {
                 withContext(Dispatchers.IO) {
                     if (recording.outputFormat == "FLV" || file.extension.equals("flv", true)) {
@@ -1175,8 +1227,9 @@ class RecordingService : Service() {
                 )
                 // Keep publication a contiguous prefix. Publishing later parts
                 // first would reorder playback and invalidate tail indices.
-                return
+                return@withPermit
             }
+        }
         }
     }
 
@@ -1340,8 +1393,8 @@ class RecordingService : Service() {
         // Stopping here cancels that startup and leaves persisted STARTING rows.
     }
 
-    private suspend fun recoverInterruptedSession(session: RecordingSessionEntity): Boolean {
-        val first = session.temporaryPath?.let(::File) ?: return false
+    private suspend fun recoverInterruptedSession(session: RecordingSessionEntity): Boolean = withContext(Dispatchers.IO) { heavyPublicationPermit.withPermit {
+        val first = session.temporaryPath?.let(::File) ?: return@withPermit false
         val outputUris = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }.toMutableList()
         val files = temporaryFamily(first).filter {
             it.exists() && it.length() > 0L &&
@@ -1355,7 +1408,7 @@ class RecordingService : Service() {
         // Rebuild the displayed duration from all published media before adding new files.
         val publishedDuration = publishedDurationSeconds(outputUris)
         if (files.isEmpty()) {
-            if (outputUris.isEmpty()) return false
+            if (outputUris.isEmpty()) return@withPermit false
             repository.updateSession(session.copy(
                 status = TaskStatus.COMPLETED,
                 endedAt = System.currentTimeMillis(),
@@ -1364,9 +1417,9 @@ class RecordingService : Service() {
                 durationSeconds = publishedDuration.takeIf { it > 0L } ?: session.durationSeconds,
                 errorMessage = "应用进程中断，已保留已保存的 ${outputUris.size} 个分段",
             ))
-            return true
+            return@withPermit true
         }
-        val room = repository.room(session.roomId) ?: return false
+        val room = repository.room(session.roomId) ?: return@withPermit false
         val settings = container.preferences.settings.first()
         val baseName = RecordingNameFormatter.format(
             template = settings.fileNameTemplate,
@@ -1398,6 +1451,7 @@ class RecordingService : Service() {
                 container.recordingStorage.publish(file, "$baseName$suffix.$extension", extension.mimeType(), room.storageDirectoryUri ?: settings.storageDirectoryUri, session.roomName, retainTemporary = true, publicationKey = file.absolutePath)
             }
             outputUris += published
+            if (!session.containerFormat.equals("mp4", true)) duration += publishedDurationSeconds(listOf(published))
             repository.updateSession(session.copy(
                 status = TaskStatus.FINALIZING,
                 outputUri = outputUris.firstOrNull(),
@@ -1418,7 +1472,8 @@ class RecordingService : Service() {
             durationSeconds = duration.takeIf { it > 0L } ?: session.durationSeconds,
             errorMessage = "应用进程中断，已自动保存 ${outputUris.size} 个分段",
         ))
-        return outputUris.isNotEmpty()
+        outputUris.isNotEmpty()
+    }
     }
 
     private suspend fun publishedDurationSeconds(uris: List<String>): Long = withContext(Dispatchers.IO) {
@@ -1545,6 +1600,7 @@ class RecordingService : Service() {
     )
 
     companion object {
+        private val heavyPublicationPermit = Semaphore(1)
         private const val MIN_FREE_BYTES = 512L * 1_048_576L
         private const val MIN_RUNTIME_FREE_BYTES = 128L * 1_048_576L
         private const val ACTION_START = "com.streamcap.mobile.action.START_RECORDING"
@@ -1562,6 +1618,10 @@ class RecordingService : Service() {
         private const val MONITOR_POLL_MILLIS = 15_000L
         private const val POWER_SAVING_POLL_MILLIS = 60_000L
         private const val MIN_MONITOR_INTERVAL_SECONDS = 15
+        private const val RECOVERY_PREFS = "service_recovery"
+        private const val RECOVERY_GENERATION = "generation"
+        private const val RESTART_REQUEST_CODE = 4107
+        private const val RESTART_DELAY_MILLIS = 5_000L
         private val TERMINAL_STATES = setOf(
             RecorderState.COMPLETED,
             RecorderState.STOPPED,

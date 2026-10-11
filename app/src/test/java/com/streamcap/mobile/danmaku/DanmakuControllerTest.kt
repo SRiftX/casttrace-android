@@ -11,6 +11,28 @@ import kotlin.io.path.createTempDirectory
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DanmakuControllerTest {
+    @Test fun openingSocketDoesNotResetReconnectBackoff() = runTest {
+        var connects = 0
+        val client = object : DanmakuClient {
+            override suspend fun connect(context: DanmakuConnectContext) = flow<DanmakuFrame> {
+                connects++
+                emit(DanmakuFrame.Status("connected-real"))
+                error("closed before auth")
+            }
+            override suspend fun close(reason: String) = Unit
+        }
+        val controller = DanmakuController(this, client, DanmakuEventStore(File(createTempDirectory().toFile(), "events.jsonl")))
+        controller.start(DanmakuConnectContext(1, "test", "local"))
+        runCurrent()
+        advanceTimeBy(2_001); runCurrent()
+        assertEquals(2, connects)
+        advanceTimeBy(2_001); runCurrent()
+        assertEquals(2, connects)
+        advanceTimeBy(2_001); runCurrent()
+        assertEquals(3, connects)
+        controller.stop("test")
+    }
+
     @Test fun reconnectsDeduplicatesAndDrainsOnStop() = runTest {
         var connects = 0
         val client = object : DanmakuClient {

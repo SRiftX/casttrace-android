@@ -69,8 +69,8 @@ class HuyaDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
                 close(IOException("弹幕连接失败 HTTP ${response?.code ?: 0}"))
             }
         }
-        val ws = httpClient.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS)
-            .build().newWebSocket(request, listener)
+        val ws = withoutWebSocketCompression(httpClient).newBuilder()
+            .readTimeout(0, TimeUnit.MILLISECONDS).build().newWebSocket(request, listener)
         socket = ws
         val heartbeat = launch {
             while (true) {
@@ -109,6 +109,12 @@ class HuyaDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
     }
 
     companion object {
+        internal fun withoutWebSocketCompression(client: OkHttpClient): OkHttpClient =
+            client.newBuilder().addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder()
+                    .removeHeader("Sec-WebSocket-Extensions").build())
+            }.build()
+
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
         private val EPOCH = UUID.randomUUID().toString()
         internal fun command(type: Int, data: ByteArray) = TarsWire.encode(mapOf(0 to type, 1 to data, 2 to 0, 3 to ""))
@@ -123,6 +129,7 @@ class HuyaDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
                 (push[5] as? Number)?.toLong()?.takeIf { it != 0L }?.toString(),
                 SystemClock.elapsedRealtime(), System.currentTimeMillis(), EPOCH,
                 userId = user?.get(0)?.toString(), userName = user?.get(2) as? String,
+                user = DanmakuUser(user?.get(0)?.toString(), user?.get(2) as? String),
                 text = content.take(16_384), rawType = "MessageNotice", parserVersion = "huya-tars-1")
         }
     }

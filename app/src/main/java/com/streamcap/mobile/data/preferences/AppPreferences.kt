@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -55,6 +56,16 @@ class AppPreferences(private val context: Context) {
         val danmakuLanes = intPreferencesKey("danmaku_lanes")
         val danmakuArea = floatPreferencesKey("danmaku_area")
         val danmakuAutoLanes = booleanPreferencesKey("danmaku_auto_lanes")
+        val danmakuShowUserName = booleanPreferencesKey("danmaku_show_user_name")
+        val danmakuShowEventTag = booleanPreferencesKey("danmaku_show_event_tag")
+        val danmakuMaxCharacters = intPreferencesKey("danmaku_max_characters")
+        val danmakuUserPosition = stringPreferencesKey("danmaku_user_position")
+        val danmakuShowChat = booleanPreferencesKey("danmaku_show_chat")
+        val danmakuShowGift = booleanPreferencesKey("danmaku_show_gift")
+        val danmakuShowSuperChat = booleanPreferencesKey("danmaku_show_super_chat")
+        val danmakuShowFollow = booleanPreferencesKey("danmaku_show_follow")
+        val danmakuDensity = floatPreferencesKey("danmaku_density")
+        val danmakuTimeOffsetMs = longPreferencesKey("danmaku_time_offset_ms")
     }
 
     val settings: Flow<UserSettings> = context.dataStore.data.map { values ->
@@ -154,6 +165,16 @@ class AppPreferences(private val context: Context) {
             values[Keys.danmakuLanes] ?: 12,
             values[Keys.danmakuArea] ?: .65f,
             values[Keys.danmakuAutoLanes] ?: true,
+            values[Keys.danmakuShowUserName] ?: true,
+            values[Keys.danmakuShowEventTag] ?: true,
+            values[Keys.danmakuMaxCharacters] ?: 70,
+            runCatching { DanmakuUserPosition.valueOf(values[Keys.danmakuUserPosition] ?: "PREFIX") }.getOrDefault(DanmakuUserPosition.PREFIX),
+            values[Keys.danmakuShowChat] ?: true,
+            values[Keys.danmakuShowGift] ?: true,
+            values[Keys.danmakuShowSuperChat] ?: true,
+            values[Keys.danmakuShowFollow] ?: true,
+            values[Keys.danmakuDensity] ?: 1f,
+            values[Keys.danmakuTimeOffsetMs] ?: 0L,
         ).normalized()
     }
 
@@ -167,6 +188,16 @@ class AppPreferences(private val context: Context) {
             it[Keys.danmakuLanes] = appearance.lanes
             it[Keys.danmakuArea] = appearance.area
             it[Keys.danmakuAutoLanes] = appearance.autoLanes
+            it[Keys.danmakuShowUserName] = appearance.showUserName
+            it[Keys.danmakuShowEventTag] = appearance.showEventTag
+            it[Keys.danmakuMaxCharacters] = appearance.maxCharacters
+            it[Keys.danmakuUserPosition] = appearance.userPosition.name
+            it[Keys.danmakuShowChat] = appearance.showChat
+            it[Keys.danmakuShowGift] = appearance.showGift
+            it[Keys.danmakuShowSuperChat] = appearance.showSuperChat
+            it[Keys.danmakuShowFollow] = appearance.showFollow
+            it[Keys.danmakuDensity] = appearance.density
+            it[Keys.danmakuTimeOffsetMs] = appearance.timeOffsetMs
         }
     }
 

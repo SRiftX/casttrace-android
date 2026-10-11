@@ -103,6 +103,7 @@ class DouyuDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
                             sessionId = context.sessionId, platform = "douyu", eventId = fields["cid"],
                             receivedElapsedMs = elapsedMs, receivedWallMs = System.currentTimeMillis(),
                             clockEpochId = EPOCH, userId = fields["uid"], userName = fields["nn"], text = text.take(16_384),
+                            user = DanmakuUser(fields["uid"], fields["nn"]),
                             rawType = "chatmsg", parserVersion = "douyu-websocket-1",
                         )))
                     }

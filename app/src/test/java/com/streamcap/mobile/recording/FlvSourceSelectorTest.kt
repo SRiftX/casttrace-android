@@ -18,4 +18,13 @@ class FlvSourceSelectorTest {
         assertNull(FlvSourceSelector.select(listOf(old), old, false))
         assertNull(FlvSourceSelector.select(emptyList(), old, false))
     }
+
+    @Test fun rotatesCdnAfterSignedUrlForbidden() {
+        val old = StreamSource("https://hs.test/live.flv?token=old", StreamType.FLV, "原画")
+        val refreshedSameHost = old.copy(url = "https://hs.test/live.flv?token=new")
+        val alternate = old.copy(url = "https://al.test/live.flv?token=new")
+        assertEquals(alternate, FlvSourceSelector.select(
+            listOf(refreshedSameHost, alternate), old, receivedMedia = false,
+        ))
+    }
 }

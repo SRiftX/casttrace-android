@@ -248,6 +248,10 @@ class RecordingsViewModel(
                     if (removed) {
                         File(file.parentFile, "committed.marker").delete()
                         File(file.parentFile, "coverage.json").delete()
+                        File(file.parentFile, "${file.name}.time-index").delete()
+                        File(file.parentFile, "${file.name}.time-index.tmp").delete()
+                        File(file.parentFile, "segments").deleteRecursively()
+                        File(file.parentFile, "segments.tmp").deleteRecursively()
                         file.parentFile?.delete()
                     }
                     removed

@@ -31,9 +31,9 @@ class RecordingPreviewTailTest {
             val uri = Uri.fromFile(published).toString()
             val sources = resolver.resolve(uri, listOf(uri), first.path, "TS", true)
             assertEquals(3, sources.size)
-            assertEquals(Uri.fromFile(published), sources.first())
+            assertTrue(sources.first().path!!.endsWith(".mp4"))
             assertArrayEquals(original, tail.readBytes())
-            sources.drop(1).forEach { snapshot ->
+            sources.forEach { snapshot ->
                 assertTrue(snapshot.path!!.endsWith(".mp4"))
                 val extractor = android.media.MediaExtractor()
                 try {
@@ -49,10 +49,11 @@ class RecordingPreviewTailTest {
             assertArrayEquals(frozen, File(sources[1].path!!).readBytes())
             tail.delete()
             next.delete()
-            assertEquals(listOf(Uri.fromFile(published)),
-                resolver.resolve(uri, listOf(uri), first.path, "TS", true))
+            val publishedOnly = resolver.resolve(uri, listOf(uri), first.path, "TS", true)
+            assertEquals(1, publishedOnly.size)
+            assertTrue(publishedOnly.single().path!!.endsWith(".mp4"))
             resolver.close()
-            sources.drop(1).forEach { assertFalse(File(it.path!!).exists()) }
+            sources.forEach { assertFalse(File(it.path!!).exists()) }
         } finally { resolver.close(); directory.deleteRecursively() }
     }
 
@@ -68,7 +69,8 @@ class RecordingPreviewTailTest {
             val result = resolver.resolve(saved, listOf(saved), first.path, "TS", true) {
                 if (reads++ == 0) listOf(saved) else listOf(saved, saved2)
             }
-            assertEquals(listOf(Uri.parse(saved), Uri.parse(saved2)), result)
+            assertEquals(2, result.size)
+            assertTrue(result.all { it.path!!.endsWith(".mp4") })
             assertTrue(reads >= 4)
         } finally { resolver.close(); directory.deleteRecursively() }
     }

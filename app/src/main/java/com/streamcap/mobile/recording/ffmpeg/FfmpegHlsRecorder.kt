@@ -21,6 +21,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
@@ -68,8 +70,12 @@ class FfmpegHlsRecorder(
         }
     }
 
-    override fun observe(handle: RecordingHandle): Flow<RecordingProgress> =
-        requireNotNull(recordings[handle.id]) { "录制句柄不存在" }.progress
+    override fun observe(handle: RecordingHandle): Flow<RecordingProgress> {
+        val running = requireNotNull(recordings[handle.id]) { "录制句柄不存在" }
+        var terminalObserved = false
+        return running.progress.onEach { terminalObserved = it.state in TERMINAL_STATES }
+            .onCompletion { if (terminalObserved) recordings.remove(handle.id, running) }
+    }
 
     private suspend fun record(request: RecordingRequest, running: Running) {
         val outputFiles = mutableListOf<File>()
@@ -80,6 +86,7 @@ class FfmpegHlsRecorder(
             var accumulatedDuration = 0L
             var lastError: String? = null
             var reconnectAttempt = 0
+            var lastStatisticsAt = 0L
             while (!running.stopped) {
                 val destination = attemptDestination(request.destination, attempt)
                 val attemptRequest = request.copy(url = currentUrl, headers = currentHeaders, destination = destination)
@@ -88,6 +95,9 @@ class FfmpegHlsRecorder(
                     if (log.message.contains("error", ignoreCase = true)) lastError = log.message.trim()
                 }
                 val statisticsCallback = StatisticsCallback { statistics ->
+                    val now = System.currentTimeMillis()
+                    if (now - lastStatisticsAt < STATISTICS_INTERVAL_MILLIS && !running.stopped) return@StatisticsCallback
+                    lastStatisticsAt = now
                     val files = discoverFiles(destination, request.segmentSeconds)
                     synchronized(outputFiles) {
                         files.forEach { file -> if (file !in outputFiles) outputFiles += file }
@@ -213,6 +223,8 @@ class FfmpegHlsRecorder(
     }
 
     private companion object {
+        private val TERMINAL_STATES = setOf(RecorderState.COMPLETED, RecorderState.STOPPED, RecorderState.FAILED)
+        private const val STATISTICS_INTERVAL_MILLIS = 5_000L
         private const val STOP_WAIT_MILLIS = 10_000L
         private const val RECONNECT_BASE_DELAY_MILLIS = 1_000L
         private const val RECONNECT_MAX_DELAY_MILLIS = 30_000L

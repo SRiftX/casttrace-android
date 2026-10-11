@@ -9,6 +9,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -71,6 +73,20 @@ internal suspend fun OkHttpClient.postForm(
     require(url.toHttpUrlOrNull()?.scheme == "https") { "平台解析请求必须使用 HTTPS" }
     val form = FormBody.Builder().apply { fields.forEach(::add) }.build()
     val builder = Request.Builder().url(url).post(form)
+    headers.forEach(builder::header)
+    newBuilder().callTimeout(15, TimeUnit.SECONDS).build().newCall(builder.build()).execute().use { response ->
+        check(response.isSuccessful) { "请求失败：HTTP ${response.code}" }
+        checkNotNull(response.body).string()
+    }
+}
+
+internal suspend fun OkHttpClient.postJson(
+    url: String,
+    json: String,
+    headers: Map<String, String> = emptyMap(),
+): String = withContext(Dispatchers.IO) {
+    require(url.toHttpUrlOrNull()?.scheme == "https") { "平台解析请求必须使用 HTTPS" }
+    val builder = Request.Builder().url(url).post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
     headers.forEach(builder::header)
     newBuilder().callTimeout(15, TimeUnit.SECONDS).build().newCall(builder.build()).execute().use { response ->
         check(response.isSuccessful) { "请求失败：HTTP ${response.code}" }

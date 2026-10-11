@@ -69,7 +69,7 @@ fun PlatformsScreen(container: AppContainer, onBack: () -> Unit) {
         ) {
             item {
                 Text(
-                    "Android 当前可录制虎牙、抖音、B站、斗鱼、快手及 HLS / FLV 直链；其余平台按列表继续适配。",
+                    "Android 已适配虎牙、抖音、B站、斗鱼、快手及 HLS / FLV 直链；猫耳、ShowRoom、CHZZK、Picarto 已加入解析器，仍需真房间验证。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
@@ -85,11 +85,12 @@ private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer) {
     val scope = rememberCoroutineScope()
     var showCredential by remember { mutableStateOf(false) }
     var cookie by remember { mutableStateOf("") }
-    val credentialSupported = entry.key in setOf("douyin", "bilibili", "kuaishou")
+    val credentialSupported = entry.key in setOf("douyin", "bilibili", "kuaishou", "chzzk")
     val color = when (entry.status) {
         AndroidSupportStatus.AVAILABLE, AndroidSupportStatus.FIRST_BATCH -> LiveTeal
         AndroidSupportStatus.NEEDS_REVIEW -> WarningAmber
         AndroidSupportStatus.PLANNED -> MaterialTheme.colorScheme.onSurfaceVariant
+        AndroidSupportStatus.DISCONTINUED -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -131,7 +132,20 @@ private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer) {
                     onValueChange = { cookie = it },
                     label = { Text("Cookie") },
                     visualTransformation = PasswordVisualTransformation(),
-                    supportingText = { Text("仅保存在本机，用于解析需要登录态的直播源") },
+                    supportingText = {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("仅保存在本机，用于解析需要登录态的直播源")
+                            Text(
+                                "新手使用：1. 在浏览器登录 ${entry.name}；2. 打开开发者工具的 Network/网络，刷新直播页；3. 选择平台请求，在 Request Headers 中复制 Cookie 的值；4. 粘贴完整内容后保存。",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                "格式示例：sessionid=...; token=...（不要粘贴 Cookie: 这几个字）。Cookie 过期、换账号或提示鉴权失败时，重新复制并保存；不要发给他人。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
                 )
             },
             confirmButton = {
@@ -153,4 +167,5 @@ private fun AndroidSupportStatus.displayName(): String = when (this) {
     AndroidSupportStatus.FIRST_BATCH -> "首批适配"
     AndroidSupportStatus.PLANNED -> "计划接入"
     AndroidSupportStatus.NEEDS_REVIEW -> "待复核"
+    AndroidSupportStatus.DISCONTINUED -> "已停服"
 }

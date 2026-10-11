@@ -120,8 +120,10 @@ internal class VideoDanmakuOverlay(
         val lanes = (availableHeight / lineHeight).toInt().coerceIn(1, appearance.laneLimit)
         lineSpacing = lineHeight
         timeline = ScrollingDanmakuTimeline(events.mapNotNull { event ->
+            if (appearance.density < 1f && (event.eventId ?: "${event.receivedElapsedMs}:${event.text}").hashCode().toUInt().toLong() % 10_000 >= (appearance.density * 10_000).toLong()) return@mapNotNull null
             val time = event.mediaTimeMs ?: return@mapNotNull null
-            val text = TextUtils.ellipsize(event.text.replace(Regex("[\\r\\n\\t]+"), " "), paint,
+            val formatted = DanmakuPresentation.text(event, appearance) ?: return@mapNotNull null
+            val text = TextUtils.ellipsize(formatted, paint,
                 videoSize.width * 1.5f, TextUtils.TruncateAt.END).toString()
             TimedBullet(text, time, paint.measureText(text))
         }, videoSize.width.toFloat(), lanes, gap = 24f * scale, travelMs = (6500 / appearance.speed).toLong())
@@ -129,7 +131,7 @@ internal class VideoDanmakuOverlay(
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
         canvas.drawColor(android.graphics.Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        val time = presentationTimeUs / 1000 + mediaOffsetMs
+        val time = presentationTimeUs / 1000 + mediaOffsetMs - appearance.timeOffsetMs
         timeline.visibleAt(time).forEach { bullet ->
             val x = timeline.x(bullet, time)
             val y = inset + bullet.lane * lineSpacing - paint.fontMetrics.top

@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.platform.LocalConfiguration
 import com.streamcap.mobile.data.preferences.DanmakuAppearance
+import com.streamcap.mobile.data.preferences.DanmakuUserPosition
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -34,6 +35,44 @@ internal fun DanmakuSettingsPanel(
             Column(Modifier.heightIn(max = maxHeight).widthIn(max = 420.dp).padding(20.dp)) {
                 Text("弹幕设置", style = MaterialTheme.typography.titleLarge)
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(top = 12.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("显示用户名", Modifier.weight(1f))
+                        Switch(draft.showUserName, { update(draft.copy(showUserName = it)) })
+                    }
+                    if (draft.showUserName) {
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                            DanmakuUserPosition.entries.forEachIndexed { index, position ->
+                                SegmentedButton(selected = draft.userPosition == position,
+                                    onClick = { update(draft.copy(userPosition = position)) },
+                                    shape = SegmentedButtonDefaults.itemShape(index, DanmakuUserPosition.entries.size)) {
+                                    Text(when (position) { DanmakuUserPosition.PREFIX -> "前缀"; DanmakuUserPosition.SUFFIX -> "后缀"; DanmakuUserPosition.HIDDEN -> "隐藏" })
+                                }
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("显示事件标签", Modifier.weight(1f))
+                        Switch(draft.showEventTag, { update(draft.copy(showEventTag = it)) })
+                    }
+                    listOf("普通发言" to draft.showChat, "礼物" to draft.showGift,
+                        "醒目留言" to draft.showSuperChat, "关注等事件" to draft.showFollow).forEachIndexed { index, (label, enabled) ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text(label, Modifier.weight(1f))
+                            Switch(enabled, { checked -> update(when (index) {
+                                0 -> draft.copy(showChat = checked)
+                                1 -> draft.copy(showGift = checked)
+                                2 -> draft.copy(showSuperChat = checked)
+                                else -> draft.copy(showFollow = checked)
+                            }) })
+                        }
+                    }
+                    Text("显示密度  ${(draft.density * 100).roundToInt()}%")
+                    Slider(draft.density, { update(draft.copy(density = it)) }, valueRange = .25f..1f)
+                    Text("时间校正  ${draft.timeOffsetMs / 1000f} 秒")
+                    Slider(draft.timeOffsetMs.toFloat(), { update(draft.copy(timeOffsetMs = it.roundToInt().toLong())) }, valueRange = -30_000f..30_000f)
+                    Text("最长显示  ${draft.maxCharacters} 字")
+                    Slider(draft.maxCharacters.toFloat(), { update(draft.copy(maxCharacters = it.roundToInt())) }, valueRange = 20f..120f,
+                        modifier = Modifier.semantics { contentDescription = "弹幕最长显示字数" })
                     Text("大小  ${draft.fontSizeSp.roundToInt()} sp")
                     Slider(draft.fontSizeSp, { update(draft.copy(fontSizeSp = it)) }, valueRange = 12f..32f, steps = 19,
                         modifier = Modifier.semantics { contentDescription = "弹幕大小" })

@@ -16,6 +16,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.OkHttpClient
@@ -198,7 +200,11 @@ class DirectHttpRecorder(
                     if (!running.stopped && request.refreshSource != null) {
                         event("STREAM_REFRESH_STARTED")
                         val previousUrl = streamUrl
-                        val refreshed = try { request.refreshSource.invoke(receivedMedia) }
+                        // A signed CDN URL that returned 401/403 is unusable even
+                        // when it delivered media earlier. Tell the selector to
+                        // rotate hosts instead of retaining the failed CDN.
+                        val sourceStillProductive = receivedMedia && lastHttpStatus !in setOf(401, 403)
+                        val refreshed = try { request.refreshSource.invoke(sourceStillProductive) }
                         catch (cancelled: CancellationException) { throw cancelled }
                         catch (ended: com.streamcap.mobile.recording.engine.LiveStreamEndedException) { throw ended }
                         catch (_: Exception) { null }
@@ -260,8 +266,12 @@ class DirectHttpRecorder(
         }
     }
 
-    override fun observe(handle: RecordingHandle): Flow<RecordingProgress> =
-        requireNotNull(recordings[handle.id]) { "录制句柄不存在" }.progress
+    override fun observe(handle: RecordingHandle): Flow<RecordingProgress> {
+        val running = requireNotNull(recordings[handle.id]) { "录制句柄不存在" }
+        var terminalObserved = false
+        return running.progress.onEach { terminalObserved = it.state in TERMINAL_STATES }
+            .onCompletion { if (terminalObserved) recordings.remove(handle.id, running) }
+    }
 
     private fun copyFlv(
         input: InputStream,
@@ -408,6 +418,7 @@ class DirectHttpRecorder(
     }
 
     companion object {
+        private val TERMINAL_STATES = setOf(RecorderState.COMPLETED, RecorderState.STOPPED, RecorderState.FAILED)
         private val FLV_SIGNATURE = byteArrayOf('F'.code.toByte(), 'L'.code.toByte(), 'V'.code.toByte())
         private const val RECONNECT_DELAY_MILLIS = 1_500L
         private const val FLV_TIMELINE_RESET_MILLIS = 2_000L

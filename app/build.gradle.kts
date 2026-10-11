@@ -18,6 +18,9 @@ android {
 
     defaultConfig {
         applicationId = "com.streamcap.mobile"
+        providers.gradleProperty("applicationIdSuffix").orNull?.takeIf { it.isNotBlank() }?.let {
+            applicationIdSuffix = it
+        }
         minSdk = 26
         targetSdk = 35
         versionCode = 24
@@ -147,6 +150,7 @@ val prepareCompatibleFfmpeg by tasks.registering {
 }
 
 dependencies {
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.21")
     implementation(files(compatibleFfmpegArtifact).builtBy(prepareCompatibleFfmpeg))
     // 本地 AAR 不会自动解析其 POM 中的传递依赖；FFmpegKit 初始化和错误回调会直接使用该类库。
     implementation("com.arthenica:smart-exception-java:0.2.1")

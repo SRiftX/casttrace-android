@@ -31,11 +31,14 @@ class DanmakuSimulationTest {
             assertEquals(2, restored.size)
             assertEquals("开始", restored.first().text)
             assertTrue(File(directory, "committed.marker").isFile)
-            for (format in DanmakuSubtitleFormat.entries) {
+            for (format in DanmakuSubtitleFormat.entries.filter { it != DanmakuSubtitleFormat.COVERAGE }) {
                 val target = File(directory, "output.${format.name.lowercase()}")
                 DanmakuSubtitleExporter.export(restored, target, format)
                 assertTrue(target.length() > 0)
             }
+            val coverage = File(directory, "coverage-export.json")
+            DanmakuSubtitleExporter.exportFile(source, 42, coverage, DanmakuSubtitleFormat.COVERAGE)
+            assertEquals(2L, org.json.JSONObject(coverage.readText()).getLong("eventCount"))
         } finally { directory.deleteRecursively() }
     }
 }

@@ -162,6 +162,7 @@ class BilibiliDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClien
                 sessionId = context.sessionId, platform = "bilibili", eventId = null,
                 receivedElapsedMs = elapsedMs, receivedWallMs = System.currentTimeMillis(), clockEpochId = EPOCH,
                 sourceTimeMs = sourceTime, userId = uid, userName = name, text = text.take(16_384),
+                user = DanmakuUser(uid, name),
                 rawType = "DANMU_MSG", parserVersion = "bilibili-websocket-1",
             )))
         }

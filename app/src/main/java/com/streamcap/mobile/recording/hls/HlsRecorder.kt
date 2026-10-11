@@ -16,6 +16,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -24,12 +26,14 @@ import okhttp3.Request
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.PushbackInputStream
 import java.net.URI
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToLong
 import javax.crypto.Cipher
+import javax.crypto.CipherInputStream
 import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
@@ -79,8 +83,12 @@ class HlsRecorder(
         }
     }
 
-    override fun observe(handle: RecordingHandle): Flow<RecordingProgress> =
-        requireNotNull(recordings[handle.id]) { "录制句柄不存在" }.progress
+    override fun observe(handle: RecordingHandle): Flow<RecordingProgress> {
+        val running = requireNotNull(recordings[handle.id]) { "录制句柄不存在" }
+        var terminalObserved = false
+        return running.progress.onEach { terminalObserved = it.state in TERMINAL_STATES }
+            .onCompletion { if (terminalObserved) recordings.remove(handle.id, running) }
+    }
 
     private suspend fun record(request: RecordingRequest, running: Running) {
         val startedAt = System.currentTimeMillis()
@@ -88,7 +96,9 @@ class HlsRecorder(
         val completedFiles = mutableListOf<File>()
         val seen = linkedSetOf<String>()
         var liveEdgeInitialized = false
-        val keyCache = mutableMapOf<String, ByteArray>()
+        val keyCache = object : LinkedHashMap<String, ByteArray>(16, .75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ByteArray>?) = size > MAX_CACHED_KEYS
+        }
         var playlistUrl = request.url
         var headers = request.headers
         var output = BufferedOutputStream(FileOutputStream(request.destination))
@@ -187,10 +197,9 @@ class HlsRecorder(
                     }
                     playlist.segments.maxOfOrNull { it.sequence }?.let { maxSequenceSeen = maxOf(maxSequenceSeen, it) }
                     if (playlist.initMapUrl != null && playlist.initMapUrl != initMapWritten) {
-                        val init = downloadBytes(playlist.initMapUrl, headers, running)
-                        output.write(init)
-                        totalBytes += init.size
-                        partBytes += init.size
+                        val init = downloadToOutput(playlist.initMapUrl, headers, running, output, requireNotNull(request.destination.absoluteFile.parentFile))
+                        totalBytes += init
+                        partBytes += init
                         initMapWritten = playlist.initMapUrl
                     }
                     var downloaded = false
@@ -201,30 +210,25 @@ class HlsRecorder(
                         ) {
                             rotateOutput()
                             playlist.initMapUrl?.let { mapUrl ->
-                                val init = downloadBytes(mapUrl, headers, running)
-                                output.write(init)
-                                totalBytes += init.size
-                                partBytes += init.size
+                                val init = downloadToOutput(mapUrl, headers, running, output, requireNotNull(request.destination.absoluteFile.parentFile))
+                                totalBytes += init
+                                partBytes += init
                                 initMapWritten = mapUrl
                             }
                         }
-                        var bytes = downloadBytes(segment.url, headers, running)
-                        check(!bytes.take(16).toByteArray().toString(Charsets.UTF_8).trimStart().startsWith("#EXTM3U")) {
-                            "HLS segment returned a playlist instead of media"
-                        }
-                        segment.key?.let { key ->
+                        val decryption = segment.key?.let { key ->
                             check(key.method == "AES-128") { "暂不支持 HLS 加密方式 ${key.method}" }
                             val keyUrl = requireNotNull(key.uri) { "HLS AES-128 缺少密钥地址" }
                             val secret = keyCache.getOrPut(keyUrl) { downloadBytesBlocking(keyUrl, headers) }
-                            bytes = decryptAes128(bytes, secret, key.iv ?: sequenceIv(segment.sequence))
+                            secret to (key.iv ?: sequenceIv(segment.sequence))
                         }
-                        output.write(bytes)
+                        val bytesWritten = downloadToOutput(segment.url, headers, running, output, requireNotNull(request.destination.absoluteFile.parentFile), decryption)
                         output.flush()
                         seen += segment.id
                         partDuration += segment.duration
                         totalDuration += segment.duration
-                        totalBytes += bytes.size
-                        partBytes += bytes.size
+                        totalBytes += bytesWritten
+                        partBytes += bytesWritten
                         downloaded = true
                         consecutiveErrors = 0
                         if (running.progress.value.state == RecorderState.RECONNECTING) {
@@ -397,7 +401,7 @@ class HlsRecorder(
     }
 
     private suspend fun downloadText(url: String, headers: Map<String, String>, running: Running): String =
-        downloadBytes(url, headers, running).toString(Charsets.UTF_8)
+        downloadBytes(url, headers, running, MAX_PLAYLIST_BYTES).toString(Charsets.UTF_8)
 
     private suspend fun refreshSource(request: RecordingRequest) =
         try { request.refreshSource?.invoke(false) }
@@ -408,7 +412,7 @@ class HlsRecorder(
             null
         }
 
-    private suspend fun downloadBytes(url: String, headers: Map<String, String>, running: Running): ByteArray =
+    private suspend fun downloadBytes(url: String, headers: Map<String, String>, running: Running, maxBytes: Int): ByteArray =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).apply { headers.forEach(::header) }.build()
             val call = requestClient.newCall(request)
@@ -419,7 +423,65 @@ class HlsRecorder(
                 check(response.isSuccessful) {
                     "下载 HLS 数据失败：HTTP ${response.code}（${response.request.url.host}${response.request.url.encodedPath}）"
                 }
-                checkNotNull(response.body).bytes()
+                checkNotNull(response.body).byteStream().use { input -> readLimited(input, maxBytes) }
+            }
+        }
+
+    private suspend fun downloadToOutput(url: String, headers: Map<String, String>, running: Running,
+                                         output: BufferedOutputStream, tempDirectory: File,
+                                         decryption: Pair<ByteArray, ByteArray>? = null): Long {
+        val pending = File.createTempFile("hls-segment-", ".part", tempDirectory)
+        try {
+            BufferedOutputStream(FileOutputStream(pending)).use { staged ->
+                downloadMedia(url, headers, running, staged, decryption)
+            }
+            pending.inputStream().buffered().use { it.copyTo(output) }
+            return pending.length()
+        } finally {
+            pending.delete()
+        }
+    }
+
+    private suspend fun downloadMedia(url: String, headers: Map<String, String>, running: Running,
+                                      output: BufferedOutputStream,
+                                      decryption: Pair<ByteArray, ByteArray>? = null): Long =
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val request = Request.Builder().url(url).apply { headers.forEach(::header) }.build()
+            val call = requestClient.newCall(request)
+            running.call = call
+            running.lastHttpStatus = 0
+            call.execute().use { response ->
+                running.lastHttpStatus = response.code
+                check(response.isSuccessful) {
+                    "下载 HLS 数据失败：HTTP ${response.code}（${response.request.url.host}${response.request.url.encodedPath}）"
+                }
+                PushbackInputStream(checkNotNull(response.body).byteStream(), 16).use { source ->
+                    val probe = ByteArray(16)
+                    val count = source.read(probe)
+                    if (count > 0) source.unread(probe, 0, count)
+                    check(!probe.copyOf(count.coerceAtLeast(0)).toString(Charsets.UTF_8).trimStart().startsWith("#EXTM3U")) {
+                        "HLS segment returned a playlist instead of media"
+                    }
+                    val input = if (decryption == null) source else {
+                        val (secret, iv) = decryption
+                        require(secret.size == 16) { "HLS AES-128 密钥长度错误" }
+                        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
+                        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(secret, "AES"), IvParameterSpec(iv.copyOf(16)))
+                        CipherInputStream(source, cipher)
+                    }
+                    input.use { stream ->
+                        val buffer = ByteArray(32 * 1024)
+                        var total = 0L
+                        while (true) {
+                            check(!running.stopped) { "录制已停止" }
+                            val read = stream.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                            total += read
+                        }
+                        total
+                    }
+                }
             }
         }
 
@@ -427,15 +489,20 @@ class HlsRecorder(
         val request = Request.Builder().url(url).apply { headers.forEach(::header) }.build()
         return requestClient.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "下载 HLS 密钥失败：HTTP ${response.code}" }
-            checkNotNull(response.body).bytes()
+            checkNotNull(response.body).byteStream().use { input -> readLimited(input, 64) }
         }
     }
 
-    private fun decryptAes128(bytes: ByteArray, key: ByteArray, iv: ByteArray): ByteArray {
-        require(key.size == 16) { "HLS AES-128 密钥长度错误" }
-        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(iv.copyOf(16)))
-        return cipher.doFinal(bytes)
+    private fun readLimited(input: java.io.InputStream, maxBytes: Int): ByteArray {
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8 * 1024)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            require(output.size() + count <= maxBytes) { "HLS 响应超过大小限制" }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
     }
 
     private fun sequenceIv(sequence: Long) = ByteArray(16).also { output ->
@@ -469,6 +536,9 @@ class HlsRecorder(
     }
 
     companion object {
+        private val TERMINAL_STATES = setOf(RecorderState.COMPLETED, RecorderState.STOPPED, RecorderState.FAILED)
+        private const val MAX_CACHED_KEYS = 16
+        private const val MAX_PLAYLIST_BYTES = 2 * 1024 * 1024
         private const val END_LIST_REFRESH_DELAY_MILLIS = 1_000L
         private const val STALL_TIMEOUT_MILLIS = 15_000L
         private const val MAX_STALLED_REFRESHES = 6
