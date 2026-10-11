@@ -86,6 +86,7 @@ fun SettingsScreen(
     var showQualityDialog by remember { mutableStateOf(false) }
     var showIntervalDialog by remember { mutableStateOf(false) }
     var showTemplateDialog by remember { mutableStateOf(false) }
+    var showSupportDialog by remember { mutableStateOf(false) }
     val templates by viewModel.templates.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
     var powerUnrestricted by remember { mutableStateOf(false) }
@@ -401,6 +402,10 @@ fun SettingsScreen(
         }
         item {
             SettingsSection("关于") {
+                SettingsRow(title = "支持者赞助", value = "感谢支持，扫码赞助完全自愿",
+                    modifier = Modifier.clickable { showSupportDialog = true },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, null) })
+                HorizontalDivider()
                 SettingsRow(title = "使用说明", value = "第一次使用的操作步骤和故障排查",
                     modifier = Modifier.clickable(onClick = onOpenUserGuide),
                     trailing = { Icon(Icons.Outlined.ChevronRight, null) })
@@ -463,6 +468,7 @@ fun SettingsScreen(
             confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = { viewModel.saveTemplate(RecordingTemplate(name.trim().take(32), settings.defaultFormat, settings.defaultQuality, settings.checkIntervalSeconds)); showTemplateDialog = false }) { Text("保存") } },
             dismissButton = { TextButton(onClick = { showTemplateDialog = false }) { Text("取消") } })
     }
+    if (showSupportDialog) SupportDialog(firstLaunch = false, onDismiss = { showSupportDialog = false })
 }
 
 private fun formatStorage(bytes: Long): String = when {

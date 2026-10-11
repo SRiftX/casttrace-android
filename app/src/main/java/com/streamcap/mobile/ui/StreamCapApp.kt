@@ -14,6 +14,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -38,6 +41,7 @@ import com.streamcap.mobile.ui.rooms.AddRoomScreen
 import com.streamcap.mobile.ui.settings.LogsScreen
 import com.streamcap.mobile.ui.settings.PlatformsScreen
 import com.streamcap.mobile.ui.settings.SettingsScreen
+import com.streamcap.mobile.ui.settings.SupportDialog
 import com.streamcap.mobile.ui.settings.StorageScreen
 import com.streamcap.mobile.ui.settings.BackupScreen
 import com.streamcap.mobile.ui.common.MotionTokens
@@ -63,6 +67,11 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     val navController = rememberNavController()
     val context = LocalContext.current
     val container = (context.applicationContext as StreamCapApplication).container
+    val welcomePreferences = remember(context) {
+        context.getSharedPreferences("welcome", android.content.Context.MODE_PRIVATE)
+    }
+    var showWelcome by remember { mutableStateOf(!welcomePreferences.getBoolean("shown", false)) }
+    var showWelcomeQr by remember { mutableStateOf(false) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val topLevelRoutes = setOf(Routes.HOME, Routes.RECORDINGS, Routes.SETTINGS)
@@ -219,4 +228,13 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
         }
     }
     }
+    if (showWelcome) SupportDialog(
+        firstLaunch = true,
+        onDismiss = {
+            welcomePreferences.edit().putBoolean("shown", true).apply()
+            showWelcome = false
+        },
+        onShowQr = { showWelcomeQr = true },
+    )
+    if (showWelcomeQr) SupportDialog(firstLaunch = false, onDismiss = { showWelcomeQr = false })
     }
