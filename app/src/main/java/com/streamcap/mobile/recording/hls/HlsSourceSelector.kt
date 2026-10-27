@@ -2,27 +2,37 @@ package com.streamcap.mobile.recording.hls
 
 import com.streamcap.mobile.domain.model.StreamSource
 import com.streamcap.mobile.platform.resolver.secureStreamUrl
+import com.streamcap.mobile.platform.resolver.selectQuality
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis: Long = 30_000L) {
     private val client = client.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
 
-    suspend fun select(sources: List<StreamSource>): StreamSource =
-        withTimeoutOrNull(selectionTimeoutMillis) { selectWithinDeadline(sources) }
+    suspend fun select(sources: List<StreamSource>, quality: String = "原画", previousHost: String? = null): StreamSource =
+        withTimeoutOrNull(selectionTimeoutMillis) {
+            // A stalled CDN may still return playlist/segment headers successfully.
+            // Try another CDN before reusing it when the recorder requests a refresh.
+            val ordered = if (previousHost == null) sources else sources.sortedBy {
+                it.url.toHttpUrlOrNull()?.host.equals(previousHost, ignoreCase = true)
+            }
+            selectWithinDeadline(ordered, quality, client.newBuilder().addNetworkInterceptor(HlsSessionCookies()).build())
+        }
             ?: error("直播线路探测超时，请稍后重试")
 
-    private suspend fun selectWithinDeadline(sources: List<StreamSource>): StreamSource = withContext(Dispatchers.IO) {
+    private suspend fun selectWithinDeadline(sources: List<StreamSource>, quality: String, client: OkHttpClient): StreamSource = withContext(Dispatchers.IO) {
         val failures = linkedSetOf<String>()
         for (source in sources) {
             coroutineContext.ensureActive()
             try {
                 var url = secureStreamUrl(source.url)
+                var selectedSource = source
                 repeat(4) {
                     val request = Request.Builder().url(url).apply { source.headers.forEach(::header) }.build()
                     client.newCall(request).execute().use { response ->
@@ -40,7 +50,8 @@ class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis
                                 check(media.isSuccessful) { "Media segment HTTP ${media.code}" }
                                 check(media.body?.source()?.exhausted() == false) { "Empty media segment" }
                             }
-                            return@withContext source.copy(url = secureStreamUrl(response.request.url.toString()))
+                            return@withContext selectedSource.copy(url = if (source.separateAudio) source.url
+                                else secureStreamUrl(response.request.url.toString()))
                         }
                         val lines = body.lines().map(String::trim)
                         val variants = lines.mapIndexedNotNull { index, line ->
@@ -48,11 +59,20 @@ class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis
                             val child = lines.drop(index + 1).firstOrNull { it.isNotBlank() && !it.startsWith('#') }
                                 ?: return@mapIndexedNotNull null
                             val bandwidth = Regex("BANDWIDTH=(\\d+)").find(line)?.groupValues?.get(1)?.toLongOrNull() ?: 0
-                            bandwidth to child
+                            val height = Regex("RESOLUTION=\\d+x(\\d+)").find(line)?.groupValues?.get(1)?.toIntOrNull()
+                            val label = when {
+                                height == null -> ""
+                                height >= 2160 -> "4k"
+                                height >= 1080 -> "1080p"
+                                height >= 720 -> "720p"
+                                height >= 480 -> "480p"
+                                height >= 360 -> "360p"
+                                else -> "流畅"
+                            }
+                            source.copy(url = response.request.url.resolve(child)!!.toString(), quality = label, bitrate = bandwidth)
                         }
-                        url = secureStreamUrl(
-                            response.request.url.resolve(variants.maxBy { it.first }.second)!!.toString(),
-                        )
+                        selectedSource = variants.selectQuality(quality).first()
+                        url = secureStreamUrl(selectedSource.url)
                     }
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {

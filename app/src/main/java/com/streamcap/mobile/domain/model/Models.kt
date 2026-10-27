@@ -114,6 +114,8 @@ data class StreamSource(
     val headers: Map<String, String> = emptyMap(),
     val expiresAt: Long? = null,
     val requiresFfmpeg: Boolean = false,
+    /** Keep the master playlist so the recorder can mux its external audio track. */
+    val separateAudio: Boolean = false,
 )
 
 data class PlatformCredential(

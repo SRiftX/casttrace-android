@@ -139,7 +139,7 @@ class RecordingService : Service() {
         notifications = RecordingNotifications(this)
         directRecorder = DirectHttpRecorder(container.httpClient, serviceScope)
         hlsRecorder = HlsRecorder(container.httpClient, serviceScope)
-        ffmpegHlsRecorder = FfmpegHlsRecorder(serviceScope)
+        ffmpegHlsRecorder = FfmpegHlsRecorder(serviceScope, container.httpClient)
         wakeLock = getSystemService(PowerManager::class.java).newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "StreamCap:Recording",
@@ -445,7 +445,7 @@ class RecordingService : Service() {
                 ) ?: error(if (availableSources.isEmpty()) "主播当前未开播，或平台没有返回可用直播源" else "当前线路不提供 $requestedFormat 格式")
                 val source = if (initialSource.type == StreamType.HLS) {
                     try {
-                        HlsSourceSelector(container.httpClient).select(candidates.filter { it.type == StreamType.HLS })
+                        HlsSourceSelector(container.httpClient).select(candidates.filter { it.type == StreamType.HLS }, room.quality)
                     } catch (cancelled: kotlinx.coroutines.CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
@@ -528,11 +528,12 @@ class RecordingService : Service() {
 
                 // Persist HLS segments before remuxing the finished files to MP4.
                 val selectedRecorder: Recorder = if (source.type == StreamType.HLS) {
-                    hlsRecorder
+                    if (source.separateAudio) ffmpegHlsRecorder else hlsRecorder
                 } else {
                     directRecorder
                 }
                 var lastFlvSource = source
+                var lastHlsHost = java.net.URI(source.url).host
                 container.networkPolicy.requireAllowed()
                 check(!pauseRequested.contains(roomId) && !stopRequested.contains(roomId)) { "录制启动已取消" }
                 val mediaStart = android.os.SystemClock.elapsedRealtime()
@@ -562,7 +563,8 @@ class RecordingService : Service() {
                                 val hlsSources = refreshedSources
                                     .filter { it.type == StreamType.HLS }
                                     .distinctBy { it.url }
-                                HlsSourceSelector(container.httpClient).select(hlsSources)
+                                HlsSourceSelector(container.httpClient).select(hlsSources, room.quality, lastHlsHost)
+                                    .also { lastHlsHost = java.net.URI(it.url).host }
                             }
                             refresh
                         } else if (source.type == StreamType.FLV) {

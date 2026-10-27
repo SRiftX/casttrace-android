@@ -7,8 +7,10 @@ import org.json.JSONObject
 class ChzzkResolver(private val client: OkHttpClient) : PlatformResolver {
     override val platformId = "chzzk"
     override fun supports(url: String) = url.hasHost("chzzk.naver.com")
-    override suspend fun resolveRoom(url: String): LiveRoomInfo {
-        val data = load(url, null)
+    override val supportsCredentials = true
+    override suspend fun resolveRoom(url: String): LiveRoomInfo = resolveRoom(url, null)
+    override suspend fun resolveRoom(url: String, credential: PlatformCredential?): LiveRoomInfo {
+        val data = load(url, credential)
         return LiveRoomInfo(data.url, "CHZZK", data.anchor, data.title)
     }
     override suspend fun checkLive(room: LiveRoom, credential: PlatformCredential?) =

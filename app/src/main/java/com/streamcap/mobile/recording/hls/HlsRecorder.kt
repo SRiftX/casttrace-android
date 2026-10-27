@@ -49,6 +49,7 @@ class HlsRecorder(
         .build()
     private data class Running(
         val progress: MutableStateFlow<RecordingProgress>,
+        val client: OkHttpClient,
         var job: Job? = null,
         var call: Call? = null,
         @Volatile var lastHttpStatus: Int = 0,
@@ -69,7 +70,8 @@ class HlsRecorder(
     override suspend fun start(request: RecordingRequest): RecordingHandle {
         require(request.streamType == StreamType.HLS) { "HLS 录制器只能处理 m3u8 播放列表" }
         val handle = RecordingHandle(UUID.randomUUID().toString())
-        val running = Running(MutableStateFlow(RecordingProgress(RecorderState.STARTING)))
+        val running = Running(MutableStateFlow(RecordingProgress(RecorderState.STARTING)),
+            requestClient.newBuilder().addNetworkInterceptor(HlsSessionCookies()).build())
         recordings[handle.id] = running
         running.job = scope.launch(Dispatchers.IO) { record(request, running) }
         return handle
@@ -177,11 +179,15 @@ class HlsRecorder(
                         continue
                     }
                     val playlist = parseMediaPlaylist(playlistUrl, playlistText)
+                    // Some live CDNs advertise the newest segment before its response is
+                    // complete. Leave one segment of holdback; ENDLIST drains the tail.
+                    val readySegments = if (!playlist.endList && playlist.segments.size > 2)
+                        playlist.segments.dropLast(1) else playlist.segments
                     // A live playlist normally contains a rolling backlog. Do not
                     // count that backlog as newly recorded time; start near the
                     // live edge and keep the latest segment for continuity.
-                    if (!liveEdgeInitialized && !playlist.endList && playlist.segments.size > 3) {
-                        playlist.segments.dropLast(1).forEach { seen += it.id }
+                    if (!liveEdgeInitialized && !playlist.endList && playlist.segments.size > 2) {
+                        readySegments.dropLast(1).forEach { seen += it.id }
                         liveEdgeInitialized = true
                     } else if (!liveEdgeInitialized) {
                         liveEdgeInitialized = true
@@ -197,13 +203,17 @@ class HlsRecorder(
                     }
                     playlist.segments.maxOfOrNull { it.sequence }?.let { maxSequenceSeen = maxOf(maxSequenceSeen, it) }
                     if (playlist.initMapUrl != null && playlist.initMapUrl != initMapWritten) {
+                        // A refreshed fMP4 stream has a new initialization context. Appending
+                        // another moov to the same file can make FFmpeg retain only its tail.
+                        // Preserve the preceding media as a separate, independently muxable part.
+                        if (initMapWritten != null && partBytes > 0L) rotateOutput()
                         val init = downloadToOutput(playlist.initMapUrl, headers, running, output, requireNotNull(request.destination.absoluteFile.parentFile))
                         totalBytes += init
                         partBytes += init
                         initMapWritten = playlist.initMapUrl
                     }
                     var downloaded = false
-                    for (segment in playlist.segments) {
+                    for (segment in readySegments) {
                         if (running.stopped || segment.id in seen) continue
                         if (request.segmentSeconds != null && request.segmentSeconds > 0 &&
                             partDuration > 0 && partDuration + segment.duration > request.segmentSeconds
@@ -219,7 +229,7 @@ class HlsRecorder(
                         val decryption = segment.key?.let { key ->
                             check(key.method == "AES-128") { "暂不支持 HLS 加密方式 ${key.method}" }
                             val keyUrl = requireNotNull(key.uri) { "HLS AES-128 缺少密钥地址" }
-                            val secret = keyCache.getOrPut(keyUrl) { downloadBytesBlocking(keyUrl, headers) }
+                            val secret = keyCache.getOrPut(keyUrl) { downloadBytesBlocking(keyUrl, headers, running) }
                             secret to (key.iv ?: sequenceIv(segment.sequence))
                         }
                         val bytesWritten = downloadToOutput(segment.url, headers, running, output, requireNotNull(request.destination.absoluteFile.parentFile), decryption)
@@ -415,7 +425,7 @@ class HlsRecorder(
     private suspend fun downloadBytes(url: String, headers: Map<String, String>, running: Running, maxBytes: Int): ByteArray =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).apply { headers.forEach(::header) }.build()
-            val call = requestClient.newCall(request)
+            val call = running.client.newCall(request)
             running.call = call
             running.lastHttpStatus = 0
             call.execute().use { response ->
@@ -447,7 +457,7 @@ class HlsRecorder(
                                       decryption: Pair<ByteArray, ByteArray>? = null): Long =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).apply { headers.forEach(::header) }.build()
-            val call = requestClient.newCall(request)
+            val call = running.client.newCall(request)
             running.call = call
             running.lastHttpStatus = 0
             call.execute().use { response ->
@@ -485,9 +495,9 @@ class HlsRecorder(
             }
         }
 
-    private fun downloadBytesBlocking(url: String, headers: Map<String, String>): ByteArray {
+    private fun downloadBytesBlocking(url: String, headers: Map<String, String>, running: Running): ByteArray {
         val request = Request.Builder().url(url).apply { headers.forEach(::header) }.build()
-        return requestClient.newCall(request).execute().use { response ->
+        return running.client.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "下载 HLS 密钥失败：HTTP ${response.code}" }
             checkNotNull(response.body).byteStream().use { input -> readLimited(input, 64) }
         }

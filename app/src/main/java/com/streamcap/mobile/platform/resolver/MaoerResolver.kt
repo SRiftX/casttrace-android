@@ -40,7 +40,7 @@ class MaoerResolver(private val client: OkHttpClient) : PlatformResolver {
         return MaoerData(url, creator?.optString("username").orEmpty(), liveRoom.optString("name"), sources)
     }
 
-    private fun source(url: String, type: StreamType) = url.takeIf { it.startsWith("https://") }
+    private fun source(url: String, type: StreamType) = secureStreamUrl(url).takeIf { it.startsWith("https://") }
         ?.let { StreamSource(it, type, "原画", requiresFfmpeg = type == StreamType.HLS) }
 
     private data class MaoerData(val url: String, val anchor: String, val title: String?, val sources: List<StreamSource>)

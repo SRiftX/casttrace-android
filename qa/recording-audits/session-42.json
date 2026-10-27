@@ -1,0 +1,46 @@
+{
+  "parts": [
+    {
+      "file": "session-42.mp4",
+      "duration_seconds": 76.06,
+      "video": "Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, bt709, progressive), 1080x1920, 1630 kb/s, 30 fps, 30 tbr, 90k tbn (default)",
+      "packets": 2280,
+      "longest_repeated_run": 0,
+      "replay_lag": 0,
+      "backwards_dts": 0,
+      "maximum_video_gap_seconds": 0.034,
+      "gaps_over_one_second": 0,
+      "total_gaps_over_one_second": 0,
+      "decode_samples": [
+        {
+          "at_seconds": 0,
+          "ok": true,
+          "stderr": ""
+        },
+        {
+          "at_seconds": 38.03,
+          "ok": true,
+          "stderr": ""
+        },
+        {
+          "at_seconds": 68.06,
+          "ok": true,
+          "stderr": ""
+        }
+      ]
+    }
+  ],
+  "media_seconds": 76.06,
+  "wall_seconds": 75.0,
+  "drift_seconds": 1.0600000000000023,
+  "sampling_gate_passed": true,
+  "all_parts_packet_check": {
+    "packets": 2280,
+    "longest_repeated_run": 0,
+    "replay_lag": 0
+  },
+  "limitations": "Packet identity heuristic; sampled decoding; does not prove absence of gaps or full audiovisual continuity.",
+  "session_id": 42,
+  "apk_variant": "isolated staged snapshot; see build-validation.json",
+  "media_sha256": "d7b16cc1ce40b72698e49fb3ced962f12b239c90e82dfb79292da2debd30b404"
+}

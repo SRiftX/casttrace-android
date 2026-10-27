@@ -12,10 +12,13 @@ data class RoomCheckResult(val status: LiveStatus, val info: LiveRoomInfo? = nul
 
 interface PlatformResolver {
     val platformId: String
+    val supportsCredentials: Boolean get() = false
 
     fun supports(url: String): Boolean
 
     suspend fun resolveRoom(url: String): LiveRoomInfo
+
+    suspend fun resolveRoom(url: String, credential: PlatformCredential?): LiveRoomInfo = resolveRoom(url)
 
     suspend fun checkLive(
         room: LiveRoom,

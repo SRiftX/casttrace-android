@@ -22,7 +22,7 @@ object PlatformCatalog {
         PlatformCatalogEntry("douyin", "抖音直播", listOf("douyin.com", "v.douyin.com"), AndroidSupportStatus.AVAILABLE),
         PlatformCatalogEntry("bilibili", "B站直播", listOf("live.bilibili.com", "b23.tv"), AndroidSupportStatus.AVAILABLE),
         PlatformCatalogEntry("douyu", "斗鱼直播", listOf("douyu.com"), AndroidSupportStatus.AVAILABLE),
-        PlatformCatalogEntry("kuaishou", "快手直播", listOf("live.kuaishou.com"), AndroidSupportStatus.AVAILABLE),
+        PlatformCatalogEntry("kuaishou", "快手直播", listOf("live.kuaishou.com"), AndroidSupportStatus.NEEDS_REVIEW),
         PlatformCatalogEntry("tiktok", "TikTok直播", listOf("tiktok.com"), AndroidSupportStatus.NEEDS_REVIEW),
         PlatformCatalogEntry("yy", "YY直播", listOf("yy.com"), AndroidSupportStatus.NEEDS_REVIEW),
         PlatformCatalogEntry("rednote", "小红书直播", listOf("xiaohongshu.com", "xhslink.com", "app.xhs.cn"), AndroidSupportStatus.NEEDS_REVIEW),

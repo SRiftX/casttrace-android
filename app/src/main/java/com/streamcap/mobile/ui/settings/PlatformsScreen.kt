@@ -48,6 +48,9 @@ import com.streamcap.mobile.ui.theme.WarningAmber
 @Composable
 fun PlatformsScreen(container: AppContainer, onBack: () -> Unit) {
     val entries = PlatformCatalog.entries
+    val resolverIds = remember(container) { container.resolverRegistry.platformIds }
+    val available = entries.count { it.status in setOf(AndroidSupportStatus.AVAILABLE, AndroidSupportStatus.FIRST_BATCH) }
+    val needsReview = entries.count { it.key in resolverIds && it.status == AndroidSupportStatus.NEEDS_REVIEW }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -69,23 +72,25 @@ fun PlatformsScreen(container: AppContainer, onBack: () -> Unit) {
         ) {
             item {
                 Text(
-                    "Android 已适配虎牙、抖音、B站、斗鱼、快手及 HLS / FLV 直链；猫耳、ShowRoom、CHZZK、Picarto 已加入解析器，仍需真房间验证。",
+                    "当前可用入口 $available 个；另有 $needsReview 个平台待复核。取流与弹幕分别适配，实际可用性受房间状态和平台限制影响。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            items(entries, key = { it.key }) { entry -> PlatformRow(entry, container) }
+            items(entries, key = { it.key }) { entry -> PlatformRow(entry, container, entry.key in resolverIds || (entry.key == "custom" && "direct" in resolverIds)) }
         }
     }
 }
 
 @Composable
-private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer) {
+private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer, resolverAvailable: Boolean) {
     val scope = rememberCoroutineScope()
     var showCredential by remember { mutableStateOf(false) }
     var cookie by remember { mutableStateOf("") }
-    val credentialSupported = entry.key in setOf("douyin", "bilibili", "kuaishou", "chzzk")
+    val credentialSupported = remember(entry.key, container) {
+        runCatching { container.resolverRegistry.resolverForPlatform(entry.key).supportsCredentials }.getOrDefault(false)
+    }
     val color = when (entry.status) {
         AndroidSupportStatus.AVAILABLE, AndroidSupportStatus.FIRST_BATCH -> LiveTeal
         AndroidSupportStatus.NEEDS_REVIEW -> WarningAmber
@@ -110,9 +115,16 @@ private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                val chat = container.danmakuClients.capability(entry.key)
+                Text(
+                    if (chat.enabled) "文字弹幕：${chat.identityQuality}" else "文字弹幕：暂未接入",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(entry.status.displayName(), style = MaterialTheme.typography.labelSmall, color = color)
+                Text(if (entry.status == AndroidSupportStatus.NEEDS_REVIEW && resolverAvailable) "已接入 · 待验证" else entry.status.displayName(),
+                    style = MaterialTheme.typography.labelSmall, color = color)
                 if (credentialSupported) {
                     TextButton(onClick = {
                         cookie = container.credentialStore.get(entry.key)?.cookie.orEmpty()

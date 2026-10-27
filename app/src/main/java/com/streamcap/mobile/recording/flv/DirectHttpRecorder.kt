@@ -45,6 +45,8 @@ class DirectHttpRecorder(
         var audioOffset: Long = 0L,
         var lastVideo: Long = Long.MIN_VALUE,
         var lastAudio: Long = Long.MIN_VALUE,
+        var lastVideoArrivalMillis: Long? = null,
+        var lastAudioArrivalMillis: Long? = null,
         var firstMedia: Long = Long.MIN_VALUE,
         var lastMedia: Long = Long.MIN_VALUE,
         val recentPackets: LinkedHashSet<String> = linkedSetOf(),
@@ -197,7 +199,12 @@ class DirectHttpRecorder(
                         event("STREAM_RETRY_EXHAUSTED")
                         throw StreamRetryExhaustedException("直播源连续断开，未收到新的媒体数据")
                     }
-                    if (!running.stopped && request.refreshSource != null) {
+                    // Productive short FLV responses are normal on Huya. Reopen
+                    // the same signed URL first; refresh only after an empty or
+                    // rejected response, avoiding a resolver request per EOF.
+                    val huyaShortResponse = host(streamUrl).endsWith(".huya.com") && receivedMedia &&
+                        lastHttpStatus !in setOf(401, 403)
+                    if (!running.stopped && request.refreshSource != null && !huyaShortResponse) {
                         event("STREAM_REFRESH_STARTED")
                         val previousUrl = streamUrl
                         // A signed CDN URL that returned 401/403 is unusable even
@@ -296,6 +303,8 @@ class DirectHttpRecorder(
         var total = if (append) totalBefore else totalBefore + header.size
         var currentPartStartedAt = partStartedAt
         var part = files.size
+        var seenVideo = false
+        var seenAudio = false
         val initTags = linkedMapOf<String, ByteArray>()
         try {
             while (true) {
@@ -335,13 +344,18 @@ class DirectHttpRecorder(
                 if (isMediaTag) {
                     val rawTimestamp = timestamp
                     val isVideo = type == 9
-                    normalizedTimestamp = rawTimestamp + if (isVideo) timestampState.videoOffset else timestampState.audioOffset
                     val lastTimestamp = if (isVideo) timestampState.lastVideo else timestampState.lastAudio
-                    if (lastTimestamp != Long.MIN_VALUE && lastTimestamp - normalizedTimestamp >= FLV_TIMELINE_RESET_MILLIS) {
-                        if (isVideo) timestampState.videoOffset += lastTimestamp - normalizedTimestamp + 1L
-                        else timestampState.audioOffset += lastTimestamp - normalizedTimestamp + 1L
-                        normalizedTimestamp = rawTimestamp + if (isVideo) timestampState.videoOffset else timestampState.audioOffset
-                    }
+                    val arrivalMillis = System.nanoTime() / 1_000_000L
+                    val previousArrival = if (isVideo) timestampState.lastVideoArrivalMillis else timestampState.lastAudioArrivalMillis
+                    val offset = flvTimelineOffset(rawTimestamp,
+                        if (isVideo) timestampState.videoOffset else timestampState.audioOffset,
+                        lastTimestamp, append && !(if (isVideo) seenVideo else seenAudio),
+                        previousArrival?.let { arrivalMillis - it })
+                    if (isVideo) timestampState.lastVideoArrivalMillis = arrivalMillis
+                    else timestampState.lastAudioArrivalMillis = arrivalMillis
+                    if (isVideo) { timestampState.videoOffset = offset; seenVideo = true }
+                    else { timestampState.audioOffset = offset; seenAudio = true }
+                    normalizedTimestamp = rawTimestamp + offset
                     if (isVideo) timestampState.lastVideo = maxOf(timestampState.lastVideo, normalizedTimestamp)
                     else timestampState.lastAudio = maxOf(timestampState.lastAudio, normalizedTimestamp)
                     if (timestampState.firstMedia == Long.MIN_VALUE) timestampState.firstMedia = normalizedTimestamp
@@ -421,6 +435,5 @@ class DirectHttpRecorder(
         private val TERMINAL_STATES = setOf(RecorderState.COMPLETED, RecorderState.STOPPED, RecorderState.FAILED)
         private val FLV_SIGNATURE = byteArrayOf('F'.code.toByte(), 'L'.code.toByte(), 'V'.code.toByte())
         private const val RECONNECT_DELAY_MILLIS = 1_500L
-        private const val FLV_TIMELINE_RESET_MILLIS = 2_000L
     }
 }

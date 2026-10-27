@@ -28,6 +28,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 /**
  * 使用 FFmpeg 直接读取 HLS。电脑端也是这条路径，FFmpeg 会负责 HLS 重连、PTS
@@ -35,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class FfmpegHlsRecorder(
     private val scope: CoroutineScope,
+    private val httpClient: OkHttpClient = OkHttpClient(),
 ) : Recorder {
     private data class Running(
         val progress: MutableStateFlow<RecordingProgress>,
@@ -91,8 +95,16 @@ class FfmpegHlsRecorder(
                 val destination = attemptDestination(request.destination, attempt)
                 val attemptRequest = request.copy(url = currentUrl, headers = currentHeaders, destination = destination)
                 val completion = CompletableDeferred<FFmpegSession>()
+                val reportedMessages = linkedSetOf<String>()
                 val logCallback = LogCallback { log ->
-                    if (log.message.contains("error", ignoreCase = true)) lastError = log.message.trim()
+                    val message = log.message.trim().replace(Regex("https?://[^\\s'\"]+"), "<media-url>").take(1000)
+                    if (message.contains("error", ignoreCase = true)) lastError = message
+                    synchronized(reportedMessages) {
+                        if (message.isNotBlank() && reportedMessages.size < 12 && reportedMessages.add(message)) {
+                            request.eventLogger?.invoke("FFMPEG_INPUT_MESSAGE", mapOf("message" to message.take(1000)))
+                            android.util.Log.w("FfmpegHls", message.take(1000))
+                        }
+                    }
                 }
                 val statisticsCallback = StatisticsCallback { statistics ->
                     val now = System.currentTimeMillis()
@@ -111,8 +123,16 @@ class FfmpegHlsRecorder(
                     )
                 }
                 if (running.stopped) break
+                val trackInputs = if (isNaver(attemptRequest.url)) {
+                    val master = httpClient.newCall(Request.Builder().url(attemptRequest.url)
+                        .apply { attemptRequest.headers.forEach(::header) }.build()).execute().use {
+                        check(it.isSuccessful) { "HLS 主列表 HTTP ${it.code}" }
+                        requireNotNull(it.body).string()
+                    }
+                    independentTrackInputs(attemptRequest.url, master)
+                } else null
                 running.session = FfmpegRuntime.run { FFmpegKit.executeWithArgumentsAsync(
-                    buildCommand(attemptRequest).toTypedArray(),
+                    buildCommand(attemptRequest, trackInputs).toTypedArray(),
                     { session -> completion.complete(session) },
                     logCallback,
                     statisticsCallback,
@@ -167,22 +187,43 @@ class FfmpegHlsRecorder(
         }
     }
 
-    private fun buildCommand(request: RecordingRequest): List<String> {
-        val inputHeaders = request.headers.entries.joinToString("\r\n") { (name, value) -> "$name: $value" }
+    private fun buildCommand(request: RecordingRequest, trackInputs: Pair<String, String>?): List<String> {
+        val inputHeaders = if (request.headers.isEmpty()) "" else
+            request.headers.entries.joinToString("\r\n", postfix = "\r\n") { (name, value) -> "$name: $value" }
         val command = mutableListOf(
             "-y",
             "-hide_banner",
             "-loglevel", "warning",
+        )
+        val inputOptions = mutableListOf(
             "-rw_timeout", "15000000",
             "-reconnect", "1",
             "-reconnect_streamed", "1",
-            "-reconnect_at_eof", "1",
+            // HLS segments are finite files. Retrying their normal EOF would
+            // reopen the same fragment forever and prevent recording progress.
             "-reconnect_delay_max", "30",
             "-fflags", "+discardcorrupt+genpts",
             "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
         )
-        if (inputHeaders.isNotBlank()) command += listOf("-headers", inputHeaders)
-        command += listOf("-i", request.url, "-map", "0", "-c", "copy", "-avoid_negative_ts", "make_non_negative")
+        // Naver serves fMP4 video using .m4v names. Newer FFmpeg HLS builds
+        // otherwise reject these valid fragments because the suffix is atypical.
+        if (isNaver(request.url)) {
+            inputOptions += listOf("-extension_picky", "0")
+        }
+        if (inputHeaders.isNotBlank()) inputOptions += listOf("-headers", inputHeaders)
+        if (trackInputs == null) {
+            command += inputOptions + listOf("-i", request.url, "-map", "0")
+        } else {
+            // Separate input reader threads prevent a slow audio fragment from
+            // blocking video until its short rolling playlist has expired.
+            // Stream info is in each fMP4 init. Avoid the default multi-second
+            // probe of input 0 expiring input 1's three-fragment live window.
+            inputOptions += listOf("-analyzeduration", "200000", "-probesize", "131072")
+            command += inputOptions + listOf("-thread_queue_size", "512", "-i", trackInputs.first)
+            command += inputOptions + listOf("-thread_queue_size", "512", "-i", trackInputs.second)
+            command += listOf("-map", "0:v:0", "-map", "1:a:0")
+        }
+        command += listOf("-c", "copy", "-avoid_negative_ts", "make_non_negative")
         if (request.segmentSeconds != null && request.segmentSeconds > 0) {
             command += listOf(
                 "-f", "segment",
@@ -229,4 +270,24 @@ class FfmpegHlsRecorder(
         private const val RECONNECT_BASE_DELAY_MILLIS = 1_000L
         private const val RECONNECT_MAX_DELAY_MILLIS = 30_000L
     }
+}
+
+private fun isNaver(url: String) = runCatching {
+    java.net.URI(url).host?.endsWith(".edge.naverncp.com") == true
+}.getOrDefault(false)
+
+internal fun independentTrackInputs(url: String, master: String): Pair<String, String>? {
+    val lines = master.lineSequence().map(String::trim).toList()
+    val variantIndex = lines.indexOfFirst { it.startsWith("#EXT-X-STREAM-INF:") }
+    if (variantIndex < 0) return null
+    val group = Regex("(?:^|,)AUDIO=\"([^\"]+)\"").find(lines[variantIndex].substringAfter(':'))
+        ?.groupValues?.get(1) ?: return null
+    val audio = lines.firstOrNull { it.startsWith("#EXT-X-MEDIA:") && it.contains("TYPE=AUDIO") &&
+        Regex("(?:^|,)GROUP-ID=\"([^\"]+)\"").find(it.substringAfter(':'))?.groupValues?.get(1) == group }
+        ?.let { Regex("(?:^|,)URI=\"([^\"]+)\"").find(it.substringAfter(':'))?.groupValues?.get(1) }
+        ?: error("HLS 主列表缺少外置音轨")
+    val video = lines.drop(variantIndex + 1).firstOrNull { it.isNotBlank() && !it.startsWith('#') }
+        ?: error("HLS 主列表缺少视频线路")
+    val base = url.toHttpUrl()
+    return requireNotNull(base.resolve(video)).toString() to requireNotNull(base.resolve(audio)).toString()
 }

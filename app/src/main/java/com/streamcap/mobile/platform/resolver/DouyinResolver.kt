@@ -15,8 +15,10 @@ class DouyinResolver(private val client: OkHttpClient) : PlatformResolver {
     override val platformId = "douyin"
     override fun supports(url: String) = url.hasHost("douyin.com", "webcast.amemv.com")
 
-    override suspend fun resolveRoom(url: String): LiveRoomInfo {
-        val data = load(url, null)
+    override val supportsCredentials = true
+    override suspend fun resolveRoom(url: String): LiveRoomInfo = resolveRoom(url, null)
+    override suspend fun resolveRoom(url: String, credential: PlatformCredential?): LiveRoomInfo {
+        val data = load(url, credential)
         return LiveRoomInfo(data.url, "抖音直播", data.anchor, data.title)
     }
 

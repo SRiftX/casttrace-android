@@ -19,6 +19,7 @@ import com.streamcap.mobile.domain.model.StreamSource
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.domain.model.LiveRoomInfo
 import com.streamcap.mobile.domain.model.TaskStatus
+import com.streamcap.mobile.platform.resolver.ShareLinkDiscovery
 import com.streamcap.mobile.platform.resolver.ResolverRegistry
 import com.streamcap.mobile.data.security.CredentialStore
 import kotlinx.coroutines.flow.Flow
@@ -33,6 +34,7 @@ class StreamCapRepository(
     private val sessionDao: RecordingSessionDao,
     private val logDao: TaskLogDao,
     private val resolvers: ResolverRegistry,
+    private val shareLinks: ShareLinkDiscovery,
     private val credentialStore: CredentialStore,
 ) {
     val rooms: Flow<List<LiveRoom>> = roomDao.observeAll().map { rooms -> rooms.map { it.toDomain() } }
@@ -77,9 +79,7 @@ class StreamCapRepository(
         displayName: String? = null,
         options: RoomRecordingOptions = RoomRecordingOptions(),
     ): Long {
-        val normalizedInput = com.streamcap.mobile.platform.resolver.RoomUrlInput.normalize(url)
-        val resolver = resolvers.resolverFor(normalizedInput)
-        val info = resolver.resolveRoom(normalizedInput)
+        val (normalizedInput, info) = resolveNewRoom(url)
         if (roomDao.getByNormalizedUrl(info.normalizedUrl) != null) {
             throw IllegalArgumentException("这个直播间已经在列表中")
         }
@@ -151,9 +151,24 @@ class StreamCapRepository(
     }
 
     suspend fun previewRoom(url: String): Pair<LiveRoomInfo, Boolean> {
-        val input = com.streamcap.mobile.platform.resolver.RoomUrlInput.normalize(url)
-        val info = resolvers.resolverFor(input).resolveRoom(input)
+        val (_, info) = resolveNewRoom(url)
         return info to (roomDao.getByNormalizedUrl(info.normalizedUrl) != null)
+    }
+
+    private suspend fun resolveNewRoom(url: String): Pair<String, LiveRoomInfo> {
+        val input = shareLinks.resolve(url)
+        suspend fun resolve(address: String): LiveRoomInfo {
+            val resolver = resolvers.resolverFor(address)
+            return resolver.resolveRoom(address, credentialStore.get(resolver.platformId))
+        }
+        val first = runCatching { resolve(input) }
+        first.getOrNull()?.let { return input to it }
+        // A platform share page may have the right domain but no room ID in its path.
+        val expanded = runCatching { shareLinks.resolve(url, inspectSupported = true) }.getOrNull()
+        if (expanded != null && expanded != input) {
+            return expanded to resolve(expanded)
+        }
+        throw requireNotNull(first.exceptionOrNull())
     }
 
     suspend fun activeSessionForRoom(roomId: Long): RecordingSessionEntity? =

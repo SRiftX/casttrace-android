@@ -21,9 +21,11 @@ private fun additionalSource(url: String, quality: String, headers: Map<String, 
 }
 
 abstract class AdditionalResolver(protected val client: OkHttpClient) : PlatformResolver {
+    override val supportsCredentials = true
     protected abstract suspend fun load(url: String, credential: PlatformCredential?): AdditionalRoom
-    override suspend fun resolveRoom(url: String): LiveRoomInfo {
-        val room = load(url, null)
+    override suspend fun resolveRoom(url: String): LiveRoomInfo = resolveRoom(url, null)
+    override suspend fun resolveRoom(url: String, credential: PlatformCredential?): LiveRoomInfo {
+        val room = load(url, credential)
         return LiveRoomInfo(url, platformId, room.anchor, room.title)
     }
     override suspend fun checkLive(room: LiveRoom, credential: PlatformCredential?) =
@@ -116,7 +118,7 @@ class BaiduLiveResolver(client: OkHttpClient) : AdditionalResolver(client) {
             val list = video?.optJSONArray("url_clarity_list") ?: video?.optJSONArray("url_list")
             if (list != null) for (i in 0 until list.length()) {
                 val item = list.optJSONObject(i) ?: continue
-                val raw = item.optJSONObject("urls")?.optString("flv")
+                val raw = item.optJSONObject("urls")?.optString("flv")?.takeIf(String::isNotBlank)
                     ?: item.optJSONObject("urls")?.optString("hls")
                 raw?.takeIf(String::isNotBlank)?.let { additionalSource(it, "原画", h) }?.let(sources::add)
             }

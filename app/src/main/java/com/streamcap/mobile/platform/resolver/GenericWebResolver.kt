@@ -11,8 +11,10 @@ class GenericWebResolver(
 ) : PlatformResolver {
     override fun supports(url: String) = url.hasHost(*hosts.toTypedArray())
 
-    override suspend fun resolveRoom(url: String): LiveRoomInfo {
-        val result = load(url)
+    override val supportsCredentials = true
+    override suspend fun resolveRoom(url: String): LiveRoomInfo = resolveRoom(url, null)
+    override suspend fun resolveRoom(url: String, credential: PlatformCredential?): LiveRoomInfo {
+        val result = load(url, credential)
         return LiveRoomInfo(url, platformId, result.anchor, result.title)
     }
 

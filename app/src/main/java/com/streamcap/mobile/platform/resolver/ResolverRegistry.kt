@@ -3,6 +3,8 @@ package com.streamcap.mobile.platform.resolver
 class ResolverRegistry(
     private val resolvers: List<PlatformResolver>,
 ) {
+    val platformIds: Set<String> get() = resolvers.mapTo(linkedSetOf()) { it.platformId }
+    fun supports(url: String): Boolean = resolvers.any { it.supports(url) }
     fun resolverFor(url: String): PlatformResolver = resolvers.firstOrNull { it.supports(url) }
         ?: throw UnsupportedPlatformException(url)
 

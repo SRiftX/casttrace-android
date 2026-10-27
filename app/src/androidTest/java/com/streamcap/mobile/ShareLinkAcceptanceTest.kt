@@ -33,6 +33,10 @@ class ShareLinkAcceptanceTest {
         compose.activityRule.scenario.onActivity { activity ->
             activity.setContent { StreamCapTheme { AddRoomScreen(app.container, null, {}, { saved.set(it) }) } }
         }
+        // setContent runs on the main thread; wait until Compose has published its tree.
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithText("URL").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText("URL").performTextReplacement(text)
         compose.onNodeWithText("识别链接并确认信息").performScrollTo().performClick()
         compose.waitUntil(90_000) {

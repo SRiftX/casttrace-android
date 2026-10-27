@@ -23,11 +23,16 @@ class ConcurrentRecordingAcceptanceTest {
         val urls = InstrumentationRegistry.getArguments().getString("platformUrls")
             .orEmpty().split(',').map(String::trim).filter(String::isNotBlank)
         require(urls.size in 2..10) { "platformUrls 需要传入 2 至 10 个平台 URL" }
+        val outputFormat = InstrumentationRegistry.getArguments().getString("batchOutputFormat") ?: "MP4"
+        val recordSeconds = InstrumentationRegistry.getArguments().getString("batchRecordSeconds")?.toLongOrNull()
+            ?.also { require(it in 60..1200) } ?: 630L
+        require(outputFormat in setOf("MP4", "FLV", "TS"))
         val rooms = urls.map { url ->
             val roomId = repository.rooms.first().firstOrNull { it.normalizedUrl == url }?.id
                 ?: repository.addRoom(url, options = RoomRecordingOptions(
-                    outputFormat = "FLV", quality = "流畅", segmentEnabled = false))
+                    outputFormat = outputFormat, quality = "流畅", segmentEnabled = false))
             val sources = repository.streams(roomId)
+            repository.updateRecordingOptions(roomId, RoomRecordingOptions(outputFormat = outputFormat, quality = "流畅", segmentEnabled = false))
             assertTrue("No live source for $url", sources.isNotEmpty())
             android.util.Log.i("ConcurrentAcceptance", "PREFLIGHT room=$roomId platform=${repository.room(roomId)?.platform} types=${sources.map { it.type }.distinct()}")
             roomId to requireNotNull(repository.room(roomId)).platform
@@ -44,7 +49,7 @@ class ConcurrentRecordingAcceptanceTest {
         try {
             roomIds.forEach { id -> withContext(Dispatchers.Main) { RecordingService.start(context, id) } }
             delay(15000)
-            while (SystemClock.elapsedRealtime() - started < 630_000) {
+            while (SystemClock.elapsedRealtime() - started < recordSeconds * 1000) {
                 val sessions = repository.recordings.first().filter { it.id > baseline && it.roomId in roomIds }
                 android.util.Log.i("ConcurrentAcceptance", "PROGRESS elapsed=${(SystemClock.elapsedRealtime()-started)/1000} sessions=${sessions.map { "${it.roomId}:${it.id}:${it.status}:${it.totalBytes}:${it.durationSeconds}" }}")
                 delay(15000)
@@ -58,9 +63,13 @@ class ConcurrentRecordingAcceptanceTest {
             android.util.Log.i("ConcurrentAcceptance", "RESULT room=${it.roomId} session=${it.id} status=${it.status} duration=${it.durationSeconds} bytes=${it.totalBytes} danmaku=${it.danmakuEventCount} outputs=${it.outputUris.size} error=${it.errorMessage}")
         }
         assertTrue("Only ${sessions.size}/${roomIds.size} platform rooms produced sessions", sessions.map { it.roomId }.distinct().size == roomIds.size)
-        assertTrue("Not all platform rooms produced ten-minute video", sessions.all {
-            it.durationSeconds >= 600 && it.totalBytes > 0 && it.outputUris.isNotEmpty() &&
+        val minimumDuration = if (recordSeconds >= 630) recordSeconds - 30 else recordSeconds * 8 / 10
+        assertTrue("Not all platform rooms produced media close to ${recordSeconds}s wall time", sessions.all {
+            it.durationSeconds in minimumDuration..(recordSeconds + 90) && it.totalBytes > 0 && it.outputUris.isNotEmpty() &&
                 it.status in setOf(TaskStatus.PAUSED, TaskStatus.COMPLETED)
         })
+        sessions.flatMap { it.outputUris }.forEach { uri ->
+            context.contentResolver.openInputStream(android.net.Uri.parse(uri))!!.use { assertTrue(it.read() >= 0) }
+        }
     }
 }

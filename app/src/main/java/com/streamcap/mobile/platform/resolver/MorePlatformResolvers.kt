@@ -21,9 +21,11 @@ private fun moreSource(raw: String, headers: Map<String, String>): StreamSource?
 }
 
 abstract class MoreResolver(protected val client: OkHttpClient) : PlatformResolver {
+    override val supportsCredentials = true
     protected abstract suspend fun load(url: String, credential: PlatformCredential?): MoreRoom
-    override suspend fun resolveRoom(url: String): LiveRoomInfo {
-        val room = load(url, null)
+    override suspend fun resolveRoom(url: String): LiveRoomInfo = resolveRoom(url, null)
+    override suspend fun resolveRoom(url: String, credential: PlatformCredential?): LiveRoomInfo {
+        val room = load(url, credential)
         return LiveRoomInfo(url, platformId, room.anchor, room.title)
     }
     override suspend fun checkLive(room: LiveRoom, credential: PlatformCredential?) =
@@ -38,7 +40,7 @@ class WeiboResolver(client: OkHttpClient) : MoreResolver(client) {
     override suspend fun load(url: String, credential: PlatformCredential?): MoreRoom {
         val h = moreHeaders(credential, "https://weibo.com/")
         val path = url.toHttpUrlOrNull()?.encodedPath.orEmpty()
-        var id = Regex("/show/([A-Za-z0-9]+)").find(path)?.groupValues?.get(1)
+        var id = Regex("/show/([A-Za-z0-9]+(?::[A-Za-z0-9]+)?)").find(path)?.groupValues?.get(1)
         if (id == null) {
             val uid = Regex("/u/(\\d+)").find(path)?.groupValues?.get(1)
                 ?: error("微博地址缺少直播 ID 或用户 ID")
@@ -125,16 +127,33 @@ class RednoteResolver(client: OkHttpClient) : MoreResolver(client) {
         val script = Jsoup.parse(response.body).selectFirst("script:containsData(window.__INITIAL_STATE__)")?.data()
             ?: error("小红书页面缺少直播状态，可能需要登录或分享链接已失效")
         val start = script.indexOf("window.__INITIAL_STATE__").let { script.indexOf('{', it) }
-        val state = JSONObject(balancedJson(script.replace("undefined", "null"), start))
+        val state = JSONObject(normalizeState(balancedJson(script, start)))
         val live = state.optJSONObject("liveStream")
-        if (live?.optString("liveStatus") != "success") return MoreRoom("小红书", null, emptyList())
+            ?: error("小红书页面没有直播间数据，请使用直播分享链接并检查登录状态")
+        if (live.optString("liveStatus") != "success")
+            error("小红书直播状态不可用，请检查分享链接、登录状态或房间是否已结束")
         val room = live.optJSONObject("roomData")?.optJSONObject("roomInfo") ?: error("小红书房间数据不可用")
         val title = room.optString("roomTitle")
         if (title.contains("回放")) return MoreRoom("小红书", title, emptyList())
-        val deeplink = room.optString("deeplink").toHttpUrlOrNull()
+        // App deeplinks use xhsdiscover://, which HttpUrl intentionally rejects.
+        // Parse only their encoded query; never issue a request to the app scheme.
+        val deeplink = deeplinkQuery(room.optString("deeplink"))
         val media = deeplink?.queryParameter("flvUrl").orEmpty()
-        val sources = listOfNotNull(moreSource(media, h))
+        val sources = listOfNotNull(media.takeIf(String::isNotBlank)?.let { moreSource(secureStreamUrl(it), h) })
+        check(sources.isNotEmpty()) { "小红书没有返回可用直播线路，请检查登录状态" }
         return MoreRoom(deeplink?.queryParameter("host_nickname").orEmpty().ifBlank { "小红书" }, title, sources)
+    }
+
+    companion object {
+        internal fun normalizeState(value: String): String =
+            Regex("\"(?:\\\\.|[^\"\\\\])*\"|\\bundefined\\b").replace(value) {
+                if (it.value == "undefined") "null" else it.value
+            }
+
+        internal fun deeplinkQuery(value: String): okhttp3.HttpUrl? = runCatching {
+            val query = java.net.URI(value).rawQuery ?: return@runCatching null
+            okhttp3.HttpUrl.Builder().scheme("https").host("query.invalid").encodedQuery(query).build()
+        }.getOrNull()
     }
 }
 
@@ -145,8 +164,9 @@ class FlexTvResolver(client: OkHttpClient) : MoreResolver(client) {
         val id = Regex("/channels/([^/]+)").find(url.toHttpUrlOrNull()?.encodedPath.orEmpty())?.groupValues?.get(1)
             ?: error("FlexTV 地址缺少频道 ID")
         require(id.matches(Regex("[A-Za-z0-9_-]{1,80}"))) { "FlexTV 频道 ID 无效" }
-        val h = moreHeaders(credential, "https://www.ttinglive.com/channels/$id/live")
-        val page = client.getText("https://www.ttinglive.com/channels/$id/live", h).body
+        val h = moreHeaders(credential, "https://www.flextv.co.kr/channels/$id/live") +
+            ("Origin" to "https://www.flextv.co.kr")
+        val page = client.getText("https://www.flextv.co.kr/channels/$id/live", h).body
         val next = Jsoup.parse(page).selectFirst("script#__NEXT_DATA__")?.data()?.let(::JSONObject)
             ?: error("FlexTV 页面缺少频道数据")
         val channel = next.optJSONObject("props")?.optJSONObject("pageProps")?.optJSONObject("channelStream")
@@ -156,11 +176,26 @@ class FlexTvResolver(client: OkHttpClient) : MoreResolver(client) {
             return MoreRoom(id, null, emptyList())
         }
         val owner = channel.optJSONObject("owner")
-        val result = JSONObject(client.getText("https://api.ttinglive.com/api/channels/$id/stream?option=all", h).body)
+        val result = JSONObject(client.getText("https://api.flextv.co.kr/api/channels/$id/stream?option=all", h).body)
         val list = result.optJSONArray("sources")
         val sources = mutableListOf<StreamSource>()
         if (list != null) for (i in 0 until list.length()) {
-            list.optJSONObject(i)?.optString("url")?.let { moreSource(it, h) }?.let(sources::add)
+            val item = list.optJSONObject(i) ?: continue
+            val resolution = item.optInt("resolution", -1)
+            if (resolution == 0) continue // Audio-only rendition is not a video source.
+            val raw = item.optString("url")
+            val parsed = raw.toHttpUrlOrNull() ?: continue
+            val naver = parsed.host.endsWith(".edge.naverncp.com")
+            val sourceHeaders = h.toMutableMap()
+            // Naver signs the whole directory. Relative child playlists/segments
+            // omit the query, but the CDN accepts the same token as a Cookie.
+            if (naver) parsed.queryParameter("token")?.let { token ->
+                val account = h["Cookie"].orEmpty().split(';').map(String::trim)
+                    .filter { it.isNotBlank() && !it.startsWith("token=") }
+                sourceHeaders["Cookie"] = (account + "token=$token").joinToString("; ")
+            }
+            val quality = when { resolution in 1..480 -> "流畅"; resolution in 481..720 -> "高清"; else -> "原画" }
+            moreSource(raw, sourceHeaders)?.copy(quality = quality, separateAudio = naver)?.let(sources::add)
         }
         return MoreRoom(owner?.optString("nickname").orEmpty().ifBlank { id }, null, sources)
     }
@@ -188,14 +223,16 @@ class ZhihuResolver(client: OkHttpClient) : MoreResolver(client) {
     }
 }
 
-class PiaopiaoResolver(client: OkHttpClient) : MoreResolver(client) {
+open class PiaopiaoResolver(client: OkHttpClient) : MoreResolver(client) {
     override val platformId = "piaopiao"
+    protected open val previewHost = "api.pp.weimipopo.com"
+    protected open val pageOrigin = "https://m.pp.weimipopo.com"
     override fun supports(url: String) = url.hasHost("weimipopo.com")
     override suspend fun load(url: String, credential: PlatformCredential?): MoreRoom {
         val id = url.toHttpUrlOrNull()?.queryParameter("anchorUid")
             ?: error("漂漂直播地址缺少 anchorUid")
-        val h = moreHeaders(credential, "https://m.pp.weimipopo.com/")
-        val root = JSONObject(client.postJson("https://api.pp.weimipopo.com/live/preview",
+        val h = moreHeaders(credential, "$pageOrigin/") + ("Origin" to pageOrigin)
+        val root = JSONObject(client.postJson("https://$previewHost/live/preview",
             JSONObject().put("inviteUuid", "").put("anchorUuid", id).toString(), h))
         val data = root.optJSONObject("data") ?: error("漂漂直播数据不可用")
         val source = if (data.optBoolean("living")) moreSource(data.optString("pullUrl"), h) else null
@@ -203,12 +240,22 @@ class PiaopiaoResolver(client: OkHttpClient) : MoreResolver(client) {
     }
 }
 
+class HuamaoResolver(client: OkHttpClient) : PiaopiaoResolver(client) {
+    override val platformId = "huamao"
+    override val previewHost = "api.catshow168.com"
+    override val pageOrigin = "https://h.catshow168.com"
+    override fun supports(url: String) = url.hasHost("catshow168.com")
+}
+
 class HuajiaoResolver(client: OkHttpClient) : MoreResolver(client) {
     override val platformId = "huajiao"
     override fun supports(url: String) = url.hasHost("huajiao.com")
     override suspend fun load(url: String, credential: PlatformCredential?): MoreRoom {
-        val id = url.toHttpUrlOrNull()?.queryParameter("liveid")
-            ?: error("花椒直播需要包含 liveid 的分享链接")
+        val parsed = url.toHttpUrlOrNull()
+        val id = parsed?.queryParameter("liveid")
+            ?: Regex("^/l/(\\d+)/?$").matchEntire(parsed?.encodedPath.orEmpty())?.groupValues?.get(1)
+            ?: error("花椒直播需要 /l/房间号 或包含 liveid 的分享链接")
+        require(id.matches(Regex("[0-9]{1,30}"))) { "花椒直播房间号无效" }
         val h = moreHeaders(credential, "https://www.huajiao.com/")
         val root = JSONObject(client.getText("https://live.huajiao.com/feed/getFeedInfo?relateid=$id", h).body)
         val data = root.optJSONObject("data") ?: error("花椒直播数据不可用或需要登录 Cookie")
@@ -246,8 +293,9 @@ class AcfunResolver(client: OkHttpClient) : MoreResolver(client) {
         val root = JSONObject(client.postForm(httpUrl("https://api.kuaishouzt.com/rest/zt/live/web/startPlay", params), body, h))
         val data = root.optJSONObject("data") ?: error("AcFun 播放接口返回鉴权失败")
         val manifest = data.optString("videoPlayRes").takeIf(String::isNotBlank)?.let(::JSONObject)
-        val reps = manifest?.optJSONArray("liveAdaptiveManifest")?.optJSONObject(0)
-            ?.optJSONArray("adaptationSet")?.optJSONObject(0)?.optJSONArray("representation")
+        val adaptation = manifest?.optJSONArray("liveAdaptiveManifest")?.optJSONObject(0)
+        val reps = (adaptation?.optJSONObject("adaptationSet")
+            ?: adaptation?.optJSONArray("adaptationSet")?.optJSONObject(0))?.optJSONArray("representation")
         val sources = mutableListOf<StreamSource>()
         if (reps != null) for (i in 0 until reps.length()) reps.optJSONObject(i)?.optString("url")
             ?.let { moreSource(it, h) }?.let(sources::add)
@@ -283,7 +331,7 @@ class XindongreboResolver(client: OkHttpClient) : MoreResolver(client) {
         val page = client.getText(url, h).body
         val marker = page.indexOf("var user =").takeIf { it >= 0 } ?: error("心动热播页面缺少房间对象")
         val start = page.indexOf('{', marker)
-        val data = JSONObject(balancedJson(page, start))
+        val data = JSONObject(normalizeJavascriptObject(balancedJson(page, start)))
         val media = if (!page.contains("common-text-center\" style=\"display:block"))
             moreSource(data.optString("play_url"), h) else null
         return MoreRoom(data.optString("zb_nickname", "心动热播"), null, listOfNotNull(media))

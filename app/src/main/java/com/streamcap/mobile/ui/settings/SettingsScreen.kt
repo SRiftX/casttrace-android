@@ -330,7 +330,7 @@ fun SettingsScreen(
                 SettingsRow(
                     modifier = Modifier.clickable(onClick = onOpenPlatforms),
                     title = "平台适配",
-                    value = "首批：虎牙、抖音、B站、斗鱼、快手",
+                    value = "查看已适配平台和已接入解析器",
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
                 )
             }

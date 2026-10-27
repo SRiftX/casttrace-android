@@ -18,8 +18,14 @@ class ShowroomResolver(private val client: OkHttpClient) : PlatformResolver {
     override suspend fun checkLive(room: LiveRoom, credential: PlatformCredential?) =
         if (load(room.normalizedUrl).sources.isEmpty()) LiveStatus.OFFLINE else LiveStatus.LIVE
 
-    override suspend fun getStreams(room: LiveRoom, credential: PlatformCredential?) =
-        load(room.normalizedUrl).sources
+    override suspend fun getStreams(room: LiveRoom, credential: PlatformCredential?): List<StreamSource> {
+        val data = load(room.normalizedUrl)
+        // Some broadcasts advertise concrete low variants that reject requests.
+        // Keep the adaptive playlist available after the requested quality.
+        return (data.sources.selectQuality(room.quality) + data.sources.filter { it.url in data.masterUrls } +
+            data.sources.selectQuality("原画"))
+            .distinctBy { it.url }
+    }
 
     private suspend fun load(input: String): ShowroomData {
         require(supports(input)) { "不是 ShowRoom 直播间地址" }
@@ -34,11 +40,26 @@ class ShowroomResolver(private val client: OkHttpClient) : PlatformResolver {
         val title = info.optString("room_name").takeIf(String::isNotBlank)
         if (info.optInt("live_status") != 2) return ShowroomData(input, anchor, title, emptyList())
         val streaming = JSONObject(client.getText("https://www.showroom-live.com/api/live/streaming_url?room_id=$roomId&abr_available=1", headers).body)
-        val url = (0 until (streaming.optJSONArray("streaming_url_list")?.length() ?: 0))
+        val sources = (0 until (streaming.optJSONArray("streaming_url_list")?.length() ?: 0))
             .mapNotNull { streaming.optJSONArray("streaming_url_list")?.optJSONObject(it) }
-            .firstOrNull { it.optString("type") == "hls_all" }?.optString("url")
-        return ShowroomData(input, anchor, title, listOfNotNull(url?.takeIf { it.startsWith("https://") }?.let { StreamSource(it, StreamType.HLS, "原画", requiresFfmpeg = true, headers = headers) }))
+            .filter { it.optString("type") in setOf("hls_all", "hls") }
+            .mapNotNull { item ->
+                val quality = when (item.optInt("quality")) {
+                    1000 -> "原画"
+                    200 -> "高清"
+                    100 -> "流畅"
+                    else -> "原画"
+                }
+                item.optString("url").takeIf { it.startsWith("https://") }?.let {
+                    StreamSource(it, StreamType.HLS, quality, requiresFfmpeg = true, headers = headers)
+                }
+            }.distinctBy { it.url }
+        val masterUrls = (0 until (streaming.optJSONArray("streaming_url_list")?.length() ?: 0))
+            .mapNotNull { streaming.optJSONArray("streaming_url_list")?.optJSONObject(it) }
+            .filter { it.optString("type") == "hls_all" }.map { it.optString("url") }.toSet()
+        return ShowroomData(input, anchor, title, sources, masterUrls)
     }
 
-    private data class ShowroomData(val url: String, val anchor: String, val title: String?, val sources: List<StreamSource>)
+    private data class ShowroomData(val url: String, val anchor: String, val title: String?, val sources: List<StreamSource>,
+        val masterUrls: Set<String> = emptySet())
 }

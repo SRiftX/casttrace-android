@@ -9,7 +9,10 @@ class PlatformDanmakuProtocolTest {
         val factory = RealDanmakuClientFactory(okhttp3.OkHttpClient())
         assertEquals(setOf(DanmakuEventType.CHAT), factory.capability("bilibili").events)
         assertTrue(factory.capability("huya").enabled)
-        assertTrue(!factory.capability("kuaishou").enabled)
+        assertTrue(factory.capability("kuaishou").enabled)
+        assertTrue(factory.capability("chzzk").enabled)
+        assertTrue(factory.capability("twitch").enabled)
+        assertTrue(!factory.capability("rednote").enabled)
     }
 
     @Test fun huyaWebSocketDoesNotNegotiateCompression() {

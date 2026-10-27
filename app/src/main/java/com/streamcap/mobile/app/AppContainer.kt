@@ -57,6 +57,7 @@ import com.streamcap.mobile.platform.resolver.MiguResolver
 import com.streamcap.mobile.platform.resolver.PopkonResolver
 import com.streamcap.mobile.platform.PlatformCatalog
 import com.streamcap.mobile.platform.resolver.ResolverRegistry
+import com.streamcap.mobile.platform.resolver.ShareLinkDiscovery
 import com.streamcap.mobile.storage.RecordingStorage
 import com.streamcap.mobile.data.security.CredentialStore
 import com.streamcap.mobile.danmaku.RealDanmakuClientFactory
@@ -121,6 +122,8 @@ class AppContainer(context: Context) {
             FlexTvResolver(httpClient),
             ZhihuResolver(httpClient),
             PiaopiaoResolver(httpClient),
+            com.streamcap.mobile.platform.resolver.HuamaoResolver(httpClient),
+            com.streamcap.mobile.platform.resolver.SoopResolver(httpClient),
             HuajiaoResolver(httpClient),
             AcfunResolver(httpClient),
             LaixiuResolver(httpClient),
@@ -138,7 +141,7 @@ class AppContainer(context: Context) {
                 "yy", "sixroom", "baidu",
                 "lianjie", "vvxq",
                 "weibo", "changliao", "faceit",
-                "rednote", "flextv", "zhihu", "piaopiao",
+                "rednote", "flextv", "zhihu", "piaopiao", "huamao", "soop",
                 "huajiao", "acfun",
                 "laixiu", "xindongrebo", "look",
                 "liveme", "haixiu", "lehai", "migu", "popkontv",
@@ -148,13 +151,14 @@ class AppContainer(context: Context) {
     )
 
     val credentialStore = CredentialStore(context)
-    val danmakuClients = RealDanmakuClientFactory(httpClient)
+    val danmakuClients = RealDanmakuClientFactory(httpClient, context)
 
     val repository = StreamCapRepository(
         roomDao = database.liveRoomDao(),
         sessionDao = database.recordingSessionDao(),
         logDao = database.taskLogDao(),
         resolvers = resolverRegistry,
+        shareLinks = ShareLinkDiscovery(httpClient, resolverRegistry),
         credentialStore = credentialStore,
     )
 
