@@ -43,7 +43,7 @@ class DanmakuController(
                         if (event.sessionId != context.sessionId) return@collect
                         val id = event.eventId
                         if (id != null) {
-                            if (!recent.add(id)) return@collect
+                            if (!recent.add("${event.platform}:${event.rawType}:$id")) return@collect
                             if (recent.size > 4_096) recent.remove(recent.first())
                         }
                         val saved = event.copy(

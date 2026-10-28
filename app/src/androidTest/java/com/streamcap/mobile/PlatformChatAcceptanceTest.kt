@@ -32,6 +32,7 @@ class PlatformChatAcceptanceTest {
             }
             val client = factory.forPlatform(platform)
             var count = 0
+            val eventTypes = linkedMapOf<String, Int>()
             var subscribed = false
             val statuses = linkedSetOf<String>()
             val failure = runCatching {
@@ -39,14 +40,18 @@ class PlatformChatAcceptanceTest {
                     client.connect(DanmakuConnectContext(0, platform, url)).collect { frame ->
                         when (frame) {
                             is DanmakuFrame.Status -> { statuses += frame.state; if (frame.state == "subscribed-real") subscribed = true }
-                            is DanmakuFrame.Event -> { count++; check(frame.event.platform == platform); check(frame.event.text.isNotBlank()) }
+                            is DanmakuFrame.Event -> {
+                                count++; check(frame.event.platform == platform); check(frame.event.text.isNotBlank())
+                                val type = frame.event.eventType.name
+                                eventTypes[type] = (eventTypes[type] ?: 0) + 1
+                            }
                         }
                     }
                 }
             }.exceptionOrNull()
             client.close("qa-finished")
             val state = when { count > 0 -> "CHAT_OK"; failure != null -> "FAILED"; subscribed -> "SUBSCRIBED_NO_MESSAGES"; else -> "NO_MESSAGES" }
-            val result = "platform=$platform state=$state count=$count statuses=${statuses.joinToString()} error=${failure?.javaClass?.simpleName.orEmpty()}"
+            val result = "platform=$platform state=$state count=$count types=${eventTypes.entries.joinToString { "${it.key}:${it.value}" }} statuses=${statuses.joinToString()} error=${failure?.javaClass?.simpleName.orEmpty()}"
             File(instrumentation.targetContext.filesDir, "chat-$platform-result.txt").writeText(result)
             Log.i("PlatformChat", "RESULT $result")
         } }.awaitAll() }

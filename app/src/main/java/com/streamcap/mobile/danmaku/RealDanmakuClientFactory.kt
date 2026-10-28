@@ -11,16 +11,17 @@ data class DanmakuCapability(
 
 class RealDanmakuClientFactory(private val httpClient: OkHttpClient, private val appContext: android.content.Context? = null) {
     fun capability(platform: String): DanmakuCapability = when {
+        platform.equals("bilibili", true) || platform.contains("B站") || platform.contains("哔哩") ->
+            DanmakuCapability(true, setOf(DanmakuEventType.CHAT, DanmakuEventType.GIFT,
+                DanmakuEventType.SUPER_CHAT, DanmakuEventType.GUARD), "支持弹幕、SC、礼物和大航海；付费事件协议测试通过，真实接收待验证")
         platform.equals("douyin", true) || platform.contains("抖音") ||
             platform.equals("douyu", true) || platform.contains("斗鱼") ||
-            platform.equals("bilibili", true) || platform.contains("B站") || platform.contains("哔哩") ->
-            DanmakuCapability(true, setOf(DanmakuEventType.CHAT), "平台提供时保存用户 ID 和昵称")
-        platform.equals("huya", true) || platform.contains("虎牙") ->
-            DanmakuCapability(true, setOf(DanmakuEventType.CHAT), "平台提供时保存用户 ID 和昵称")
-        platform.equals("kuaishou", true) || platform.contains("快手") ->
-            DanmakuCapability(true, setOf(DanmakuEventType.CHAT), "协议已接入；当前网络风控下真实接收待验证")
-        platform.equals("twitch", true) || platform.equals("chzzk", true) ||
-            platform.equals("showroom", true) || platform.equals("twitcasting", true) ->
+            platform.equals("huya", true) || platform.contains("虎牙") ||
+            platform.equals("kuaishou", true) || platform.contains("快手") ||
+            platform.equals("twitch", true) || platform.equals("chzzk", true) ->
+            DanmakuCapability(true, setOf(DanmakuEventType.CHAT, DanmakuEventType.GIFT),
+                "平台提供时保存用户、礼物与原始价值；付费事件协议测试通过，真实接收待验证")
+        platform.equals("showroom", true) || platform.equals("twitcasting", true) ->
             DanmakuCapability(true, setOf(DanmakuEventType.CHAT), "平台提供时保存用户 ID 和昵称")
         platform.equals("yy", true) || platform.contains("YY", true) ->
             DanmakuCapability(appContext != null, setOf(DanmakuEventType.CHAT), "实验性网页采集，仅昵称；已通过短时真实接收验证")

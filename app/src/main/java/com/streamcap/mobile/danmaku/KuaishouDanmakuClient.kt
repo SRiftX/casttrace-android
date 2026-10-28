@@ -83,7 +83,7 @@ class KuaishouDanmakuClient(client: OkHttpClient) : WebSocketChatClient(client) 
                 }
                 else -> error("快手弹幕压缩类型不支持")
             }
-            return ProtoWire.repeatedBytes(payload, 5).mapNotNull { comment ->
+            val comments = ProtoWire.repeatedBytes(payload, 5).mapNotNull { comment ->
                 val text = ProtoWire.firstString(comment, 3)?.takeIf(String::isNotBlank) ?: return@mapNotNull null
                 // Hidden comments are moderation events and must not be rendered as public chat.
                 if (ProtoWire.firstLong(comment, 7) == 2L) return@mapNotNull null
@@ -91,6 +91,10 @@ class KuaishouDanmakuClient(client: OkHttpClient) : WebSocketChatClient(client) 
                 ChatEventFactory.event(context, "kuaishou", text, ProtoWire.firstString(comment, 1),
                     ProtoWire.firstString(user, 1), ProtoWire.firstString(user, 2), elapsedMs = elapsedMs)
             }
+            val gifts = ProtoWire.repeatedBytes(payload, 9).mapNotNull {
+                ProtobufGiftEvents.kuaishou(it, context, elapsedMs)?.let(DanmakuFrame::Event)
+            }
+            return comments + gifts
         }
     }
 }

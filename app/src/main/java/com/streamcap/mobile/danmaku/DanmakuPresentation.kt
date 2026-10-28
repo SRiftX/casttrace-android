@@ -4,13 +4,29 @@ import com.streamcap.mobile.data.preferences.DanmakuAppearance
 import com.streamcap.mobile.data.preferences.DanmakuUserPosition
 
 object DanmakuPresentation {
+    fun valueLabel(event: DanmakuEvent): String? {
+        val amount = event.amount ?: return null
+        val unit = when (event.currency) {
+            "CNY" -> return "¥$amount"
+            "BILIBILI_GOLD" -> "金瓜子"
+            "BILIBILI_SILVER" -> "银瓜子"
+            "DOUYIN_DIAMOND" -> "抖币"
+            "TWITCH_BITS" -> "Bits"
+            "CHZZK_CHEESE" -> "Cheese"
+            else -> event.currency ?: return null
+        }
+        return "$amount $unit"
+    }
+
     fun text(event: DanmakuEvent, appearance: DanmakuAppearance): String? {
         if (event.eventType == DanmakuEventType.SYSTEM) return null
         if (event.eventType in setOf(DanmakuEventType.CHAT, DanmakuEventType.EMOTE, DanmakuEventType.UNKNOWN) && !appearance.showChat) return null
-        if (event.eventType == DanmakuEventType.GIFT && !appearance.showGift) return null
+        if (event.eventType in setOf(DanmakuEventType.GIFT, DanmakuEventType.GUARD) && !appearance.showGift) return null
         if (event.eventType == DanmakuEventType.SUPER_CHAT && !appearance.showSuperChat) return null
         if (event.eventType in setOf(DanmakuEventType.FOLLOW, DanmakuEventType.SHARE, DanmakuEventType.LIKE) && !appearance.showFollow) return null
-        val body = event.text.replace(Regex("[\\r\\n\\t]+"), " ").trim()
+        val value = if (event.eventType == DanmakuEventType.SUPER_CHAT && event.currency == "CNY" && event.amount != null)
+            "¥${event.amount} ${event.text}" else event.text
+        val body = value.replace(Regex("[\\r\\n\\t]+"), " ").trim()
         if (body.isEmpty()) return null
         val limit = appearance.maxCharacters
         val count = body.codePointCount(0, body.length)

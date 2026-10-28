@@ -150,6 +150,9 @@ class BilibiliDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClien
 
         private fun parseJson(body: ByteArray, context: DanmakuConnectContext, elapsedMs: Long, emit: (DanmakuFrame) -> Unit) {
             val json = JSONObject(body.toString(Charsets.UTF_8).trimEnd('\u0000'))
+            BilibiliPaidEvents.parse(json, context, elapsedMs)?.let {
+                emit(DanmakuFrame.Event(it)); return
+            }
             if (json.optString("cmd").substringBefore(':') != "DANMU_MSG") return
             val info = json.optJSONArray("info") ?: return
             val text = info.optString(1).takeIf(String::isNotBlank) ?: return

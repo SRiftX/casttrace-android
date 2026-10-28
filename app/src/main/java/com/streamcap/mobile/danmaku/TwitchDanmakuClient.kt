@@ -43,9 +43,29 @@ class TwitchDanmakuClient(client: OkHttpClient) : WebSocketChatClient(client) {
                 body = body.substring(end + 1)
                 values
             } else emptyMap()
+            val notice = Regex("^:[^ ]+ USERNOTICE #([A-Za-z0-9_]+)(?: :(.*))?$").matchEntire(body)
+            if (notice != null) {
+                if (!notice.groupValues[1].equals(channel, true)) return null
+                val kind = tags["msg-id"] ?: return null
+                // submysterygift is the aggregate; subgift is each recipient. Retain that distinction.
+                if (kind !in setOf("sub", "resub", "subgift", "anonsubgift", "submysterygift", "anonsubmysterygift")) return null
+                val count = tags["msg-param-mass-gift-count"]?.toLongOrNull()?.takeIf { it > 0 } ?: 1L
+                val summary = kind in setOf("submysterygift", "anonsubmysterygift")
+                val text = tags["system-msg"]?.takeIf(String::isNotBlank) ?: "订阅礼物 ×$count"
+                return DanmakuFrame.Event(PaidEventFactory.event(context, "twitch", "USERNOTICE:$kind", elapsedMs,
+                    text, tags["user-id"], tags["display-name"], tags["id"],
+                    attributes = tags.filterKeys { it.startsWith("msg-param-") } + mapOf(
+                        "quantity" to "$count", "quantityMode" to if (summary) "summary" else "recipient",
+                        "noticeType" to kind)))
+            }
             val match = Regex("^:([^! ]+)(?:![^ ]+)? PRIVMSG #([A-Za-z0-9_]+) :(.*)$").matchEntire(body) ?: return null
             if (!match.groupValues[2].equals(channel, true)) return null
             val text = match.groupValues[3].takeIf(String::isNotBlank) ?: return null
+            val bits = tags["bits"]?.toLongOrNull()?.takeIf { it > 0 }
+            if (bits != null) return DanmakuFrame.Event(PaidEventFactory.event(context, "twitch", "PRIVMSG:bits", elapsedMs,
+                "$text（$bits Bits）", tags["user-id"], tags["display-name"] ?: match.groupValues[1], tags["id"],
+                amount = bits, currency = "TWITCH_BITS", sourceTimeMs = tags["tmi-sent-ts"]?.toLongOrNull(),
+                attributes = mapOf("quantity" to "$bits", "quantityMode" to "increment")))
             return ChatEventFactory.event(context, "twitch", text, tags["id"], tags["user-id"],
                 tags["display-name"]?.takeIf(String::isNotBlank) ?: match.groupValues[1],
                 sourceTimeMs = tags["tmi-sent-ts"]?.toLongOrNull(), elapsedMs = elapsedMs)

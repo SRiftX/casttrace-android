@@ -191,6 +191,9 @@ private fun DanmakuSpeechSheet(sessionId: Long, container: AppContainer, filter:
                             style = MaterialTheme.typography.labelSmall)
                         Text((event.user?.name ?: event.userName ?: event.userId ?: "匿名") + "：" + event.text,
                             maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        com.streamcap.mobile.danmaku.DanmakuPresentation.valueLabel(event)?.let { value ->
+                            Text(value, style = MaterialTheme.typography.labelSmall)
+                        }
                         val name = event.user?.name ?: event.userName
                         if (!name.isNullOrBlank()) TextButton(onClick = { onFilter(filter.copy(user = name)) }) {
                             Text("查看该用户")

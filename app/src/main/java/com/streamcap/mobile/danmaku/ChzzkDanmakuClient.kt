@@ -38,7 +38,7 @@ class ChzzkDanmakuClient(client: OkHttpClient) : WebSocketChatClient(client) {
                 when (data.optInt("cmd")) {
                     0 -> socket.send("{\"cmd\":10000,\"ver\":\"2\"}")
                     10100 -> emit(DanmakuFrame.Status("subscribed-real"))
-                    93101 -> parseChat(data, context, android.os.SystemClock.elapsedRealtime()).forEach(emit)
+                    93101, 93102 -> parseChat(data, context, android.os.SystemClock.elapsedRealtime()).forEach(emit)
                 }
             }
         }
@@ -46,11 +46,26 @@ class ChzzkDanmakuClient(client: OkHttpClient) : WebSocketChatClient(client) {
 
     companion object {
         internal fun parseChat(root: JSONObject, context: DanmakuConnectContext, elapsedMs: Long): List<DanmakuFrame> {
-            if (root.optInt("cmd") != 93101) return emptyList()
+            if (root.optInt("cmd") !in setOf(93101, 93102)) return emptyList()
             val messages = root.optJSONArray("bdy") ?: return emptyList()
             return (0 until messages.length()).mapNotNull { i ->
                 val item = messages.optJSONObject(i) ?: return@mapNotNull null
-                if (item.optInt("msgTypeCode") != 1 || item.optString("msgStatusType") == "HIDDEN") return@mapNotNull null
+                if (item.optString("msgStatusType") == "HIDDEN") return@mapNotNull null
+                if (item.optInt("msgTypeCode") == 10) {
+                    val extras = when (val v = item.opt("extras")) {
+                        is JSONObject -> v
+                        is String -> runCatching { JSONObject(v) }.getOrNull()
+                        else -> null
+                    } ?: return@mapNotNull null
+                    val amount = extras.optLong("payAmount").takeIf { it > 0 } ?: return@mapNotNull null
+                    val profile = runCatching { JSONObject(item.optString("profile")) }.getOrNull()
+                    return@mapNotNull DanmakuFrame.Event(PaidEventFactory.event(context, "chzzk", "DONATION", elapsedMs,
+                        item.optString("msg").ifBlank { "赠送 $amount Chzzk Cheese" },
+                        profile?.optString("userIdHash") ?: item.optString("uid"), profile?.optString("nickname"),
+                        amount = amount, currency = "CHZZK_CHEESE", sourceTimeMs = item.optLong("msgTime").takeIf { it > 0 },
+                        attributes = mapOf("donationType" to extras.optString("donationType"))))
+                }
+                if (item.optInt("msgTypeCode") != 1) return@mapNotNull null
                 val text = item.optString("msg").takeIf(String::isNotBlank) ?: return@mapNotNull null
                 val profile = runCatching { JSONObject(item.optString("profile")) }.getOrNull()
                 val time = item.optLong("msgTime").takeIf { it > 0 }
