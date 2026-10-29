@@ -155,7 +155,7 @@ fun RoomDetailScreen(
                             else -> "开始录制"
                         })
                     }
-                    Text("暂停会保存本次内容，并暂停自动录制；再次开始会创建新一场。检查直播状态不会开始录制。", style = MaterialTheme.typography.bodySmall)
+                    Text("暂停会保存本次内容，并关闭该房间的自动录制；需要继续监测开播时，请重新打开下方开关。再次开始会创建新一场。", style = MaterialTheme.typography.bodySmall)
                 }
             }
             item {
@@ -178,14 +178,17 @@ fun RoomDetailScreen(
                     HorizontalDivider()
                     SettingRow(
                         title = "开播自动录制",
-                        value = if (current.scheduledMonitoringEnabled) "开启；房间启用且未暂停时生效" else "关闭；关闭会保存并停止当前录制",
+                        value = when {
+                            current.scheduledMonitoringEnabled -> "开启；房间启用且未暂停时生效"
+                            else -> "关闭；关闭会保存并停止当前录制"
+                        },
                         trailing = {
                             Switch(
                                 checked = current.scheduledMonitoringEnabled,
                                 modifier = Modifier.semantics { contentDescription = "开播自动录制" },
                                 onCheckedChange = { enabled ->
                                     viewModel.setScheduledMonitoringEnabled(enabled) {
-                                        if (enabled) RecordingService.monitor(context)
+                                        if (enabled) RecordingService.monitorRoomNow(context, roomId)
                                         else context.startService(RecordingService.stopIntent(context, roomId))
                                     }
                                 },

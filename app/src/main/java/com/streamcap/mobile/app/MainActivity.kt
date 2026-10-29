@@ -34,10 +34,14 @@ class MainActivity : ComponentActivity() {
         }
         appPermissions.launch(storagePermissions)
         lifecycleScope.launch {
-            val settings = (application as StreamCapApplication).container.preferences.settings.first()
+            val app = (application as StreamCapApplication).container
+            val settings = app.preferences.settings.first()
             if (settings.globalAutoRecordEnabled) {
                 RecordingService.monitor(this@MainActivity)
-            } else RecordingService.recover(this@MainActivity)
+            } else {
+                RecordingService.recover(this@MainActivity)
+                if (app.repository.hasEnabledReminders()) RecordingService.monitor(this@MainActivity)
+            }
         }
         setContent {
             val settings by (application as StreamCapApplication).container.preferences.settings
@@ -47,6 +51,7 @@ class MainActivity : ComponentActivity() {
                     launchToken = launchToken,
                     sharedUrl = launchIntent?.takeIf { it.action == Intent.ACTION_SEND }?.getStringExtra(Intent.EXTRA_TEXT),
                     notificationRoomId = launchIntent?.getLongExtra("roomId", -1)?.takeIf { it > 0 },
+                    openReminders = launchIntent?.getBooleanExtra(EXTRA_OPEN_REMINDERS, false) == true,
                 )
             }
         }
@@ -63,9 +68,13 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val app = application as StreamCapApplication
             val settings = app.container.preferences.settings.first()
-            if (settings.globalAutoRecordEnabled) {
+            if (settings.globalAutoRecordEnabled || app.container.repository.hasEnabledReminders()) {
                 RecordingService.monitor(this@MainActivity)
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_OPEN_REMINDERS = "openReminders"
     }
 }

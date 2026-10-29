@@ -2,15 +2,19 @@ package com.streamcap.mobile.data.repository
 
 import com.streamcap.mobile.data.database.LiveRoomDao
 import com.streamcap.mobile.data.database.LiveRoomEntity
+import com.streamcap.mobile.data.database.LiveReminderDao
+import com.streamcap.mobile.data.database.LiveReminderEntity
 import com.streamcap.mobile.data.database.RecordingSessionDao
 import com.streamcap.mobile.data.database.RecordingSessionEntity
 import com.streamcap.mobile.data.database.TaskLogDao
 import com.streamcap.mobile.data.database.TaskLogEntity
 import com.streamcap.mobile.data.database.toDomain
 import com.streamcap.mobile.domain.model.LiveRoom
+import com.streamcap.mobile.domain.model.LiveReminder
 import com.streamcap.mobile.domain.model.LiveStatus
 import com.streamcap.mobile.domain.model.MAX_SEGMENT_SECONDS
 import com.streamcap.mobile.domain.model.MAX_MONITOR_INTERVAL_SECONDS
+import com.streamcap.mobile.domain.model.DEFAULT_SEGMENT_SECONDS
 import com.streamcap.mobile.domain.model.MIN_SEGMENT_SECONDS
 import com.streamcap.mobile.domain.model.MIN_MONITOR_INTERVAL_SECONDS
 import com.streamcap.mobile.domain.model.RecordingSession
@@ -19,8 +23,8 @@ import com.streamcap.mobile.domain.model.StreamSource
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.domain.model.LiveRoomInfo
 import com.streamcap.mobile.domain.model.TaskStatus
-import com.streamcap.mobile.platform.resolver.ShareLinkDiscovery
 import com.streamcap.mobile.platform.resolver.ResolverRegistry
+import com.streamcap.mobile.platform.resolver.ShareLinkDiscovery
 import com.streamcap.mobile.data.security.CredentialStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -31,6 +35,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 class StreamCapRepository(
     private val roomDao: LiveRoomDao,
+    private val reminderDao: LiveReminderDao,
     private val sessionDao: RecordingSessionDao,
     private val logDao: TaskLogDao,
     private val resolvers: ResolverRegistry,
@@ -38,9 +43,15 @@ class StreamCapRepository(
     private val credentialStore: CredentialStore,
 ) {
     val rooms: Flow<List<LiveRoom>> = roomDao.observeAll().map { rooms -> rooms.map { it.toDomain() } }
+    val reminders: Flow<List<LiveReminder>> = reminderDao.observeAll().map { reminders -> reminders.map { it.toDomain() } }
     val recordings: Flow<List<RecordingSession>> =
         sessionDao.observeAll().map { sessions -> sessions.map { it.toDomain() } }
-    val logs: Flow<List<TaskLogEntity>> = logDao.observeRecent()
+    val logs: Flow<List<TaskLogEntity>> = logDao.observeRecent(limit = 500)
+    val logCount: Flow<Int> = logDao.observeCount()
+    fun observeLogs(limit: Int, level: String?, roomId: Long?, keyOnly: Boolean): Flow<List<TaskLogEntity>> =
+        logDao.observeRecent(limit, level, roomId, keyOnly)
+    fun observeLogCount(level: String?, roomId: Long?, keyOnly: Boolean): Flow<Int> = logDao.observeCount(level, roomId, keyOnly)
+    suspend fun logsForExport(): List<TaskLogEntity> = logDao.recentForExport()
     val recordingEvents: Flow<List<TaskLogEntity>> = logDao.observeRecordingEvents()
 
     fun observeLatestErrorForRoom(roomId: Long): Flow<TaskLogEntity?> =
@@ -52,6 +63,69 @@ class StreamCapRepository(
     fun observeRoom(id: Long): Flow<LiveRoom?> = roomDao.observeById(id).map { it?.toDomain() }
 
     suspend fun room(id: Long): LiveRoom? = roomDao.getById(id)?.toDomain()
+
+    suspend fun enabledReminders(): List<LiveReminder> = reminderDao.getEnabled().map { it.toDomain() }
+
+    suspend fun hasEnabledReminders(): Boolean = reminderDao.getEnabled().isNotEmpty()
+
+    suspend fun addReminder(url: String): Boolean {
+        val (normalizedInput, info) = resolveNewRoom(url)
+        return reminderDao.insert(
+            LiveReminderEntity(
+                originalUrl = normalizedInput,
+                normalizedUrl = info.normalizedUrl,
+                platform = info.platform,
+                anchorName = info.anchorName,
+                roomTitle = info.roomTitle,
+            ),
+        ) != -1L
+    }
+
+    suspend fun importRoomAsReminder(roomId: Long): Boolean {
+        val room = roomDao.getById(roomId) ?: return false
+        return reminderDao.insert(
+            LiveReminderEntity(
+                originalUrl = room.originalUrl,
+                normalizedUrl = room.normalizedUrl,
+                platform = room.platform,
+                anchorName = room.anchorName,
+                roomTitle = room.roomTitle,
+            ),
+        ) != -1L
+    }
+
+    suspend fun setReminderEnabled(reminderId: Long, enabled: Boolean) =
+        reminderDao.setEnabled(reminderId, enabled, System.currentTimeMillis())
+
+    suspend fun deleteReminder(reminderId: Long) {
+        reminderDao.getById(reminderId)?.let { reminderDao.delete(it) }
+    }
+
+    suspend fun checkReminder(reminderId: Long, notificationsAllowed: Boolean = true): Boolean {
+        val reminder = reminderDao.getById(reminderId) ?: return false
+        if (!reminder.enabled) return false
+        val now = System.currentTimeMillis()
+        reminderDao.setChecking(reminderId, now)
+        val result = try {
+            val resolver = resolvers.resolverForPlatform(reminder.platform)
+            withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
+                resolver.checkRoom(reminder.toResolverRoom(), credentialStore.get(reminder.platform)).status
+            } ?: LiveStatus.ERROR
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) {
+                reminderDao.setCheckResult(
+                    reminderId,
+                    reminder.liveStatus,
+                    reminder.notifiedForCurrentLive,
+                    reminder.lastCheckAt ?: now,
+                )
+            }
+            throw cancelled
+        } catch (_: Exception) {
+            LiveStatus.ERROR
+        }
+        return reminderDao.applyCheckResult(reminderId, result, System.currentTimeMillis(), notificationsAllowed)
+    }
 
     suspend fun monitoredRooms(): List<LiveRoom> = roomDao.getMonitoredRooms().map { it.toDomain() }
 
@@ -69,7 +143,7 @@ class StreamCapRepository(
         roomDao.setOneTimeWindow(roomId, startAt, endAt, System.currentTimeMillis())
     }
 
-    suspend fun resumePausedMonitoredRooms(): Int = roomDao.resumePausedMonitoredRooms(System.currentTimeMillis())
+    suspend fun repairPausedRoomSettings(): Int = roomDao.repairPausedRoomSettings(System.currentTimeMillis())
 
     suspend fun finishInterruptedStatus(roomId: Long, status: TaskStatus) =
         roomDao.finishInterruptedStatus(roomId, status, System.currentTimeMillis())
@@ -135,7 +209,6 @@ class StreamCapRepository(
             storageDirectoryUri = options.storageDirectoryUri,
             segmentEnabled = options.segmentEnabled,
             segmentSeconds = options.segmentSeconds.coerceIn(MIN_SEGMENT_SECONDS, MAX_SEGMENT_SECONDS),
-            scheduledMonitoringEnabled = options.scheduledMonitoringEnabled,
             notificationsEnabled = options.notificationsEnabled,
             checkIntervalSeconds = options.checkIntervalSeconds.coerceIn(
                 MIN_MONITOR_INTERVAL_SECONDS,
@@ -232,6 +305,12 @@ class StreamCapRepository(
 
     suspend fun streams(roomId: Long): List<StreamSource> {
         val room = requireNotNull(room(roomId)) { "直播间不存在" }
+        return streams(room)
+    }
+
+    suspend fun streams(reminder: LiveReminder): List<StreamSource> = streams(reminder.toResolverRoom())
+
+    private suspend fun streams(room: LiveRoom): List<StreamSource> {
         return withTimeoutOrNull(45_000L) {
             resolvers.resolverForPlatform(room.platform).getStreams(room, credentialStore.get(room.platform))
         } ?: error("解析直播源超时，请稍后重试")
@@ -255,6 +334,69 @@ class StreamCapRepository(
         private const val CHECK_TIMEOUT_MILLIS = 15_000L
         private const val CHECK_STALE_MILLIS = 45_000L
     }
+
+    private fun LiveReminderEntity.toResolverRoom() = resolverRoom(
+        id = id,
+        originalUrl = originalUrl,
+        normalizedUrl = normalizedUrl,
+        platform = platform,
+        anchorName = anchorName,
+        roomTitle = roomTitle,
+        liveStatus = liveStatus,
+        lastCheckAt = lastCheckAt,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
+
+    private fun LiveReminder.toResolverRoom() = resolverRoom(
+        id = id,
+        originalUrl = originalUrl,
+        normalizedUrl = normalizedUrl,
+        platform = platform,
+        anchorName = anchorName,
+        roomTitle = roomTitle,
+        liveStatus = liveStatus,
+        lastCheckAt = lastCheckAt,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
+
+    private fun resolverRoom(
+        id: Long,
+        originalUrl: String,
+        normalizedUrl: String,
+        platform: String,
+        anchorName: String,
+        roomTitle: String?,
+        liveStatus: LiveStatus,
+        lastCheckAt: Long?,
+        createdAt: Long,
+        updatedAt: Long,
+    ) = LiveRoom(
+        id = id,
+        originalUrl = originalUrl,
+        normalizedUrl = normalizedUrl,
+        platform = platform,
+        anchorName = anchorName,
+        roomTitle = roomTitle,
+        enabled = true,
+        autoRecord = false,
+        quality = "原画",
+        mediaType = "视频",
+        outputFormat = "MP4",
+        flvDirectDownload = false,
+        storageDirectoryUri = null,
+        segmentEnabled = true,
+        segmentSeconds = DEFAULT_SEGMENT_SECONDS,
+        scheduledMonitoringEnabled = false,
+        notificationsEnabled = true,
+        checkIntervalSeconds = MIN_MONITOR_INTERVAL_SECONDS,
+        liveStatus = liveStatus,
+        taskStatus = TaskStatus.WAITING,
+        lastCheckAt = lastCheckAt,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+    )
 
     suspend fun createSession(
         room: LiveRoom,

@@ -22,7 +22,9 @@ class ServiceRestartReceiver : BroadcastReceiver() {
                     .getLong(GENERATION, 0L)
                 if (intent.getLongExtra(EXTRA_GENERATION, -1L) != expected) return@launch
                 val settings = AppPreferences(app).settings.first()
-                if (BackgroundMonitoringPolicy.enabled(settings)) RecordingService.monitor(app)
+                val remindersEnabled = (app as com.streamcap.mobile.app.StreamCapApplication)
+                    .container.repository.hasEnabledReminders()
+                if (BackgroundMonitoringPolicy.enabled(settings) || remindersEnabled) RecordingService.monitor(app)
                 else RecordingService.recover(app)
             } catch (error: Exception) {
                 android.util.Log.w("ServiceRestartReceiver", "Unable to restart recording recovery", error)

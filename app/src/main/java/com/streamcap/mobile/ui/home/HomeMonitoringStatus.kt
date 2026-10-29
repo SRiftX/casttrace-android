@@ -32,9 +32,9 @@ internal fun automaticMonitoringSummary(
     unmonitoredCount: Int,
 ): String = when {
     !enabled -> "已关闭"
-    !backgroundEnabled && monitoredCount == 0 && pausedCount > 0 -> "已开启 · $pausedCount 间已暂停；开启时会自动恢复"
+    !backgroundEnabled && monitoredCount == 0 && pausedCount > 0 -> "已开启 · $pausedCount 间已暂停；需单独重新开启"
     !backgroundEnabled -> "仅打开应用时检查"
-    monitoredCount == 0 && pausedCount > 0 -> "已开启 · $pausedCount 间已暂停；开启时会自动恢复"
+    monitoredCount == 0 && pausedCount > 0 -> "已开启 · $pausedCount 间已暂停；需单独重新开启"
     monitoredCount == 0 -> "已开启，但没有符合条件的直播间"
     else -> "满足条件 $monitoredCount 间 · 未纳入 $unmonitoredCount 间"
 }

@@ -19,8 +19,9 @@ class BootReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
+                val app = context.applicationContext as com.streamcap.mobile.app.StreamCapApplication
                 val settings = AppPreferences(context.applicationContext).settings.first()
-                if (BackgroundMonitoringPolicy.restoreAfterBoot(settings)) {
+                if (BackgroundMonitoringPolicy.restoreAfterBoot(settings) || app.container.repository.hasEnabledReminders()) {
                     RoomMonitorWorker.schedule(context, settings.allowMobileData)
                 } else {
                     // A periodic request survives reboot. Cancel it here so a disabled

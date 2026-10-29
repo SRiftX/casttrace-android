@@ -34,9 +34,12 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -77,6 +80,7 @@ fun AddRoomScreen(
     initialUrl: String?,
     onBack: () -> Unit,
     onSaved: (Long) -> Unit,
+    onOpenBackup: () -> Unit = {},
 ) {
     val viewModel: AddRoomViewModel = viewModel(
         factory = ViewModelFactory { AddRoomViewModel(container.repository, container.preferences) },
@@ -86,6 +90,7 @@ fun AddRoomScreen(
     var advanced by rememberSaveable { mutableStateOf(false) }
     var batchMode by rememberSaveable { mutableStateOf(false) }
     var choice by remember { mutableStateOf<ChoiceType?>(null) }
+    var showMore by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val directoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -118,6 +123,19 @@ fun AddRoomScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                actions = {
+                    androidx.compose.foundation.layout.Box {
+                        IconButton(onClick = { showMore = true }) {
+                            Icon(Icons.Outlined.MoreVert, contentDescription = "更多添加方式")
+                        }
+                        DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
+                            DropdownMenuItem(
+                                text = { Text("导入或导出直播间") },
+                                onClick = { showMore = false; onOpenBackup() },
+                            )
+                        }
                     }
                 },
             )
@@ -177,9 +195,6 @@ fun AddRoomScreen(
                 .padding(horizontal = 24.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            TextButton(onClick = { batchMode = !batchMode }) {
-                Text(if (batchMode) "返回单个添加" else "批量导入链接")
-            }
             if (batchMode) {
                 OutlinedTextField(
                     value = state.batchText,
@@ -208,7 +223,7 @@ fun AddRoomScreen(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("直播地址", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "支持虎牙、抖音、B站、斗鱼、快手，以及 FLV / HLS 直链",
+                    "粘贴直播间链接或分享文字，检测后确认主播",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -218,8 +233,8 @@ fun AddRoomScreen(
                 value = state.url,
                 onValueChange = viewModel::setUrl,
                 modifier = Modifier.weight(1.25f),
-                label = { Text("URL") },
-                placeholder = { Text("https://www.huya.com/房间号") },
+                label = { Text("直播链接或分享文字") },
+                placeholder = { Text("粘贴分享链接或整段分享文字") },
                 leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 minLines = 1,
@@ -238,7 +253,7 @@ fun AddRoomScreen(
             }
             else {
                 OutlinedTextField(value = state.url, onValueChange = viewModel::setUrl, modifier = Modifier.fillMaxWidth(),
-                    label = { Text("URL") }, placeholder = { Text("https://www.huya.com/房间号") },
+                    label = { Text("直播链接或分享文字") }, placeholder = { Text("粘贴分享链接或整段分享文字") },
                     leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                     minLines = 1, maxLines = 2, isError = state.error != null, supportingText = state.error?.let { message -> { Text(message) } })
                 OutlinedTextField(value = state.displayName, onValueChange = viewModel::setDisplayName, modifier = Modifier.fillMaxWidth(),
@@ -258,7 +273,7 @@ fun AddRoomScreen(
                     (info.roomTitle?.let { " · $it" } ?: ""))
                 if (state.previewDuplicate) Text("这个直播间已存在，不会覆盖原设置", color = MaterialTheme.colorScheme.error)
             }
-            TextButton(onClick = viewModel::preview, enabled = !state.isSaving && state.url.isNotBlank()) { Text("识别链接并确认信息") }
+            TextButton(onClick = viewModel::preview, enabled = !state.isSaving && state.url.isNotBlank()) { Text("检测分享链接并确认主播") }
             TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "收起高级设置" else "展开高级设置") }
             if (templates.isNotEmpty()) {
                 Text("快速应用模板", style = MaterialTheme.typography.labelSmall)

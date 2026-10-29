@@ -82,7 +82,7 @@ class AppContainer(context: Context) {
         context,
         StreamCapDatabase::class.java,
         "streamcap.db",
-    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, StreamCapDatabase.MIGRATION_3_4, StreamCapDatabase.MIGRATION_4_5, StreamCapDatabase.MIGRATION_5_6).build()
+    ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, StreamCapDatabase.MIGRATION_3_4, StreamCapDatabase.MIGRATION_4_5, StreamCapDatabase.MIGRATION_5_6, StreamCapDatabase.MIGRATION_6_7).build()
 
     val resolverRegistry = ResolverRegistry(
         listOf(
@@ -155,6 +155,7 @@ class AppContainer(context: Context) {
 
     val repository = StreamCapRepository(
         roomDao = database.liveRoomDao(),
+        reminderDao = database.liveReminderDao(),
         sessionDao = database.recordingSessionDao(),
         logDao = database.taskLogDao(),
         resolvers = resolverRegistry,

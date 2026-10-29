@@ -43,6 +43,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Pause
@@ -53,6 +57,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -131,12 +136,22 @@ fun HomeScreen(
     }
     val scope = rememberCoroutineScope()
     var selectedFilter by rememberSaveable { mutableStateOf(RoomFilter.ALL) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchVisible by rememberSaveable { mutableStateOf(false) }
+    var controlsExpanded by rememberSaveable { mutableStateOf(false) }
+    var compactRooms by rememberSaveable { mutableStateOf(false) }
     val recordAction = rememberRecordingAction()
     // Rank on first load / membership changes, never on per-second progress or status updates.
     val orderedIds = remember(rooms.map { it.id }) {
         rooms.sortedBy { if (it.taskStatus in activeRecordingStatuses) 0 else 1 }.map { it.id }
     }
     val filteredRooms = rooms.sortedBy { orderedIds.indexOf(it.id) }.filter { room ->
+        val query = searchQuery.trim()
+        val matchesSearch = query.isBlank() || room.anchorName.contains(query, ignoreCase = true) ||
+            room.platform.contains(query, ignoreCase = true) ||
+            room.roomTitle.orEmpty().contains(query, ignoreCase = true) ||
+            room.originalUrl.contains(query, ignoreCase = true)
+        if (!matchesSearch) return@filter false
         when (selectedFilter) {
             RoomFilter.ALL -> true
             RoomFilter.RECORDING -> room.taskStatus in setOf(
@@ -160,7 +175,7 @@ fun HomeScreen(
     ) {
         LazyColumn(
             modifier = Modifier.widthIn(max = 1360.dp).fillMaxSize().align(Alignment.TopCenter),
-            contentPadding = PaddingValues(start = 24.dp, top = 12.dp, end = 24.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = 24.dp, top = 12.dp, end = 24.dp, bottom = 112.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
@@ -182,9 +197,11 @@ fun HomeScreen(
                             )
                         }
                     }
-                    IconButton(onClick = onAddRoom) {
-                        Icon(Icons.Outlined.Add, contentDescription = "添加直播间")
+                    IconButton(onClick = { searchVisible = !searchVisible; if (!searchVisible) searchQuery = "" }) {
+                        Icon(if (searchVisible) Icons.Outlined.Close else Icons.Outlined.Search,
+                            if (searchVisible) "关闭搜索" else "搜索直播间")
                     }
+                    IconButton(onClick = onAddRoom) { Icon(Icons.Outlined.Add, contentDescription = "添加直播间") }
                     Box(
                         Modifier
                             .size(10.dp)
@@ -192,8 +209,26 @@ fun HomeScreen(
                     )
                 }
             }
+            if (searchVisible) item {
+                OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true,
+                    placeholder = { Text("搜索主播、标题、平台或地址") },
+                    leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                    trailingIcon = { if (searchQuery.isNotEmpty()) IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Outlined.Close, "清空搜索")
+                    } })
+            }
 
             item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("录制控制", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { controlsExpanded = !controlsExpanded }) {
+                        Icon(if (controlsExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                            contentDescription = if (controlsExpanded) "收起录制控制" else "展开录制控制")
+                    }
+                }
+            }
+            if (controlsExpanded) item {
                 AutoRecordCard(
                     enabled = settings.globalAutoRecordEnabled,
                     backgroundEnabled = settings.backgroundMonitoringEnabled,
@@ -211,14 +246,13 @@ fun HomeScreen(
                             RecordingService.monitor(context)
                             viewModel.refreshMonitoredRooms()
                         } else {
-                            RecordingService.stopMonitoring(context)
+                            RecordingService.monitor(context)
                         }
                     }
                     },
                     onBackgroundChange = { value -> scope.launch {
                         container.preferences.setBackgroundMonitoringEnabled(value)
-                        if (settings.globalAutoRecordEnabled) RecordingService.monitor(context)
-                        else RecordingService.stopMonitoring(context)
+                        RecordingService.monitor(context)
                     }
                     },
                 )
@@ -240,6 +274,9 @@ fun HomeScreen(
                 ) {
                     Text("直播间", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text("${filteredRooms.size} / ${rooms.size} 项", style = MaterialTheme.typography.labelSmall)
+                    TextButton(onClick = { compactRooms = !compactRooms }) {
+                        Text(if (compactRooms) "卡片视图" else "紧凑视图")
+                    }
                 }
             }
 
@@ -260,7 +297,26 @@ fun HomeScreen(
                     Box(Modifier.widthIn(max = 960.dp).wrapContentHeight()) {
                     val activeRecording = recordings.firstOrNull { it.roomId == room.id && it.totalBytes > 0 &&
                         (it.outputUri != null || it.outputUris.isNotEmpty() || it.temporaryPath != null) }
-                    RoomTaskRow(
+                    if (compactRooms) Surface(
+                        modifier = Modifier.fillMaxWidth().clickable(onClick = { onOpenRoom(room.id) }),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                        shadowElevation = 1.dp,
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(room.anchorName, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis)
+                                Text("${room.platform} · ${room.roomTitle ?: room.liveStatus.displayName()}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis)
+                            }
+                            Text(room.taskStatus.displayName(), style = MaterialTheme.typography.labelMedium,
+                                color = if (room.taskStatus == TaskStatus.RECORDING) RecordingRed
+                                    else MaterialTheme.colorScheme.primary)
+                        }
+                    } else RoomTaskRow(
                         room = room,
                         activeRecording = activeRecording,
                         autoRecordingStatus = automaticMonitoringStatus(
@@ -273,7 +329,9 @@ fun HomeScreen(
                         onOpenRecording = onOpenRecording,
                         onAutoToggle = { enabled ->
                             viewModel.setScheduledMonitoringEnabled(room.id, enabled) {
-                                if (settings.globalAutoRecordEnabled) RecordingService.monitor(context)
+                                if (enabled) {
+                                    RecordingService.monitorRoomNow(context, room.id)
+                                }
                             }
                         },
                         onPause = { context.startService(RecordingService.pauseIntent(context, room.id)) },
@@ -314,21 +372,28 @@ private fun AutoRecordCard(
         BoxWithConstraints(Modifier.fillMaxWidth()) {
         val compact = maxWidth < 600.dp
         if (compact) Column(
-            Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text("自动录制", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("监控 $monitoredCount/$totalRooms · 录制 $recordingCount" +
-                if (failedCount > 0) " · 异常 $failedCount" else "",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (failedCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-            Text(automaticMonitoringSummary(enabled, backgroundEnabled, monitoredCount, pausedCount, unmonitoredCount),
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("录制监控", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("监控 $monitoredCount/$totalRooms · 录制 $recordingCount" +
+                    if (failedCount > 0) " · 异常 $failedCount" else "",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (failedCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+            }
+            Text(automaticMonitoringSummary(enabled, backgroundEnabled, monitoredCount, pausedCount, unmonitoredCount) + " · 仅对单独开启的房间生效",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
-                Column { Text("自动录制", style = MaterialTheme.typography.labelMedium); Text("后台检测", style = MaterialTheme.typography.labelMedium) }
-                Column { Switch(checked = enabled, onCheckedChange = onEnabledChange);
-                    Switch(checked = backgroundEnabled, onCheckedChange = onBackgroundChange) }
+                Text("全局自动录制", style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("后台检测", style = MaterialTheme.typography.bodyMedium)
+                Switch(checked = backgroundEnabled, onCheckedChange = onBackgroundChange)
             }
             if (enabled && backgroundEnabled && monitoredCount > 0 && !monitorSnapshot.isRunning())
                 TextButton(onClick = onOpenBackgroundSettings) { Text("后台设置") }
@@ -339,13 +404,13 @@ private fun AutoRecordCard(
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("自动录制", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("全局自动录制", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("自动 $monitoredCount/$totalRooms", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     Text("录制 $recordingCount", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (failedCount > 0) Text("异常 $failedCount", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
                 }
                 Text(
-                    automaticMonitoringSummary(enabled, backgroundEnabled, monitoredCount, pausedCount, unmonitoredCount),
+                    automaticMonitoringSummary(enabled, backgroundEnabled, monitoredCount, pausedCount, unmonitoredCount) + " · 仅对单独开启的房间生效",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (monitoredCount == 0 && pausedCount > 0) WarningAmber
                         else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -368,7 +433,7 @@ private fun AutoRecordCard(
             }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("自动录制", style = MaterialTheme.typography.labelMedium)
+                    Text("全局自动录制", style = MaterialTheme.typography.labelMedium)
                     Switch(checked = enabled, onCheckedChange = onEnabledChange)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -23,6 +23,7 @@ import com.streamcap.mobile.ui.common.formatBytes
 import java.io.File
 import com.streamcap.mobile.danmaku.VideoExportMode
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import android.content.Intent
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -35,6 +36,32 @@ class RecordingsViewModel(
     private val repository: StreamCapRepository,
     private val container: AppContainer,
 ) : ViewModel() {
+    init {
+        // Older sessions sometimes persisted only the first published URI. Reconcile
+        // the indexed siblings once so the library, player and export use one list.
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.recordings.collect { sessions ->
+                sessions.forEach { session ->
+                    val explicit = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
+                    if (explicit.isEmpty()) return@forEach
+                    val discovered = runCatching {
+                        container.recordingStorage.publishedSiblingParts(explicit, session.roomName, session.startedAt)
+                    }.getOrDefault(explicit)
+                    if (session.status !in setOf(TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING, TaskStatus.FINALIZING)) {
+                        val durations = container.recordingStorage.publishedPartDurationsSeconds(discovered)
+                        val measured = durations.takeIf { it.isNotEmpty() && it.all { seconds -> seconds > 0L } }?.sum()
+                        if (discovered == explicit && (measured == null || measured == session.durationSeconds)) return@forEach
+                        val entity = repository.session(session.id) ?: return@forEach
+                        repository.updateSession(entity.copy(
+                            outputUri = discovered.firstOrNull(),
+                            outputUris = discovered,
+                            durationSeconds = measured ?: entity.durationSeconds,
+                        ))
+                    }
+                }
+            }
+        }
+    }
     private val _exportProgress = MutableStateFlow<String?>(null)
     val exportProgress = _exportProgress.asStateFlow()
     private val _fileMessage = MutableStateFlow<String?>(null)
@@ -152,7 +179,8 @@ class RecordingsViewModel(
             try {
                 val session = requireNotNull(repository.session(recordingId)) { "录制记录不存在" }
                 check(session.status in setOf(TaskStatus.COMPLETED, TaskStatus.PAUSED, TaskStatus.FAILED)) { "录制尚未结束" }
-                val sources = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }.distinct()
+                val sources = container.recordingStorage.publishedSiblingParts(
+                    session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }, session.roomName, session.startedAt)
                 check(sources.isNotEmpty()) { "没有可导出的分段" }
                 val appearance = container.preferences.danmakuAppearance.first()
                 withContext(Dispatchers.IO) {
@@ -209,7 +237,20 @@ class RecordingsViewModel(
         }
     }
 
-    val recordings: StateFlow<List<RecordingSession>> = repository.recordings.stateIn(
+    val recordings: StateFlow<List<RecordingSession>> = repository.recordings.map { sessions ->
+        withContext(Dispatchers.IO) {
+            sessions.map { session ->
+                val explicit = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
+                if (explicit.isEmpty()) session else {
+                    val discovered = runCatching {
+                        container.recordingStorage.publishedSiblingParts(explicit, session.roomName, session.startedAt)
+                    }.getOrDefault(explicit)
+                    if (discovered.size > explicit.size) session.copy(outputUri = discovered.first(), outputUris = discovered)
+                    else session
+                }
+            }
+        }
+    }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         emptyList(),

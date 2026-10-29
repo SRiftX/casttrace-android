@@ -31,6 +31,11 @@ fun RecoverySummary(container: AppContainer, recordings: List<RecordingSession>,
                     modifier = Modifier.weight(1f))
                 TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开") }
             }
+            if (pending.isNotEmpty()) {
+                Button(onClick = { RecordingService.recover(context) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("一键重试保存 ${pending.size} 项")
+                }
+            }
             if (expanded) {
             Text("恢复结果以旧录制已保存的片段为准；重新开始录制不算恢复。", style = MaterialTheme.typography.bodySmall)
             unread.take(10).forEach { log ->

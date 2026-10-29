@@ -89,7 +89,7 @@ class AddRoomViewModel(
             _state.update { it.copy(isSaving = true, error = null) }
             try {
                 val (info, duplicate) = withContext(Dispatchers.IO) { repository.previewRoom(input) }
-                _state.update { it.copy(url = input, preview = info, previewDuplicate = duplicate,
+                _state.update { it.copy(url = info.normalizedUrl, preview = info, previewDuplicate = duplicate,
                     displayName = it.displayName.ifBlank { info.anchorName }, isSaving = false) }
             } catch (failure: Exception) {
                 _state.update { it.copy(error = failure.message ?: "链接解析失败", isSaving = false) }

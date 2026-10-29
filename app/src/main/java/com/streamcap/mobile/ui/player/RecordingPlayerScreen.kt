@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.streamcap.mobile.danmaku.DanmakuAssetManager
 import com.streamcap.mobile.danmaku.DanmakuEvent
+import com.streamcap.mobile.danmaku.DanmakuPresentation
 import com.streamcap.mobile.danmaku.DanmakuEventPage
 import com.streamcap.mobile.danmaku.DanmakuEventType
 import com.streamcap.mobile.danmaku.DanmakuFilter
@@ -24,6 +25,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
@@ -63,11 +65,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.map
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RecordingPlayerScreen(recordingId: Long, container: AppContainer, onBack: () -> Unit) {
-    val recording by container.repository.observeRecording(recordingId).collectAsStateWithLifecycle(null)
+    val recording by remember(recordingId) {
+        container.repository.observeRecording(recordingId).map { session ->
+            if (session == null) null else withContext(Dispatchers.IO) {
+                val explicit = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
+                val discovered = runCatching {
+                    container.recordingStorage.publishedSiblingParts(explicit, session.roomName, session.startedAt)
+                }.getOrDefault(explicit)
+                if (discovered.size > explicit.size) session.copy(outputUri = discovered.first(), outputUris = discovered) else session
+            }
+        }
+    }.collectAsStateWithLifecycle(null)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -235,7 +248,7 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
     var pageIndex by remember(recording.id) { mutableIntStateOf(progressStore.readPart(recording.id)) }
     var pageCount by remember(recording.id) { mutableIntStateOf(0) }
     var openedPartCount by remember(recording.id) { mutableIntStateOf(recording.outputUris.size) }
-    var live by rememberSaveable(recording.id) { mutableStateOf(false) }
+    var live by remember(recording.id) { mutableStateOf(false) }
     var fullscreen by rememberSaveable(recording.id) { mutableStateOf(false) }
     val activity = context as? Activity
     val configuration = LocalConfiguration.current
@@ -267,15 +280,18 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
     var filter by remember(recording.id) { mutableStateOf(DanmakuFilter()) }
     var seekRequest by remember(recording.id) { mutableStateOf<Long?>(null) }
     var showDanmaku by rememberSaveable(recording.id) { mutableStateOf(progressStore.readDanmakuVisible()) }
+    var separateDanmaku by rememberSaveable(recording.id) { mutableStateOf(false) }
     var showDanmakuSettings by remember(recording.id) { mutableStateOf(false) }
     val danmakuAppearance by container.preferences.danmakuAppearance.collectAsStateWithLifecycle(DanmakuAppearance())
-    LaunchedEffect(recording.danmakuPath, pageStartMs, pageIndex, danmakuWindow, live, filter, danmakuAppearance.timeOffsetMs) {
-        danmakuEvents = if (recording.danmakuPath == null || live) emptyList() else try {
-            val from = (pageStartMs + danmakuWindow - 10_000L).coerceAtLeast(0L)
+    val liveDanmakuWindow = if (live) (recording.durationSeconds.coerceAtLeast(0L) / 10L) * 10_000L else 0L
+    LaunchedEffect(recording.danmakuPath, pageStartMs, pageIndex, danmakuWindow, live, liveDanmakuWindow, filter, danmakuAppearance.timeOffsetMs) {
+        danmakuEvents = if (recording.danmakuPath == null) emptyList() else try {
+            val window = if (live) liveDanmakuWindow else pageStartMs + danmakuWindow
+            val from = (window - if (live) 120_000L else 10_000L).coerceAtLeast(0L)
             DanmakuAssetManager(context, container.repository)
                 .eventsWindow(recording.id, from - danmakuAppearance.timeOffsetMs,
-                    pageStartMs + danmakuWindow + 130_000L - danmakuAppearance.timeOffsetMs, filter = filter)
-                .map { it.copy(mediaTimeMs = it.mediaTimeMs?.plus(danmakuAppearance.timeOffsetMs)?.minus(pageStartMs)) }
+                    window + 130_000L - danmakuAppearance.timeOffsetMs, filter = filter)
+                .map { if (live) it else it.copy(mediaTimeMs = it.mediaTimeMs?.plus(danmakuAppearance.timeOffsetMs)?.minus(pageStartMs)) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) { emptyList() }
@@ -319,14 +335,10 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                     .build())
             } else {
                 val (pages, durations) = withContext(Dispatchers.IO) {
-                    val durations = recording.outputUris.map { raw ->
-                        runCatching {
-                            context.contentResolver.query(Uri.parse(raw), arrayOf("duration"), null, null, null)?.use {
-                                if (it.moveToFirst()) it.getLong(0) else 0L
-                            } ?: 0L
-                        }.getOrDefault(0L)
-                    }
-                    PlaybackPages.group(recording.outputUris, durations) to durations
+                    val durations = container.recordingStorage.publishedPartDurationsSeconds(recording.outputUris)
+                        .map { it * 1_000L }
+                    (if (recording.status in setOf(TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING) && recording.outputUris.isNotEmpty())
+                        listOf(recording.outputUris) else PlaybackPages.group(recording.outputUris, durations)) to durations
                 }
                 pageCount = pages.size
                 var elapsed = 0L
@@ -345,14 +357,18 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                     pageIndex = selectedPage
                     progressStore.writePart(recording.id, selectedPage)
                 }
-                val paging = pages.isNotEmpty()
+                val activePreview = recording.status in setOf(TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING)
+                val paging = pages.isNotEmpty() && !activePreview
                 val selected = pages.getOrNull(selectedPage).orEmpty()
                 val uris = withContext(Dispatchers.IO) {
                     resolver.resolve(selected.firstOrNull() ?: recording.outputUri, selected,
                         if (paging) null else recording.temporaryPath, recording.containerFormat,
-                        includeActiveTail = !paging && recording.status == com.streamcap.mobile.domain.model.TaskStatus.RECORDING,
+                        includeActiveTail = activePreview,
                         refreshPublished = {
-                            if (paging) selected else container.repository.session(recording.id)?.outputUris.orEmpty()
+                            if (paging) selected else container.repository.session(recording.id)?.let { current ->
+                                container.recordingStorage.publishedSiblingParts(
+                                    current.outputUris.ifEmpty { listOfNotNull(current.outputUri) }, current.roomName, current.startedAt)
+                            }.orEmpty()
                         })
                 }
                 if (uris.size < selected.distinct().size) {
@@ -366,23 +382,8 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                 // durations before enabling the global seek bar, otherwise a
                 // two-part recording initially appears to be only its first part.
                 knownDurations = withContext(Dispatchers.IO) {
-                    uris.map { uri ->
-                        val indexed = runCatching {
-                            context.contentResolver.query(uri, arrayOf("duration"), null, null, null)?.use {
-                                if (it.moveToFirst()) it.getLong(0) else 0L
-                            } ?: 0L
-                        }.getOrDefault(0L)
-                        if (indexed > 0L) indexed else runCatching {
-                            val metadata = android.media.MediaMetadataRetriever()
-                            try {
-                                metadata.setDataSource(context, uri)
-                                metadata.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
-                                    ?.toLongOrNull() ?: 0L
-                            } finally {
-                                metadata.release()
-                            }
-                        }.getOrDefault(0L)
-                    }
+                    container.recordingStorage.publishedPartDurationsSeconds(uris.map(Uri::toString))
+                        .map { it * 1_000L }
                 }
                 items = uris.map { uri ->
                     val rawName = uri.lastPathSegment.orEmpty().lowercase()
@@ -415,6 +416,7 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                     danmakuEvents = if (showDanmaku) danmakuEvents else emptyList(),
                     danmakuAppearance = danmakuAppearance,
                     title = recording.roomName, fullscreen = fullscreen,
+                    activeRecording = recording.status in setOf(TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING),
                     onBack = { if (fullscreen) fullscreen = false else onBack() },
                     onFullscreen = { fullscreen = !fullscreen },
                     onRotate = {
@@ -422,6 +424,14 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
                             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                     },
                     hasDanmaku = recording.danmakuPath != null, showDanmaku = showDanmaku,
+                    separateDanmaku = separateDanmaku && showDanmaku && !fullscreen,
+                    onLayoutToggle = {
+                        separateDanmaku = !separateDanmaku
+                        if (separateDanmaku && !showDanmaku) {
+                            showDanmaku = true
+                            progressStore.writeDanmakuVisible(true)
+                        }
+                    },
                     onDanmakuToggle = { showDanmaku = !showDanmaku; progressStore.writeDanmakuVisible(showDanmaku) },
                     externalPanelOpen = showDanmakuSettings || showSpeech || exportMenuOpen || error != null,
                     onDanmakuSettings = { showDanmakuSettings = true }, onExport = onExport,
@@ -457,6 +467,10 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
         if (loading || items.isEmpty()) Row(Modifier.align(Alignment.TopStart).safeDrawingPadding(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { if (fullscreen) fullscreen = false else onBack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") }
             Text(recording.roomName, Modifier.weight(1f), maxLines = 1)
+            if (recording.danmakuPath != null) IconButton(onClick = {
+                separateDanmaku = !separateDanmaku
+                if (separateDanmaku) showDanmaku = true
+            }) { Icon(Icons.Outlined.ViewAgenda, "上方视频下方弹幕") }
             TextButton(onClick = { live = !live }) { Text(if (live) "已录内容" else "直播预览") }
         }
         if (!loading && items.isEmpty()) TextButton(onClick = { retry++ }, modifier = Modifier.align(Alignment.Center)) {
@@ -496,8 +510,10 @@ private fun Playback(recording: RecordingSession, container: AppContainer, onBac
 private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, live: Boolean, knownDurations: List<Long>,
                          networkPolicy: com.streamcap.mobile.network.RecordingNetworkPolicy,
                          modifier: Modifier, danmakuEvents: List<DanmakuEvent>, danmakuAppearance: DanmakuAppearance,
-                         title: String, fullscreen: Boolean, onBack: () -> Unit, onFullscreen: () -> Unit, onRotate: () -> Unit,
+                         title: String, fullscreen: Boolean, activeRecording: Boolean,
+                         onBack: () -> Unit, onFullscreen: () -> Unit, onRotate: () -> Unit,
                          hasDanmaku: Boolean, showDanmaku: Boolean, onDanmakuToggle: () -> Unit,
+                         separateDanmaku: Boolean, onLayoutToggle: () -> Unit,
                          externalPanelOpen: Boolean,
                          onDanmakuSettings: () -> Unit, onExport: () -> Unit, onSpeech: () -> Unit,
                          seekRequest: Long?, onSwitchSource: () -> Unit,
@@ -663,7 +679,9 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
         }
     }
     fun touch() { interaction++; controlsVisible = true }
-    Box(modifier.background(Color.Black)) {
+    BoxWithConstraints(modifier.background(Color.Black)) {
+        val videoHeight = maxWidth * 9f / 16f
+        val videoTop = if (separateDanmaku) 72.dp else 0.dp
         AndroidView(factory = { PlayerView(it).apply {
             this.player = player
             useController = false
@@ -671,8 +689,38 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
             setShutterBackgroundColor(android.graphics.Color.BLACK)
-        } }, update = { it.player = player }, modifier = Modifier.fillMaxSize())
-        if (!live && danmakuEvents.isNotEmpty()) ScrollingDanmakuOverlay(danmakuEvents,
+        } }, update = { it.player = player }, modifier = if (separateDanmaku) Modifier.padding(top = videoTop).fillMaxWidth().height(videoHeight) else Modifier.fillMaxSize())
+        if (separateDanmaku) {
+            val currentMediaMs = timelineDurations.take(player.currentMediaItemIndex.coerceAtLeast(0)).sum() + player.currentPosition
+            val visible = danmakuEvents.filter { event ->
+                live || event.mediaTimeMs?.let { it <= currentMediaMs } == true
+            }.takeLast(80)
+            val listState = rememberLazyListState()
+            val newest = visible.lastOrNull()
+            LaunchedEffect(newest?.eventId, newest?.receivedWallMs, newest?.text) {
+                if (newest != null) listState.animateScrollToItem(0)
+            }
+            LazyColumn(state = listState, reverseLayout = true,
+                modifier = Modifier.fillMaxSize().padding(top = videoTop + videoHeight)
+                .background(Color(0xFF3A332D)).padding(horizontal = 12.dp),
+                contentPadding = PaddingValues(top = 14.dp, bottom = if (controlsVisible) 112.dp else 12.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                items(visible.asReversed()) { event ->
+                    val message = DanmakuPresentation.text(event, danmakuAppearance) ?: return@items
+                    Surface(
+                        color = when (event.eventType) {
+                            DanmakuEventType.GIFT, DanmakuEventType.SUPER_CHAT, DanmakuEventType.GUARD -> Color(0xFF62452F)
+                            else -> Color(0xFF4B443D)
+                        }, shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth(0.94f),
+                    ) {
+                        Text(message, color = Color(0xFFF5F1EC), style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
+                    }
+                }
+            }
+        }
+        if (!separateDanmaku && !live && danmakuEvents.isNotEmpty()) ScrollingDanmakuOverlay(danmakuEvents,
             appearance = danmakuAppearance,
             videoAspectRatio = player.videoSize.let {
                 if (it.width > 0 && it.height > 0) it.width * it.pixelWidthHeightRatio / it.height else 16f / 9f
@@ -680,12 +728,12 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             mediaPosition = {
                 timelineDurations.take(player.currentMediaItemIndex.coerceAtLeast(0)).sum() + player.currentPosition
             }, modifier = Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().semantics { contentDescription = "播放画面" }
+        Box((if (separateDanmaku) Modifier.padding(top = videoTop).fillMaxWidth().height(videoHeight) else Modifier.fillMaxSize()).semantics { contentDescription = "播放画面" }
             .pointerInput(player) {
                 detectTapGestures(onTap = { controlsVisible = !controlsVisible; interaction++ },
                     onDoubleTap = { if (player.playWhenReady) player.pause() else player.play(); touch() })
             })
-        androidx.compose.animation.AnimatedVisibility(visible = controlsVisible,
+        androidx.compose.animation.AnimatedVisibility(visible = controlsVisible || separateDanmaku,
             enter = androidx.compose.animation.fadeIn(), exit = androidx.compose.animation.fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter)) {
             Row(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .78f))
@@ -695,12 +743,16 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                 Column(Modifier.weight(1f).padding(horizontal = 4.dp, vertical = 6.dp)) {
                     Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                    Text(if (live) "直播预览" else "已录内容", style = MaterialTheme.typography.labelSmall,
+                    Text(if (live) "直播预览" else if (activeRecording) "已保存内容 · 新片段保存后可刷新" else "已录内容", style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFFBBBBBB))
                 }
-                if (hasDanmaku && !live) PlayerIcon(Icons.Outlined.Subtitles,
+                if (hasDanmaku) PlayerIcon(Icons.Outlined.Subtitles,
                     if (showDanmaku) "隐藏弹幕" else "显示弹幕", { onDanmakuToggle(); touch() },
                     tint = if (showDanmaku) MaterialTheme.colorScheme.primary else Color.White)
+                if (hasDanmaku) PlayerIcon(Icons.Outlined.ViewAgenda,
+                    if (separateDanmaku) "弹幕覆盖视频" else "上方视频下方弹幕",
+                    { onLayoutToggle(); touch() },
+                    tint = if (separateDanmaku) MaterialTheme.colorScheme.primary else Color.White)
                 PlayerIcon(Icons.Outlined.ScreenRotation, "旋转屏幕", { if (!live) reportProgress(snapshot()); onRotate(); touch() })
                 Box {
                     PlayerIcon(Icons.Outlined.Settings, "播放设置", { menuOpen = true; touch() })
@@ -712,7 +764,9 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                             onClick = { close(); panel = "volume" })
                         DropdownMenuItem(text = { Text("弹幕设置") }, leadingIcon = { Icon(Icons.Outlined.Tune, null) },
                             onClick = { close(); onDanmakuSettings() })
-                        if (hasDanmaku && !live) {
+                        if (hasDanmaku) {
+                            DropdownMenuItem(text = { Text(if (separateDanmaku) "弹幕覆盖视频" else "视频上方 · 弹幕下方") },
+                                leadingIcon = { Icon(Icons.Outlined.ViewAgenda, null) }, onClick = { close(); onLayoutToggle() })
                             DropdownMenuItem(text = { Text("发言列表") }, leadingIcon = { Icon(Icons.Outlined.Chat, null) },
                                 onClick = { close(); onSpeech() })
                             DropdownMenuItem(text = { Text("导出弹幕") }, leadingIcon = { Icon(Icons.Outlined.Download, null) },

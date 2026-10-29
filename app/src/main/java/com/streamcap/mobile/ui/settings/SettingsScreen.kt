@@ -120,7 +120,7 @@ fun SettingsScreen(
             .fillMaxSize()
             .widthIn(max = 1120.dp)
             .padding(contentPadding),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
+        contentPadding = PaddingValues(start = 20.dp, top = 24.dp, end = 20.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
@@ -395,7 +395,7 @@ fun SettingsScreen(
                     modifier = Modifier.clickable(onClick = onOpenLogs),
                     icon = { Icon(Icons.Outlined.History, contentDescription = null) },
                     title = "任务日志",
-                    value = "预览脱敏诊断，再选择导出",
+                    value = "筛选记录、查看保存耗时与导出历史日志",
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
                 )
             }

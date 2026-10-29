@@ -6,13 +6,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +23,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
@@ -39,6 +52,8 @@ import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.ui.home.HomeScreen
 import com.streamcap.mobile.ui.player.RecordingPlayerScreen
 import com.streamcap.mobile.ui.recordings.RecordingsScreen
+import com.streamcap.mobile.ui.reminders.LiveRemindersScreen
+import com.streamcap.mobile.ui.reminders.LiveReminderPlayerScreen
 import com.streamcap.mobile.ui.roomdetail.RoomDetailScreen
 import com.streamcap.mobile.ui.rooms.AddRoomScreen
 import com.streamcap.mobile.ui.settings.LogsScreen
@@ -55,18 +70,21 @@ private object Routes {
     const val HOME = "home"
     const val RECORDINGS = "recordings"
     const val SETTINGS = "settings"
+    const val REMINDERS = "reminders"
     const val ADD_ROOM = "add-room"
     const val ROOM_DETAIL = "room/{roomId}"
     const val LOGS = "logs"
     const val PLATFORMS = "platforms"
     const val PLAYER = "player/{recordingId}"
+    const val LIVE_REMINDER_PLAYER = "live-reminder-player/{reminderId}"
 
     fun roomDetail(roomId: Long) = "room/$roomId"
     fun player(recordingId: Long) = "player/$recordingId"
+    fun liveReminderPlayer(reminderId: Long) = "live-reminder-player/$reminderId"
 }
 
 @Composable
-fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchToken: Int = 0) {
+fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchToken: Int = 0, openReminders: Boolean = false) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val container = (context.applicationContext as StreamCapApplication).container
@@ -77,8 +95,10 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     var showWelcomeQr by remember { mutableStateOf(false) }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val topLevelRoutes = setOf(Routes.HOME, Routes.RECORDINGS, Routes.SETTINGS)
+    val topLevelRoutes = setOf(Routes.HOME, Routes.REMINDERS, Routes.RECORDINGS, Routes.SETTINGS)
     val motionScale = rememberMotionScale()
+
+    LaunchedEffect(container) { container.repository.repairPausedRoomSettings() }
 
     LaunchedEffect(sharedUrl, launchToken) {
         if (!sharedUrl.isNullOrBlank()) navController.navigate(Routes.ADD_ROOM)
@@ -87,45 +107,22 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     LaunchedEffect(notificationRoomId, launchToken) {
         notificationRoomId?.let { navController.navigate(Routes.roomDetail(it)) { launchSingleTop = true } }
     }
+    LaunchedEffect(openReminders, launchToken) {
+        if (openReminders) navController.navigate(Routes.REMINDERS) { launchSingleTop = true }
+    }
     BoxWithConstraints(Modifier.fillMaxHeight()) {
     val wideNavigation = maxWidth >= 900.dp
-    Scaffold(
-        bottomBar = {
-            if (currentRoute in topLevelRoutes && !wideNavigation) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-                    listOf(
-                        Triple(Routes.HOME, "直播间", Icons.Outlined.Home),
-                        Triple(Routes.RECORDINGS, "视频库", Icons.Outlined.VideoLibrary),
-                        Triple(Routes.SETTINGS, "设置", Icons.Outlined.Settings),
-                    ).forEach { (route, label, icon) ->
-                        NavigationBarItem(
-                            selected = currentRoute == route,
-                            onClick = {
-                                navController.navigate(route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = { Icon(icon, contentDescription = label) },
-                            label = { Text(label) },
-                            colors = NavigationBarItemDefaults.colors(
-                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            ),
-                        )
-                    }
-                }
-            }
-        },
-    ) { padding ->
+    Box(Modifier.fillMaxSize()) {
+    Scaffold { padding ->
+        val pagePadding = if (currentRoute in topLevelRoutes && !wideNavigation)
+            PaddingValues(0.dp) else padding
         Row(Modifier.fillMaxHeight()) {
         if (wideNavigation && currentRoute in topLevelRoutes) NavigationRail(
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
             listOf(
                 Triple(Routes.HOME, "直播间", Icons.Outlined.Home),
+                Triple(Routes.REMINDERS, "提醒", Icons.Outlined.NotificationsActive),
                 Triple(Routes.RECORDINGS, "视频库", Icons.Outlined.VideoLibrary),
                 Triple(Routes.SETTINGS, "设置", Icons.Outlined.Settings),
             ).forEach { (route, label, icon) ->
@@ -168,7 +165,7 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
             composable(Routes.HOME) {
                 HomeScreen(
                     container = container,
-                    contentPadding = padding,
+                    contentPadding = pagePadding,
                     onAddRoom = { navController.navigate(Routes.ADD_ROOM) },
                     onOpenRoom = { navController.navigate(Routes.roomDetail(it)) },
                     onOpenRecording = { navController.navigate(Routes.player(it)) },
@@ -177,14 +174,21 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
             composable(Routes.RECORDINGS) {
                 RecordingsScreen(
                     container = container,
-                    contentPadding = padding,
+                    contentPadding = pagePadding,
                     onOpenRecording = { navController.navigate(Routes.player(it)) },
+                )
+            }
+            composable(Routes.REMINDERS) {
+                LiveRemindersScreen(
+                    container = container,
+                    contentPadding = pagePadding,
+                    onWatch = { navController.navigate(Routes.liveReminderPlayer(it)) },
                 )
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
                     container = container,
-                    contentPadding = padding,
+                    contentPadding = pagePadding,
                     onOpenStorage = { navController.navigate("storage") },
                     onOpenBackup = { navController.navigate("backup") },
                     onOpenLicenses = { navController.navigate("licenses") },
@@ -198,6 +202,7 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                     container = container,
                     initialUrl = sharedUrl,
                     onBack = navController::popBackStack,
+                    onOpenBackup = { navController.navigate("backup") },
                     onSaved = { roomId ->
                         navController.navigate(Routes.roomDetail(roomId)) {
                             popUpTo(Routes.ADD_ROOM) { inclusive = true }
@@ -235,8 +240,69 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                     onBack = navController::popBackStack,
                 )
             }
+            composable(
+                route = Routes.LIVE_REMINDER_PLAYER,
+                arguments = listOf(navArgument("reminderId") { type = NavType.LongType }),
+            ) { entry ->
+                LiveReminderPlayerScreen(
+                    reminderId = entry.arguments?.getLong("reminderId") ?: return@composable,
+                    container = container,
+                    contentPadding = padding,
+                    onBack = navController::popBackStack,
+                )
+            }
         }
         }
+    }
+            if (currentRoute in topLevelRoutes && !wideNavigation) {
+                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center) {
+                Surface(
+                    modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth(),
+                    shape = RoundedCornerShape(30.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                    shadowElevation = 14.dp,
+                    tonalElevation = 2.dp,
+                ) {
+                Row(Modifier.padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(
+                        Triple(Routes.HOME, "直播间", Icons.Outlined.Home),
+                        Triple(Routes.REMINDERS, "提醒", Icons.Outlined.NotificationsActive),
+                        Triple(Routes.RECORDINGS, "视频库", Icons.Outlined.VideoLibrary),
+                        Triple(Routes.SETTINGS, "设置", Icons.Outlined.Settings),
+                    ).forEach { (route, label, icon) ->
+                        val selected = currentRoute == route
+                        Surface(
+                            modifier = Modifier.weight(1f).heightIn(min = 58.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                                else Color.Transparent,
+                        ) {
+                        Column(
+                            Modifier.clickable {
+                                navController.navigate(route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }.padding(vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            val itemColor = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp), tint = itemColor)
+                            Text(label, style = MaterialTheme.typography.labelSmall, color = itemColor)
+                        }
+                        }
+                    }
+                }
+                }
+                }
+            }
     }
     }
     if (showWelcome) SupportDialog(

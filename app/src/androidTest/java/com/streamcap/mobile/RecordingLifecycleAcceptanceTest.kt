@@ -86,7 +86,9 @@ class RecordingLifecycleAcceptanceTest {
                 assertTrue(extractor.sampleTime >= 0)
             } finally { extractor.release() }
             android.util.Log.i("RecordingLifecycleQA", "PASS confirmed live end session=${saved.id} MP4 seekable; simulated HLS timeline=1860s; errors=0 retries=0")
-            saved.outputUris.forEach { context.contentResolver.delete(Uri.parse(it), null, null) }
+            saved.outputUris.forEach {
+                runCatching { context.contentResolver.delete(Uri.parse(it), null, null) }
+            }
             repository.deleteSession(repository.session(saved.id)!!)
         } finally {
             clientField.set(container, originalClient)

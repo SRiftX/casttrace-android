@@ -17,6 +17,7 @@ import com.streamcap.mobile.domain.model.LiveStatus
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.notification.RecordingNotifications
+import com.streamcap.mobile.notification.LiveReminderNotifications
 import com.streamcap.mobile.recording.engine.RecorderState
 import com.streamcap.mobile.recording.RecordingSegmentPolicy
 import com.streamcap.mobile.recording.engine.Recorder
@@ -53,6 +54,8 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.time.LocalDateTime
+import java.time.Instant
+import java.time.ZoneId
 import java.util.concurrent.ConcurrentHashMap
 
 class RecordingService : Service() {
@@ -180,9 +183,21 @@ class RecordingService : Service() {
                 }
             }
 
+            ACTION_MONITOR_ROOM -> {
+                val roomId = intent.getLongExtra(EXTRA_ROOM_ID, -1)
+                if (roomId > 0) {
+                    stopRequested.remove(roomId)
+                    pauseRequested.remove(roomId)
+                    prepareMonitoring()
+                }
+            }
+
             ACTION_PAUSE -> {
                 val roomId = intent.getLongExtra(EXTRA_ROOM_ID, -1)
-                if (roomId > 0) pauseRecording(roomId)
+                if (roomId > 0) {
+                    android.util.Log.i("StreamCapSave", "pause requested room=$roomId at=${android.os.SystemClock.elapsedRealtime()}")
+                    pauseRecording(roomId, disableAutomaticRecording = true)
+                }
             }
 
             ACTION_STOP -> {
@@ -251,6 +266,8 @@ class RecordingService : Service() {
         monitorJob = serviceScope.launch {
             monitoringActive = true
             try {
+                val reminderNotifications = LiveReminderNotifications(applicationContext)
+                repository.repairPausedRoomSettings()
                 powerSavingMonitoring = container.preferences.settings.first().powerSavingMonitoring
                 if (!powerSavingMonitoring) acquireWakeLock()
                 repository.log(null, null, "INFO", "BACKGROUND_MONITOR_STARTED", "后台持续检测已启动，熄屏时继续等待开播")
@@ -264,12 +281,18 @@ class RecordingService : Service() {
                         continue
                     }
                     repository.resetStaleChecks()
-                    val rooms = repository.monitoredRooms()
-                    if (rooms.isEmpty()) break
+                    val settings = container.preferences.settings.first()
+                    val rooms = if (settings.globalAutoRecordEnabled && settings.backgroundMonitoringEnabled) {
+                        repository.monitoredRooms()
+                    } else emptyList()
+                    val reminders = repository.enabledReminders()
+                    if (rooms.isEmpty() && reminders.isEmpty()) break
                     getSystemService(android.app.NotificationManager::class.java).notify(
                         RecordingNotifications.SERVICE_NOTIFICATION_ID,
                         notifications.serviceNotification(
-                            if (active.isEmpty()) "正在监控 ${rooms.size} 个直播间" else "${active.size} 个任务录制中",
+                            if (active.isEmpty()) {
+                                "${rooms.size} 个直播间 · ${reminders.size} 位主播提醒"
+                            } else "${active.size} 个任务录制中",
                         ),
                     )
                     rooms.forEach { room ->
@@ -304,6 +327,19 @@ class RecordingService : Service() {
                                 )
                             }
                     }
+                    val reminderInterval = settings.checkIntervalSeconds.coerceIn(
+                        MIN_MONITOR_INTERVAL_SECONDS,
+                        3_600,
+                    ) * 1_000L
+                    reminders.forEach { reminder ->
+                        val checkDue = reminder.lastCheckAt?.let {
+                            System.currentTimeMillis() - it >= reminderInterval
+                        } ?: true
+                        if (!checkDue) return@forEach
+                        if (repository.checkReminder(reminder.id, reminderNotifications.canNotify)) {
+                            runCatching { reminderNotifications.notifyOpened(reminder) }
+                        }
+                    }
                     delay(if (powerSavingMonitoring) POWER_SAVING_POLL_MILLIS else MONITOR_POLL_MILLIS)
                 }
             } catch (error: Throwable) {
@@ -312,7 +348,7 @@ class RecordingService : Service() {
                 // 监控异常不能让前台服务永久退出；下一轮仍会重新读取直播间并检测。
                 serviceScope.launch {
                     delay(MONITOR_POLL_MILLIS)
-                    if (repository.monitoredRooms().isNotEmpty()) startMonitoring()
+                    if (repository.monitoredRooms().isNotEmpty() || repository.enabledReminders().isNotEmpty()) startMonitoring()
                 }
             } finally {
                 monitoringActive = false
@@ -327,21 +363,26 @@ class RecordingService : Service() {
         serviceScope.launch {
             monitoringPreparationMutex.withLock {
                 val settings = container.preferences.settings.first()
-                if (!settings.globalAutoRecordEnabled) {
+                val reminders = repository.enabledReminders()
+                if (!settings.globalAutoRecordEnabled && reminders.isEmpty()) {
+                    RoomMonitorWorker.cancelSchedule(applicationContext)
                     stopMonitoring()
                     return@withLock
                 }
                 // Recovery from process loss is independent of opting into boot recovery.
-                if (BackgroundMonitoringPolicy.enabled(settings)) {
+                if (BackgroundMonitoringPolicy.enabled(settings) || reminders.isNotEmpty()) {
                     RoomMonitorWorker.schedule(applicationContext, settings.allowMobileData, immediate = false)
                 } else {
                     RoomMonitorWorker.cancelSchedule(applicationContext)
                 }
-                recoverInterruptedTasksNow()
-                repository.resetStaleChecks()
-                // Only an explicit ACTION_START clears a user's stop/pause request.
-                scanMonitoredRoomsNow()
-                if (settings.backgroundMonitoringEnabled) startMonitoring() else stopMonitoring()
+                if (settings.globalAutoRecordEnabled) {
+                    recoverInterruptedTasksNow()
+                    repository.resetStaleChecks()
+                    // Only an explicit ACTION_START clears a user's stop/pause request.
+                    scanMonitoredRoomsNow()
+                }
+                if (reminders.isNotEmpty() || settings.backgroundMonitoringEnabled) startMonitoring()
+                else stopMonitoring()
             }
         }
     }
@@ -721,7 +762,12 @@ class RecordingService : Service() {
                     )
                     lastNotificationAt = now
                 }
-                checkpointCompletedParts(recording, progress.completedOutputFiles)
+                // Finalization owns any remaining parts. Publishing them here first can
+                // make a manual pause wait for a whole large checkpoint before the
+                // terminal state is even observed.
+                if (progress.state !in TERMINAL_STATES && !pauseRequested.contains(recording.roomId)) {
+                    checkpointCompletedParts(recording, progress.completedOutputFiles)
+                }
                 if (progress.state != lastRoomState && now - lastRoomStateAt >= 5_000L &&
                     (progress.state == RecorderState.RECONNECTING || progress.state == RecorderState.RECORDING)) {
                     repository.setRoomTaskStatus(recording.roomId, LiveStatus.LIVE, progress.state.toTaskStatus())
@@ -750,6 +796,11 @@ class RecordingService : Service() {
                 terminal.state == RecorderState.FAILED -> "STREAM_RETRY_EXHAUSTED"
                 else -> "STREAM_ENDED"
             }} bytes=${terminal.bytesWritten} part=${terminal.outputFiles.size}")
+        val saveStartedAt = android.os.SystemClock.elapsedRealtime()
+        var remuxElapsedMillis = 0L
+        var publishElapsedMillis = 0L
+        var publishedPartCount = 0
+        android.util.Log.i("StreamCapSave", "writer closed room=${recording.roomId} session=${recording.sessionId} at=$saveStartedAt bytes=${terminal.bytesWritten}")
 
         recording.timerJob?.cancel()
         val danmakuStats = runCatching {
@@ -788,6 +839,17 @@ class RecordingService : Service() {
         // Reload before finalization so the terminal update cannot overwrite the
         // accumulated outputUris (and their duration) with the session-start snapshot.
         session = repository.session(recording.sessionId) ?: session
+        val recordedUris = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
+        if (recordedUris.isNotEmpty()) {
+            val recoveredUris = withContext(Dispatchers.IO) {
+                runCatching { container.recordingStorage.publishedSiblingParts(recordedUris, session.roomName, session.startedAt) }
+                    .getOrDefault(recordedUris)
+            }
+            if (recoveredUris.size > recordedUris.size) {
+                session = session.copy(outputUri = recoveredUris.first(), outputUris = recoveredUris)
+                repository.updateSession(session)
+            }
+        }
         // An explicit pause wins over a transport error raised while cancelling the HTTP call.
         val userPaused = pauseRequested.contains(recording.roomId)
         val persistedOutputUris = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
@@ -924,8 +986,9 @@ class RecordingService : Service() {
         }
 
         val publishResult = heavyPublicationPermit.withPermit { withContext(Dispatchers.IO) { runCatching {
+            android.util.Log.i("StreamCapSave", "publication permit room=${recording.roomId} after=${android.os.SystemClock.elapsedRealtime() - saveStartedAt}ms")
             val extension = recording.outputFormat.lowercase()
-            val now = LocalDateTime.now()
+            val now = LocalDateTime.ofInstant(Instant.ofEpochMilli(session.startedAt ?: System.currentTimeMillis()), ZoneId.systemDefault())
             val baseName = RecordingNameFormatter.format(
                 template = recording.fileNameTemplate,
                 includeTitle = recording.includeTitleInFileName,
@@ -961,6 +1024,7 @@ class RecordingService : Service() {
             val outputUris = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }.toMutableList()
             var publishedDuration = publishedDurationSeconds(outputUris)
             files.forEachIndexed { index, file ->
+                val partStartedAt = android.os.SystemClock.elapsedRealtime()
                 val indexedOutput = outputUris.isNotEmpty() || files.size > 1
                 val partSuffix = if (indexedOutput) "_${(outputUris.size + 1).toString().padStart(3, '0')}" else ""
                 val publishFile = if (recording.outputFormat == "MP4") {
@@ -982,6 +1046,8 @@ class RecordingService : Service() {
                                     )
                                 }
                             muxedDurationSeconds += tracks.durationSeconds
+                            remuxElapsedMillis += android.os.SystemClock.elapsedRealtime() - partStartedAt
+                            android.util.Log.i("StreamCapSave", "remux room=${recording.roomId} part=${index + 1} bytes=${file.length()} elapsed=${android.os.SystemClock.elapsedRealtime() - partStartedAt}ms")
                             if (tracks.audioTracks == 0) {
                                 repository.log(
                                     recording.roomId,
@@ -999,6 +1065,7 @@ class RecordingService : Service() {
                     outputUris = outputUris.toList(),
                     errorMessage = "正在保存${if (files.size > 1) "（第 ${index + 1}/${files.size} 段）" else ""}",
                 ))
+                val publishStartedAt = android.os.SystemClock.elapsedRealtime()
                 val outputUri = container.recordingStorage.publish(
                     publishFile,
                     "${baseName}${partSuffix}.$extension",
@@ -1008,6 +1075,12 @@ class RecordingService : Service() {
                     retainTemporary = true,
                     publicationKey = file.absolutePath,
                 )
+                val partPublishMillis = android.os.SystemClock.elapsedRealtime() - publishStartedAt
+                publishElapsedMillis += partPublishMillis
+                publishedPartCount++
+                repository.log(recording.roomId, recording.sessionId, "INFO", "RECORDING_PART_SAVED",
+                    "第 ${outputUris.size + 1} 段已保存，文件 ${publishFile.length() / 1_048_576} MB，封装 ${android.os.SystemClock.elapsedRealtime() - partStartedAt - partPublishMillis} 毫秒，写入 ${partPublishMillis} 毫秒")
+                android.util.Log.i("StreamCapSave", "publish room=${recording.roomId} part=${index + 1} bytes=${publishFile.length()} elapsed=${android.os.SystemClock.elapsedRealtime() - partStartedAt}ms")
                 outputUris += outputUri
                 // Persist every successfully published part immediately. If the process dies
                 // while a later part is being muxed, the earlier parts remain playable and visible.
@@ -1040,6 +1113,9 @@ class RecordingService : Service() {
                     errorMessage = if (disconnectPaused) "断流已暂停，已保存当前内容" else null,
                 ),
             )
+            android.util.Log.i("StreamCapSave", "saved room=${recording.roomId} elapsed=${android.os.SystemClock.elapsedRealtime() - saveStartedAt}ms")
+            repository.log(recording.roomId, recording.sessionId, "INFO", "RECORDING_SAVE_TIMING",
+                "本次保存 ${publishedPartCount} 段；总耗时 ${android.os.SystemClock.elapsedRealtime() - saveStartedAt} 毫秒，MP4 封装 ${remuxElapsedMillis} 毫秒，文件写入 ${publishElapsedMillis} 毫秒")
             repository.setRoomTaskStatus(
                 recording.roomId,
                 if (liveEnded) LiveStatus.OFFLINE else liveStatus,
@@ -1161,7 +1237,7 @@ class RecordingService : Service() {
                 platform = recording.platform,
                 anchorName = recording.roomName,
                 title = recording.roomTitle,
-                time = LocalDateTime.now(),
+                time = LocalDateTime.ofInstant(Instant.ofEpochMilli(session.startedAt ?: System.currentTimeMillis()), ZoneId.systemDefault()),
             ),
         )
         val outputUris = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }.toMutableList()
@@ -1314,7 +1390,11 @@ class RecordingService : Service() {
         }
     }
 
-    private fun pauseRecording(roomId: Long, reason: StopReason = StopReason.PAUSE) {
+    private fun pauseRecording(
+        roomId: Long,
+        reason: StopReason = StopReason.PAUSE,
+        disableAutomaticRecording: Boolean = false,
+    ) {
         retries.cancel(roomId)
         pauseRequested.add(roomId)
         resumeRequested.remove(roomId)
@@ -1324,9 +1404,16 @@ class RecordingService : Service() {
         if (recording != null) {
             recording.stopReason = reason
             recording.timerJob?.cancel()
-            serviceScope.launch { recording.recorder.stop(recording.handle, reason) }
+            serviceScope.launch {
+                try {
+                    if (disableAutomaticRecording) repository.setScheduledMonitoringEnabled(roomId, false)
+                } finally {
+                    recording.recorder.stop(recording.handle, reason)
+                }
+            }
         } else {
             serviceScope.launch {
+                if (disableAutomaticRecording) repository.setScheduledMonitoringEnabled(roomId, false)
                 val room = repository.room(roomId) ?: return@launch
                 repository.setRoomTaskStatus(roomId, room.liveStatus, TaskStatus.PAUSED)
                 stopIfIdle()
@@ -1427,7 +1514,8 @@ class RecordingService : Service() {
             template = settings.fileNameTemplate,
             includeTitle = settings.includeTitleInFileName,
             removeEmoji = settings.removeEmojiFromFileName,
-            context = RecordingNameContext(room.platform, session.roomName, session.roomTitle, LocalDateTime.now()),
+            context = RecordingNameContext(room.platform, session.roomName, session.roomTitle,
+                LocalDateTime.ofInstant(Instant.ofEpochMilli(session.startedAt ?: System.currentTimeMillis()), ZoneId.systemDefault())),
         )
         var duration = publishedDuration
         val existingPartCount = outputUris.size
@@ -1479,19 +1567,7 @@ class RecordingService : Service() {
     }
 
     private suspend fun publishedDurationSeconds(uris: List<String>): Long = withContext(Dispatchers.IO) {
-        uris.sumOf { raw ->
-            runCatching {
-                contentResolver.query(
-                    Uri.parse(raw),
-                    arrayOf(MediaStore.Video.VideoColumns.DURATION),
-                    null,
-                    null,
-                    null,
-                )?.use { cursor ->
-                    if (cursor.moveToFirst()) cursor.getLong(0).coerceAtLeast(0L) / 1_000L else 0L
-                } ?: 0L
-            }.getOrDefault(0L)
-        }
+        container.recordingStorage.publishedDurationSeconds(uris)
     }
 
     private fun temporaryFamily(first: File): List<File> {
@@ -1611,6 +1687,7 @@ class RecordingService : Service() {
         private const val ACTION_PAUSE = "com.streamcap.mobile.action.PAUSE_RECORDING"
         private const val ACTION_RECOVER = "com.streamcap.mobile.action.RECOVER"
         private const val ACTION_MONITOR = "com.streamcap.mobile.action.MONITOR"
+        private const val ACTION_MONITOR_ROOM = "com.streamcap.mobile.action.MONITOR_ROOM"
         private const val ACTION_STOP_MONITOR = "com.streamcap.mobile.action.STOP_MONITOR"
         private const val EXTRA_ROOM_ID = "room_id"
         private const val EXTRA_STOP_AT = "stop_at"
@@ -1676,6 +1753,11 @@ class RecordingService : Service() {
                 context,
                 Intent(context, RecordingService::class.java).setAction(ACTION_MONITOR),
             )
+        }
+
+        fun monitorRoomNow(context: Context, roomId: Long) {
+            ContextCompat.startForegroundService(context,
+                Intent(context, RecordingService::class.java).setAction(ACTION_MONITOR_ROOM).putExtra(EXTRA_ROOM_ID, roomId))
         }
 
         fun stopMonitoring(context: Context) {

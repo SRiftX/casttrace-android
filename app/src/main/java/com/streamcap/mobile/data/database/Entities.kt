@@ -40,6 +40,25 @@ data class LiveRoomEntity(
 )
 
 @Entity(
+    tableName = "live_reminders",
+    indices = [Index(value = ["normalizedUrl"], unique = true)],
+)
+data class LiveReminderEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val originalUrl: String,
+    val normalizedUrl: String,
+    val platform: String,
+    val anchorName: String,
+    val roomTitle: String? = null,
+    val enabled: Boolean = true,
+    val liveStatus: LiveStatus = LiveStatus.UNKNOWN,
+    val notifiedForCurrentLive: Boolean = false,
+    val lastCheckAt: Long? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(
     tableName = "recording_sessions",
     indices = [Index("roomId")],
 )

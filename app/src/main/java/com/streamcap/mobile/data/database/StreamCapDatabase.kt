@@ -9,15 +9,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         LiveRoomEntity::class,
+        LiveReminderEntity::class,
         RecordingSessionEntity::class,
         TaskLogEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class StreamCapDatabase : RoomDatabase() {
     abstract fun liveRoomDao(): LiveRoomDao
+    abstract fun liveReminderDao(): LiveReminderDao
     abstract fun recordingSessionDao(): RecordingSessionDao
     abstract fun taskLogDao(): TaskLogDao
 
@@ -37,6 +39,14 @@ abstract class StreamCapDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE recording_sessions ADD COLUMN danmakuPath TEXT")
                 db.execSQL("ALTER TABLE recording_sessions ADD COLUMN danmakuEventCount INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE recording_sessions ADD COLUMN danmakuDroppedCount INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `live_reminders` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `originalUrl` TEXT NOT NULL, `normalizedUrl` TEXT NOT NULL, `platform` TEXT NOT NULL, `anchorName` TEXT NOT NULL, `roomTitle` TEXT, `enabled` INTEGER NOT NULL, `liveStatus` TEXT NOT NULL, `notifiedForCurrentLive` INTEGER NOT NULL, `lastCheckAt` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL)""",
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_live_reminders_normalizedUrl` ON `live_reminders` (`normalizedUrl`)")
             }
         }
     }

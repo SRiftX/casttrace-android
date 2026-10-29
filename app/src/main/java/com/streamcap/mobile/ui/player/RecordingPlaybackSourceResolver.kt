@@ -50,7 +50,10 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
             if (!includeActiveTail) return published
             // Count recorded URIs, including unreadable ones, so removing a saved
             // file cannot shift indices and append an already published segment.
+            // A live tail can be several gigabytes when checkpointing is delayed.
+            // Do not block opening the already published recording while converting it.
             val remaining = temporaryPath?.let { temporaryParts(File(it)) }.orEmpty()
+                .filter { RecordingPreviewPolicy.activeTailAction(it.second.length(), true) != RecordingPreviewPolicy.TailAction.DEFER }
                 .filter { it.first > outputUris.size }
             if (remaining.isNotEmpty() && remaining.first().first != outputUris.size + 1) {
                 throw java.io.FileNotFoundException("分段正在发布")
@@ -59,7 +62,13 @@ internal class RecordingPlaybackSourceResolver(private val context: Context) : A
         }
         if (outputUri.isNullOrBlank() || !hasReadableMedia(Uri.parse(outputUri))) {
             return temporaryPath?.let { temporaryParts(File(it)) }
-                ?.map { snapshot(it.second) }
+                ?.map { (_, file) ->
+                    when (RecordingPreviewPolicy.activeTailAction(file.length(), false)) {
+                        RecordingPreviewPolicy.TailAction.SNAPSHOT -> snapshot(file)
+                        RecordingPreviewPolicy.TailAction.DIRECT -> Uri.fromFile(file)
+                        RecordingPreviewPolicy.TailAction.DEFER -> error("没有已保存的视频分段")
+                    }
+                }
                 .orEmpty()
         }
         val current = Uri.parse(outputUri)

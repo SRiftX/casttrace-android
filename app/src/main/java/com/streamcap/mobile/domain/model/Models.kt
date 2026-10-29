@@ -106,6 +106,21 @@ data class LiveRoomInfo(
     val roomTitle: String?,
 )
 
+data class LiveReminder(
+    val id: Long,
+    val originalUrl: String,
+    val normalizedUrl: String,
+    val platform: String,
+    val anchorName: String,
+    val roomTitle: String?,
+    val enabled: Boolean,
+    val liveStatus: LiveStatus,
+    val notifiedForCurrentLive: Boolean,
+    val lastCheckAt: Long?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
 data class StreamSource(
     val url: String,
     val type: StreamType,

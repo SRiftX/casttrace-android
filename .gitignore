@@ -29,6 +29,7 @@ keystore.properties
 *.part
 /verification/
 /captures/
+/artifacts/platform-qa-20261027/
 __pycache__/
 *.pyc
 

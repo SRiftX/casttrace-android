@@ -17,7 +17,8 @@ class TaskRecoveryWorker(
         // Always repair/publish interrupted media, but only resume live monitoring when
         // the user explicitly enabled boot recovery.
         return try {
-            if (settings.resumeAfterBoot && settings.globalAutoRecordEnabled && settings.backgroundMonitoringEnabled) RecordingService.monitor(applicationContext)
+            val hasReminders = (applicationContext as StreamCapApplication).container.repository.hasEnabledReminders()
+            if (hasReminders || settings.resumeAfterBoot && settings.globalAutoRecordEnabled && settings.backgroundMonitoringEnabled) RecordingService.monitor(applicationContext)
             else RecordingService.recover(applicationContext)
             Result.success()
         } catch (cancelled: CancellationException) {

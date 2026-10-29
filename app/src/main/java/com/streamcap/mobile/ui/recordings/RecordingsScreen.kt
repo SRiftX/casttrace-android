@@ -266,7 +266,7 @@ fun RecordingsScreen(
             .fillMaxSize()
             .padding(contentPadding)
             .widthIn(max = 1360.dp),
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+        contentPadding = PaddingValues(start = 24.dp, top = 16.dp, end = 24.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
