@@ -3,6 +3,11 @@ package com.streamcap.mobile.storage
 import java.io.File
 
 object TemporaryRecordingParts {
+    fun family(first: File): List<File> = first.parentFile?.listFiles().orEmpty()
+        .mapNotNull { file -> index(first, file)?.let { it to file } }
+        .sortedBy { it.first }
+        .map { it.second }
+
     fun index(first: File, file: File): Int? {
         if (first.name == file.name) return 1
         val marker = listOf(".ts.part", ".flv.part").firstOrNull { first.name.endsWith(it) }

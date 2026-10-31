@@ -2,7 +2,6 @@ package com.streamcap.mobile
 
 import android.content.Intent
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.service.RecordingService
 import kotlinx.coroutines.*
@@ -11,12 +10,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 
-class RecordingReconnectTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class RecordingReconnectTest : HiltGraphTest() {
     @Test fun pauseWhileWaitingPreventsAutomaticRestart() = runBlocking {
         val roomId = InstrumentationRegistry.getArguments().getString("reconnectRoomId")?.toLongOrNull()
         assumeTrue("Requires a configured room with unavailable streams", roomId != null)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val repository = (context.applicationContext as StreamCapApplication).container.repository
+        val repository = (context.applicationContext).testGraph.repository
         context.startActivity(context.packageManager.getLaunchIntentForPackage(context.packageName)!!
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         delay(2000)

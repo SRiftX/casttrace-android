@@ -118,6 +118,12 @@ class DouyinDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient 
             val message = messageField.value as ByteArray
             val method = ProtoWire.firstString(message, 1) ?: return@forEach
             val eventPayload = ProtoWire.firstBytes(message, 2) ?: return@forEach
+            if (method == "WebcastGiftMessage") {
+                ProtobufGiftEvents.douyin(eventPayload, context, SystemClock.elapsedRealtime())?.let {
+                    emit(DanmakuFrame.Event(it))
+                }
+                return@forEach
+            }
             if (!method.contains("ChatMessage", true)) return@forEach
             val common = ProtoWire.firstBytes(eventPayload, 1)
             val user = ProtoWire.firstBytes(eventPayload, 2)

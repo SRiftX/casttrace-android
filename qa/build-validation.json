@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-28",
+  "kind": "isolated staged source snapshot",
+  "source_file_count": 301,
+  "source_manifest_sha256": "35361b492e7c3d0e2a74c8e30e63b15d4570fff913fa553be55f29727424302d",
+  "jvm": {
+    "tests": 214,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "debug_apk_sha256": "da909ff876fdbb0d92cf740eea3208536359ed6798495628e0f22075963199ef",
+  "checks": [
+    "testDebugUnitTest",
+    "assembleDebug",
+    "assembleDebugAndroidTest",
+    "lintDebug",
+    "PlatformCatalogBatchTest on MuMu"
+  ],
+  "limitation": "Build/registry checks do not certify live-site recording or chat. See per-platform failures and media audits."
+}

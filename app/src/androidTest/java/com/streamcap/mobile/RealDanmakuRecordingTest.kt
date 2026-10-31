@@ -3,7 +3,6 @@ package com.streamcap.mobile
 import android.content.Intent
 import android.net.Uri
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.app.MainActivity
 import com.streamcap.mobile.domain.model.RoomRecordingOptions
 import com.streamcap.mobile.domain.model.TaskStatus
@@ -19,14 +18,15 @@ import org.junit.Assume.assumeTrue
 import java.io.File
 
 /** Uses the normal service and media recorder; retains evidence in the user's library. */
-class RealDanmakuRecordingTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class RealDanmakuRecordingTest : HiltGraphTest() {
     @Test fun recordsVideoAndRealChatTogether() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue("Requires explicit live room arguments", args.containsKey("platform") && args.containsKey("roomUrl"))
         val platform = requireNotNull(args.getString("platform"))
         val url = requireNotNull(args.getString("roomUrl"))
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StreamCapApplication
-        val repo = app.container.repository
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val repo = app.testGraph.repository
         app.startActivity(Intent(app, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         val existing = repo.rooms.first().firstOrNull { it.normalizedUrl == url }
         val roomId = existing?.id ?: repo.addRoom(url, options = RoomRecordingOptions(outputFormat = "FLV", segmentEnabled = false))

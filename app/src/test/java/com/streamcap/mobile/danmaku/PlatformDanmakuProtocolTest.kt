@@ -7,9 +7,12 @@ import org.junit.Test
 class PlatformDanmakuProtocolTest {
     @Test fun factoryAdvertisesOnlyVerifiedChatCapability() {
         val factory = RealDanmakuClientFactory(okhttp3.OkHttpClient())
-        assertEquals(setOf(DanmakuEventType.CHAT), factory.capability("bilibili").events)
+        assertEquals(setOf(DanmakuEventType.CHAT, DanmakuEventType.GIFT, DanmakuEventType.SUPER_CHAT, DanmakuEventType.GUARD), factory.capability("bilibili").events)
         assertTrue(factory.capability("huya").enabled)
-        assertTrue(!factory.capability("kuaishou").enabled)
+        assertTrue(factory.capability("kuaishou").enabled)
+        assertTrue(factory.capability("chzzk").enabled)
+        assertTrue(factory.capability("twitch").enabled)
+        assertTrue(!factory.capability("rednote").enabled)
     }
 
     @Test fun huyaWebSocketDoesNotNegotiateCompression() {

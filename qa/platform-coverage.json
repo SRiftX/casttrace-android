@@ -1,0 +1,527 @@
+{
+  "date": "2026-10-28",
+  "environment": "MuMu Android 15 / emulator-5556 / com.streamcap.mobile.platformqa",
+  "scope": "每项分别记录；NO_SOURCE/限制/协议测试不等于真实录制通过",
+  "platforms": [
+    {
+      "key": "custom",
+      "name": "HLS / FLV 直链",
+      "region": "domestic",
+      "catalog": "AVAILABLE",
+      "candidate": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+      "state": "MEDIA_PREFLIGHT_PASS",
+      "result": "本地 HLS/FLV 协议回归；设备公开 HLS 点播直链预检通过，未单独实录",
+      "chat": "未实现"
+    },
+    {
+      "key": "huya",
+      "name": "虎牙直播",
+      "region": "domestic",
+      "catalog": "AVAILABLE",
+      "candidate": "https://www.huya.com/281014",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "116.6 秒成品审计通过；2 条真实聊天",
+      "chat": "真实接收"
+    },
+    {
+      "key": "douyin",
+      "name": "抖音直播",
+      "region": "domestic",
+      "catalog": "AVAILABLE",
+      "candidate": "https://live.douyin.com/369324308707",
+      "state": "NO_SOURCE",
+      "result": "两轮旧样本及首页候选 369324308707 均无源，未验收当前开播",
+      "chat": "原有客户端，本轮未实收"
+    },
+    {
+      "key": "bilibili",
+      "name": "B站直播",
+      "region": "domestic",
+      "catalog": "AVAILABLE",
+      "candidate": "https://live.bilibili.com/4350043",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "123.12 秒成品审计通过；74 条真实聊天",
+      "chat": "真实接收"
+    },
+    {
+      "key": "douyu",
+      "name": "斗鱼直播",
+      "region": "domestic",
+      "catalog": "AVAILABLE",
+      "candidate": "https://www.douyu.com/252140",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "125.4 秒成品审计通过；本轮弹幕连接失败",
+      "chat": "连接失败"
+    },
+    {
+      "key": "kuaishou",
+      "name": "快手直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://live.kuaishou.com/u/yall1102",
+      "state": "BLOCKED",
+      "result": "当前公开房间返回请求过快；已修复风控误报及状态提取，聊天未实收验收",
+      "chat": "协议已接入，风控阻断"
+    },
+    {
+      "key": "tiktok",
+      "name": "TikTok直播",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.tiktok.com/@pearlgaga88/live",
+      "state": "NO_SOURCE",
+      "result": "参考主播设备无源；PC API 返回空正文，未获当前开播验收",
+      "chat": "未实现"
+    },
+    {
+      "key": "yy",
+      "name": "YY直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.yy.com/22490906/22490906",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "636.59 秒成品审计通过；16 条聊天；非 20 分钟长稳",
+      "chat": "实验性网页真实接收"
+    },
+    {
+      "key": "rednote",
+      "name": "小红书直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.xiaohongshu.com/livestream",
+      "state": "NO_LIVE_CANDIDATE",
+      "result": "公开目录为空/跳转登录，feed 406；没有有效房间，不能算取流验收",
+      "chat": "实验性网页，未验收"
+    },
+    {
+      "key": "bigo",
+      "name": "Bigo直播",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.bigo.tv/219878136",
+      "state": "BLOCKED",
+      "result": "两个当前目录样本 needLogin；已支持 Cookie 并纠正误报下播",
+      "chat": "未实现"
+    },
+    {
+      "key": "blued",
+      "name": "Blued直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://app.blued.cn/live?id=2VO8DM",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "修复 CONFIG/Referer 与三分片直播起点；隔离快照 72.01 秒成品审计通过，无旧分片多录",
+      "chat": "未实现"
+    },
+    {
+      "key": "netease",
+      "name": "网易CC直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://cc.163.com/583946984",
+      "state": "FAILED",
+      "result": "参考房间重定向/缺少旧页面数据；未恢复当前可用线路",
+      "chat": "未实现"
+    },
+    {
+      "key": "pandatv",
+      "name": "PandaTV",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.pandalive.co.kr/live/play/bara0109",
+      "state": "BLOCKED",
+      "result": "设备 API HTTP 400；PC 当前接口拒绝 444；未取得有效流",
+      "chat": "未实现"
+    },
+    {
+      "key": "maoer",
+      "name": "猫耳FM直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://fm.missevan.com/live/869132345",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "122.01 秒成品审计通过，平台自带占位视频；音频可解码",
+      "chat": "未实现"
+    },
+    {
+      "key": "look",
+      "name": "Look直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://look.163.com/live?id=65108820",
+      "state": "NO_SOURCE",
+      "result": "参考房间 65108820 无源；未找到当前开播目录",
+      "chat": "未实现"
+    },
+    {
+      "key": "flextv",
+      "name": "FlexTV",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.flextv.co.kr/channels/1013062/live",
+      "state": "FAILED_RECORDING_AUDIT",
+      "result": "token/格式修复后能保存双轨；101.21 秒复测仍有 4.033 秒缺口（之前为 6.033 秒），未通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "popkontv",
+      "name": "PopkonTV",
+      "region": "overseas",
+      "catalog": "PLANNED",
+      "candidate": null,
+      "state": "NOT_IMPLEMENTED",
+      "result": "仅限制说明，需要账号及年龄验证",
+      "chat": "未实现"
+    },
+    {
+      "key": "twitcasting",
+      "name": "TwitCasting",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://twitcasting.tv/c:amuchin2525",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "88.12 秒最新样本审计通过、43 条聊天；另一房间缺口失败保留",
+      "chat": "真实接收"
+    },
+    {
+      "key": "baidu",
+      "name": "百度直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://live.baidu.com/m/media/pclive/pchome/live.html?room_id=9175031377",
+      "state": "NO_SOURCE",
+      "result": "参考房间无源；修复空 FLV 阻断 HLS 备用地址，协议回归通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "weibo",
+      "name": "微博直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://weibo.com/l/wblive/p/show/1022:2321325026370190442592",
+      "state": "BLOCKED",
+      "result": "修复复合 ID 截断；设备仍 400，PC 正文为 User does not exists",
+      "chat": "未实现"
+    },
+    {
+      "key": "kugou",
+      "name": "酷狗直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://fanxing.kugou.com/3097365",
+      "state": "NO_SOURCE",
+      "result": "12 个官网样本未返回有效线路；未恢复当前可用取流",
+      "chat": "未实现"
+    },
+    {
+      "key": "twitch",
+      "name": "Twitch",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.twitch.tv/eslcs",
+      "state": "RECORDING_REVIEW",
+      "result": "98.16 秒样本通过；隔离快照 70.2 秒出现 360 个重复包，审计失败，未解决",
+      "chat": "其他频道真实接收；ESLCS 无消息"
+    },
+    {
+      "key": "liveme",
+      "name": "LiveMe",
+      "region": "overseas",
+      "catalog": "PLANNED",
+      "candidate": null,
+      "state": "NOT_IMPLEMENTED",
+      "result": "仅限制说明，动态签名未实现",
+      "chat": "未实现"
+    },
+    {
+      "key": "huajiao",
+      "name": "花椒直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.huajiao.com/l/400607857",
+      "state": "NO_SOURCE",
+      "result": "修复官网 /l/ 链接；参考样本数据不可用，未取得当前开播验收",
+      "chat": "未实现"
+    },
+    {
+      "key": "showroom",
+      "name": "ShowRoom",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.showroom-live.com/75721",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "88.4 秒最新样本审计通过、24 条聊天；其他房间 403 失败保留",
+      "chat": "真实接收"
+    },
+    {
+      "key": "acfun",
+      "name": "AcFun直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://live.acfun.cn/live/23682490",
+      "state": "PARTIAL_RECORDING",
+      "result": "对象/数组修复后两间取流通过；494 秒保存后主播下播，未作固定墙钟验收",
+      "chat": "未实现"
+    },
+    {
+      "key": "inke",
+      "name": "映客直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.inke.cn/live?uid=559124607&id=1793114592457905",
+      "state": "RECORDING_REVIEW",
+      "result": "125.4 秒可解码、无大缺口；51 包重复疑点保留",
+      "chat": "未实现"
+    },
+    {
+      "key": "yinbo",
+      "name": "音播直播",
+      "region": "domestic",
+      "catalog": "DISCONTINUED",
+      "candidate": null,
+      "state": "DISCONTINUED",
+      "result": "目录标记停运；无已注册录制链路",
+      "chat": "未实现"
+    },
+    {
+      "key": "changliao",
+      "name": "畅聊直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://live.tlclw.com/106188",
+      "state": "BLOCKED",
+      "result": "参考房间设备证书链失败；未禁用 TLS 验证；协议回归通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "zhihu",
+      "name": "知乎直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.zhihu.com/theater/10687?drama_id=2037464603865642996",
+      "state": "NO_SOURCE",
+      "result": "参考剧场返回无源；直播剧场解析回归通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "chzzk",
+      "name": "CHZZK",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://chzzk.naver.com/live/792acf9ca28b42918710327e14b06b68",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "608.21 秒 144p 成品审计通过、10103 条聊天；旧高画质缺口失败保留",
+      "chat": "真实接收"
+    },
+    {
+      "key": "haixiu",
+      "name": "嗨秀直播",
+      "region": "domestic",
+      "catalog": "PLANNED",
+      "candidate": null,
+      "state": "NOT_IMPLEMENTED",
+      "result": "仅限制说明，动态签名未实现",
+      "chat": "未实现"
+    },
+    {
+      "key": "vvxq",
+      "name": "VV星球",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://h5webcdn-pro.vvxqiu.com/activity/videoShare/videoShare.html?roomId=LP115924473",
+      "state": "NO_SOURCE",
+      "result": "参考 LP115924473 房间数据无流；协议解析回归通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "yiqilive",
+      "name": "17Live",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://17.live/en/live/6302408",
+      "state": "BLOCKED",
+      "result": "参考房间设备 HTTP 420；PC 目录尝试未获取有效开播 ID",
+      "chat": "未实现"
+    },
+    {
+      "key": "langlive",
+      "name": "浪Live",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.lang.live/en-US/room/3349463",
+      "state": "BLOCKED",
+      "result": "历史房间曾取流通过；新参考 3349463 设备 HTTP 403，无持续录制验收",
+      "chat": "未实现"
+    },
+    {
+      "key": "piaopiao",
+      "name": "漂漂直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://m.pp.weimipopo.com/live/preview.html?anchorUid=91625862",
+      "state": "NO_SOURCE",
+      "result": "参考 anchorUid=91625862 无流；已补 Origin，协议回归通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "sixroom",
+      "name": "六间房直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://v.6.cn/6218",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "632.77 秒成品审计通过；无已实现聊天客户端",
+      "chat": "未实现"
+    },
+    {
+      "key": "lehai",
+      "name": "乐嗨直播",
+      "region": "domestic",
+      "catalog": "PLANNED",
+      "candidate": null,
+      "state": "NOT_IMPLEMENTED",
+      "result": "仅限制说明，动态签名未实现",
+      "chat": "未实现"
+    },
+    {
+      "key": "shopee",
+      "name": "Shopee直播",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://live.shopee.sg/watch?session=802458",
+      "state": "BLOCKED",
+      "result": "参考 session 802458 设备 HTTP 500；未取得当前有效直播",
+      "chat": "未实现"
+    },
+    {
+      "key": "youtube",
+      "name": "YouTube",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.youtube.com/@SkyNews/live",
+      "state": "BLOCKED",
+      "result": "设备 LOGIN_REQUIRED；PC 播放格式未提供 HLS，显式报错，未验收",
+      "chat": "未实现"
+    },
+    {
+      "key": "taobao",
+      "name": "淘宝直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://tbzb.taobao.com/live?liveId=563820798126",
+      "state": "BLOCKED",
+      "result": "设备明确缺 _m_h5_tk 登录 Cookie；未使用用户账号",
+      "chat": "未实现"
+    },
+    {
+      "key": "jd",
+      "name": "京东直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://3.cn/28MLBy-E",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "隔离暂存快照复测 76.06 秒成品审计通过；下播旧地址回归通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "faceit",
+      "name": "FACEIT",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.faceit.com/zh/players/Compl1/stream",
+      "state": "BLOCKED",
+      "result": "参考玩家与官方玩家入口 HTTP 403；未验收 Twitch 转接",
+      "chat": "未实现"
+    },
+    {
+      "key": "huamao",
+      "name": "花猫直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://h.catshow168.com/live/preview.html?anchorUid=18895331",
+      "state": "NO_SOURCE",
+      "result": "专用 preview API 替代通用网页抓取；参考房间无源，协议回归通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "lianjie",
+      "name": "连接直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://show.lailianjie.com/10000258",
+      "state": "NO_SOURCE",
+      "result": "参考房间 10000258 无源；首页 HTTPS 失败，API 设备可达；协议回归通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "migu",
+      "name": "咪咕直播",
+      "region": "domestic",
+      "catalog": "PLANNED",
+      "candidate": null,
+      "state": "NOT_IMPLEMENTED",
+      "result": "仅限制说明，WASM 签名未实现",
+      "chat": "未实现"
+    },
+    {
+      "key": "laixiu",
+      "name": "来秀直播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://www.imkktv.com/h5/share/video.html?roomId=1710496",
+      "state": "NO_SOURCE",
+      "result": "参考 roomId=1710496 无源；官网目录 API 参数要求仍待确认",
+      "chat": "未实现"
+    },
+    {
+      "key": "picarto",
+      "name": "Picarto",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://picarto.tv/UFO200",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "隔离快照 UFO200 72.07 秒成品审计通过；历史十分钟缺口失败保留",
+      "chat": "未实现"
+    },
+    {
+      "key": "xindongrebo",
+      "name": "心动热播",
+      "region": "domestic",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://xcqrkj.com/web/video.php?roomnumber=55333669",
+      "state": "RECORDING_SAMPLE_PASS",
+      "result": "两间当前开播取流；修复注释/末尾逗号后 77.95 秒成品审计通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "soop",
+      "name": "SOOP",
+      "region": "overseas",
+      "catalog": "NEEDS_REVIEW",
+      "candidate": "https://play.sooplive.com/yoomingseo/293945591",
+      "state": "NO_SOURCE",
+      "result": "专用授权 API 替代网页抓取；当前参考返回 RESULT=0/无开播信息，授权协议回归通过",
+      "chat": "未实现"
+    },
+    {
+      "key": "qiandurebo",
+      "name": "千度热播",
+      "region": "domestic",
+      "catalog": "DISCONTINUED",
+      "candidate": null,
+      "state": "DISCONTINUED",
+      "result": "目录标记停运；无已注册录制链路",
+      "chat": "未实现"
+    },
+    {
+      "key": "winktv",
+      "name": "WinkTV",
+      "region": "overseas",
+      "catalog": "DISCONTINUED",
+      "candidate": null,
+      "state": "DISCONTINUED",
+      "result": "目录标记停运；无已注册录制链路",
+      "chat": "未实现"
+    }
+  ]
+}

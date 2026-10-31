@@ -11,6 +11,26 @@ import kotlin.io.path.createTempDirectory
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DanmakuControllerTest {
+    @Test fun paidAndChatIdsDoNotCollideAndRetransmissionsAreDeduplicated() = runTest {
+        val file = File(createTempDirectory().toFile(), "events.jsonl")
+        val client = object : DanmakuClient {
+            override suspend fun connect(context: DanmakuConnectContext) = flow<DanmakuFrame> {
+                val base = DanmakuEvent(1, "bilibili", "same", 150, 0, "test", text = "hello", rawType = "DANMU_MSG")
+                emit(DanmakuFrame.Event(base))
+                val gift = base.copy(rawType = "SEND_GIFT", eventType = DanmakuEventType.GIFT)
+                emit(DanmakuFrame.Event(gift)); emit(DanmakuFrame.Event(gift))
+                awaitCancellation()
+            }
+            override suspend fun close(reason: String) = Unit
+        }
+        val controller = DanmakuController(this, client, DanmakuEventStore(file))
+        controller.start(DanmakuConnectContext(1, "bilibili", "local", mediaStartedElapsedMs = 100))
+        runCurrent()
+        assertEquals(2L, controller.stop("test").written)
+        assertEquals(listOf(DanmakuEventType.CHAT, DanmakuEventType.GIFT), DanmakuEventStore.recover(file).map { it.eventType })
+        file.parentFile?.deleteRecursively()
+    }
+
     @Test fun openingSocketDoesNotResetReconnectBackoff() = runTest {
         var connects = 0
         val client = object : DanmakuClient {

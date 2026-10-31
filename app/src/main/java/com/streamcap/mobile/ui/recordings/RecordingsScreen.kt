@@ -87,11 +87,9 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.streamcap.mobile.app.AppContainer
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.streamcap.mobile.domain.model.RecordingSession
 import com.streamcap.mobile.domain.model.TaskStatus
-import com.streamcap.mobile.ui.ViewModelFactory
 import com.streamcap.mobile.ui.common.displayName
 import com.streamcap.mobile.ui.common.formatBytes
 import com.streamcap.mobile.ui.common.formatDateTime
@@ -104,15 +102,15 @@ import kotlinx.coroutines.withContext
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun RecordingsScreen(
-    container: AppContainer,
     contentPadding: PaddingValues,
     onOpenRecording: (Long) -> Unit,
 ) {
     val context = LocalContext.current
-    val viewModel: RecordingsViewModel = viewModel(
-        factory = ViewModelFactory { RecordingsViewModel(container.repository, container) },
-    )
+    val viewModel: RecordingsViewModel = hiltViewModel()
     val recordings by viewModel.recordings.collectAsStateWithLifecycle()
+    val rooms by viewModel.rooms.collectAsStateWithLifecycle()
+    val logs by viewModel.recordingEvents.collectAsStateWithLifecycle()
+    val storedViewMode by viewModel.storedViewMode.collectAsStateWithLifecycle()
     val exportProgress by viewModel.exportProgress.collectAsStateWithLifecycle()
     val fileMessage by viewModel.fileMessage.collectAsStateWithLifecycle()
     val deleteAuthorization by viewModel.deleteAuthorization.collectAsStateWithLifecycle()
@@ -175,9 +173,6 @@ fun RecordingsScreen(
             }
         }
     }
-    val rooms by container.repository.rooms.collectAsStateWithLifecycle(emptyList())
-    val logs by container.repository.recordingEvents.collectAsStateWithLifecycle(emptyList())
-    val storedViewMode by container.preferences.recordingViewMode.collectAsStateWithLifecycle(null)
     var viewMode by rememberSaveable { mutableStateOf(RecordingViewMode.COMPACT) }
     var order by rememberSaveable { mutableStateOf("最新") }
     var confirmBatch by remember { mutableStateOf<List<RecordingSession>?>(null) }
@@ -266,7 +261,7 @@ fun RecordingsScreen(
             .fillMaxSize()
             .padding(contentPadding)
             .widthIn(max = 1360.dp),
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+        contentPadding = PaddingValues(start = 24.dp, top = 16.dp, end = 24.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
@@ -325,7 +320,7 @@ fun RecordingsScreen(
             }
         }
         item {
-            RecoverySummary(container, recordings, logs, onOpenRecording)
+            RecoverySummary(recordings, logs, onOpenRecording)
             OutlinedTextField(value = filters.query, onValueChange = { filters = filters.copy(query = it) },
                 label = { Text("搜索主播、标题、平台或日期") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -356,7 +351,7 @@ fun RecordingsScreen(
                         selected = viewMode == mode,
                         onClick = {
                             viewMode = mode
-                            scope.launch { container.preferences.setRecordingViewMode(mode.storedValue) }
+                            viewModel.setRecordingViewMode(mode.storedValue)
                         },
                         label = { Text(mode.label) },
                     )
@@ -434,7 +429,7 @@ fun RecordingsScreen(
                     },
                     onGenerateDanmaku = {
                         scope.launch {
-                            runCatching { com.streamcap.mobile.danmaku.DanmakuAssetManager(context, container.repository).createSimulation(recording.id) }
+                            runCatching { viewModel.createDanmakuSimulation(recording.id) }
                                 .onSuccess { snackbars.showSnackbar("已生成测试弹幕侧车文件，可在播放器中查看") }
                                 .onFailure { snackbars.showSnackbar("测试弹幕未生成：${it.message}") }
                         }

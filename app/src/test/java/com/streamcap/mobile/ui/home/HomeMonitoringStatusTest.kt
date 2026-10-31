@@ -42,7 +42,7 @@ class HomeMonitoringStatusTest {
 
     @Test
     fun `automatic monitoring summary explains paused rooms`() {
-        assertEquals("已开启 · 3 间已暂停；开启时会自动恢复", automaticMonitoringSummary(
+        assertEquals("已开启 · 3 间已暂停；需单独重新开启", automaticMonitoringSummary(
             enabled = true, backgroundEnabled = true, monitoredCount = 0, pausedCount = 3, unmonitoredCount = 3,
         ))
         assertEquals("仅打开应用时检查", automaticMonitoringSummary(

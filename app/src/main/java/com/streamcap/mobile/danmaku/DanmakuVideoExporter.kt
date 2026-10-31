@@ -25,7 +25,10 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 @OptIn(UnstableApi::class)
-class DanmakuVideoExporter(private val context: Context) {
+class DanmakuVideoExporter(
+    private val context: Context,
+    private val storage: RecordingStorage = RecordingStorage(context),
+) {
     suspend fun export(
         source: Uri, destination: Uri, events: List<DanmakuEvent>, appearance: DanmakuAppearance,
         mediaOffsetMs: Long = 0, onProgress: (String) -> Unit = {},
@@ -33,7 +36,6 @@ class DanmakuVideoExporter(private val context: Context) {
         require(source != destination) { "导出位置不能是原文件" }
         require(events.any { it.mediaTimeMs != null }) { "这场录制没有可用弹幕" }
         val output = withContext(Dispatchers.IO) { File.createTempFile("danmaku-export-", ".mp4", context.cacheDir) }
-        val storage = RecordingStorage(context)
         try {
             withContext(Dispatchers.IO) { checkExportSpace() }
             withContext(Dispatchers.Main.immediate) {

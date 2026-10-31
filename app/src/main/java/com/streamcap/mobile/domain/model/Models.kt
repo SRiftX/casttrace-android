@@ -106,6 +106,21 @@ data class LiveRoomInfo(
     val roomTitle: String?,
 )
 
+data class LiveReminder(
+    val id: Long,
+    val originalUrl: String,
+    val normalizedUrl: String,
+    val platform: String,
+    val anchorName: String,
+    val roomTitle: String?,
+    val enabled: Boolean,
+    val liveStatus: LiveStatus,
+    val notifiedForCurrentLive: Boolean,
+    val lastCheckAt: Long?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
 data class StreamSource(
     val url: String,
     val type: StreamType,
@@ -114,6 +129,8 @@ data class StreamSource(
     val headers: Map<String, String> = emptyMap(),
     val expiresAt: Long? = null,
     val requiresFfmpeg: Boolean = false,
+    /** Keep the master playlist so the recorder can mux its external audio track. */
+    val separateAudio: Boolean = false,
 )
 
 data class PlatformCredential(

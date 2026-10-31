@@ -1,6 +1,7 @@
 package com.streamcap.mobile.data.database
 
 import com.streamcap.mobile.domain.model.LiveRoom
+import com.streamcap.mobile.domain.model.LiveReminder
 import com.streamcap.mobile.domain.model.RecordingSession
 
 fun LiveRoomEntity.toDomain() = LiveRoom(
@@ -26,6 +27,21 @@ fun LiveRoomEntity.toDomain() = LiveRoom(
     oneTimeEndAt = oneTimeEndAt,
     liveStatus = liveStatus,
     taskStatus = taskStatus,
+    lastCheckAt = lastCheckAt,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun LiveReminderEntity.toDomain() = LiveReminder(
+    id = id,
+    originalUrl = originalUrl,
+    normalizedUrl = normalizedUrl,
+    platform = platform,
+    anchorName = anchorName,
+    roomTitle = roomTitle,
+    enabled = enabled,
+    liveStatus = liveStatus,
+    notifiedForCurrentLive = notifiedForCurrentLive,
     lastCheckAt = lastCheckAt,
     createdAt = createdAt,
     updatedAt = updatedAt,

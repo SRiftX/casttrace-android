@@ -20,9 +20,11 @@ private fun source(url: String, quality: String, headers: Map<String, String>): 
 data class DynamicRoom(val anchor: String, val title: String?, val live: Boolean, val sources: List<StreamSource>)
 
 abstract class DynamicResolver(private val client: OkHttpClient) : PlatformResolver {
+    override val supportsCredentials = true
     protected abstract suspend fun load(url: String, credential: PlatformCredential?): DynamicRoom
-    override suspend fun resolveRoom(url: String): LiveRoomInfo {
-        val data = load(url, null)
+    override suspend fun resolveRoom(url: String): LiveRoomInfo = resolveRoom(url, null)
+    override suspend fun resolveRoom(url: String, credential: PlatformCredential?): LiveRoomInfo {
+        val data = load(url, credential)
         return LiveRoomInfo(url, platformId, data.anchor, data.title)
     }
     override suspend fun checkLive(room: LiveRoom, credential: PlatformCredential?) =
@@ -68,9 +70,16 @@ class YouTubeResolver(client: OkHttpClient) : DynamicResolver(client) {
         require(start >= 0) { "YouTube 页面没有播放器数据，可能需要登录或地区访问" }
         val json = balancedJson(html, start)
         val root = JSONObject(json)
+        val playability = root.optJSONObject("playabilityStatus")
+        val status = playability?.optString("status").orEmpty()
+        check(status.isBlank() || status == "OK") { "YouTube 播放受限（$status），请检查登录、地区或直播状态" }
         val detail = root.optJSONObject("videoDetails")
         val urlValue = root.optJSONObject("streamingData")?.optString("hlsManifestUrl").orEmpty()
-        val live = detail?.optBoolean("isLive") == true && urlValue.isNotBlank()
+        val live = detail?.optBoolean("isLive") == true ||
+            root.optJSONObject("microformat")?.optJSONObject("playerMicroformatRenderer")
+                ?.optJSONObject("liveBroadcastDetails")?.optBoolean("isLiveNow") == true ||
+            playability?.has("liveStreamability") == true
+        check(!live || urlValue.isNotBlank()) { "YouTube 当前直播未提供可录制的 HLS 线路，暂不支持此播放器格式" }
         return DynamicRoom(detail?.optString("author").orEmpty().ifBlank { "YouTube" },
             detail?.optString("title"), live, if (live) listOfNotNull(source(urlValue, "原画", h)) else emptyList())
     }
@@ -92,6 +101,12 @@ internal fun balancedJson(text: String, start: Int): String {
         }
     }
     error("播放器 JSON 不完整")
+}
+
+/** Public player configs may be JS object literals. Preserve quoted URLs verbatim. */
+internal fun normalizeJavascriptObject(value: String): String {
+    val tokens = Regex("\"(?:\\\\.|[^\"\\\\])*\"|//[^\\r\\n]*|/\\*[^*]*\\*+(?:[^/*][^*]*\\*+)*/|,(?=\\s*[}\\]])")
+    return tokens.replace(value) { if (it.value.startsWith('"')) it.value else "" }
 }
 
 class TikTokResolver(client: OkHttpClient) : DynamicResolver(client) {
@@ -147,7 +162,7 @@ class JdResolver(client: OkHttpClient) : DynamicResolver(client) {
         val live = data.optInt("status") == 1
         val streams = listOf("videoUrl" to "原画", "h5VideoUrl" to "高清")
             .mapNotNull { (field, quality) -> source(data.optString(field), quality, h) }
-        return DynamicRoom(data.optString("nickName", "京东直播"), data.optString("title"), live, streams)
+        return DynamicRoom(data.optString("nickName", "京东直播"), data.optString("title"), live, if (live) streams else emptyList())
     }
 }
 

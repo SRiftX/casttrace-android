@@ -1,6 +1,7 @@
 package com.streamcap.mobile
 
 import android.content.ContentValues
+import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -11,7 +12,6 @@ import androidx.annotation.OptIn
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.danmaku.DanmakuAssetManager
 import com.streamcap.mobile.danmaku.VideoDanmakuOverlay
 import com.streamcap.mobile.data.preferences.DanmakuAppearance
@@ -24,22 +24,23 @@ import java.io.File
 import java.security.MessageDigest
 
 @OptIn(UnstableApi::class)
-class DanmakuVideoExportTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class DanmakuVideoExportTest : HiltGraphTest() {
     @Test fun exportsSavedRealChatIntoVideo() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue("Requires an explicit saved recording", args.containsKey("recordingId"))
         val id = requireNotNull(args.getString("recordingId")).toLong()
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StreamCapApplication
-        val session = requireNotNull(app.container.repository.session(id))
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val session = requireNotNull(app.testGraph.repository.session(id))
         val source = Uri.parse(session.outputUris.firstOrNull() ?: requireNotNull(session.outputUri))
-        val events = DanmakuAssetManager(app, app.container.repository).events(id)
+        val events = DanmakuAssetManager(app, app.testGraph.repository).events(id)
         assertTrue("Must use captured server messages", events.isNotEmpty() && events.all {
             it.platform in setOf("douyin", "huya", "douyu", "bilibili") && !it.parserVersion.contains("simulat") && it.mediaTimeMs != null
         })
         val before = digest(app, source)
         val original = File(app.cacheDir, "qa-original-$id.${session.containerFormat.lowercase()}")
         try {
-            app.container.recordingStorage.exportCopy(source, Uri.fromFile(original))
+            app.testGraph.recordingStorage.exportCopy(source, Uri.fromFile(original))
             assertArrayEquals(before, digest(app, Uri.fromFile(original)))
         } finally { original.delete() }
 
@@ -52,7 +53,7 @@ class DanmakuVideoExportTest {
         }))
         try {
             withTimeout(360_000) {
-                app.container.videoExporter.export(id, source.toString(), target, appearance) { println("EXPORT_PROGRESS $it") }
+                app.testGraph.videoExporter.export(id, source.toString(), target, appearance) { println("EXPORT_PROGRESS $it") }
             }
             val extractor = MediaExtractor()
             try {
@@ -108,7 +109,7 @@ class DanmakuVideoExportTest {
         val cancelled = File(app.cacheDir, "qa-cancelled-$id.mp4").apply { writeBytes(byteArrayOf(0)) }
         val remuxTemps = app.cacheDir.listFiles().orEmpty().filter { it.name.startsWith("recording-preview-") }.toSet()
         val task = launch {
-            app.container.videoExporter.export(id, source.toString(), Uri.fromFile(cancelled), appearance) {
+            app.testGraph.videoExporter.export(id, source.toString(), Uri.fromFile(cancelled), appearance) {
                 if (it.startsWith("正在合成弹幕")) cancel("QA cancel during encoding")
             }
         }
@@ -121,7 +122,7 @@ class DanmakuVideoExportTest {
         println("EXPORT_CANCEL_CLEANUP_OK session=$id")
     }
 
-    private fun digest(app: StreamCapApplication, uri: Uri): ByteArray {
+    private fun digest(app: Context, uri: Uri): ByteArray {
         val hash = MessageDigest.getInstance("SHA-256")
         requireNotNull(app.contentResolver.openInputStream(uri)).use { input ->
             val buffer = ByteArray(65536)

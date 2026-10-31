@@ -1,6 +1,7 @@
 package com.streamcap.mobile.service
 
 import android.content.Context
+import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
@@ -10,8 +11,9 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.LiveStatus
+import com.streamcap.mobile.data.repository.StreamCapRepository
+import com.streamcap.mobile.notification.LiveReminderNotifications
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -22,19 +24,26 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 import com.streamcap.mobile.data.preferences.AppPreferences
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 
-class RoomMonitorWorker(
-    appContext: Context,
-    params: WorkerParameters,
+@HiltWorker
+class RoomMonitorWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted params: WorkerParameters,
+    private val preferences: AppPreferences,
+    private val repository: StreamCapRepository,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val settings = AppPreferences(applicationContext).settings.first()
+        val settings = preferences.settings.first()
         val scheduledBoot = applicationContext.getSharedPreferences(RECOVERY_POLICY, Context.MODE_PRIVATE)
             .getInt("scheduledBoot", -1)
-        if (!BackgroundMonitoringPolicy.mayRestore(settings, scheduledBoot, bootCount(applicationContext))) return Result.success()
-        val repository = (applicationContext as StreamCapApplication).container.repository
-        val rooms = repository.monitoredRooms()
-        if (rooms.isEmpty()) return Result.success()
+        val reminders = repository.enabledReminders()
+        if (!BackgroundMonitoringPolicy.mayRestore(settings, scheduledBoot, bootCount(applicationContext)) && reminders.isEmpty()) return Result.success()
+        val rooms = if (settings.globalAutoRecordEnabled && settings.backgroundMonitoringEnabled) {
+            repository.monitoredRooms()
+        } else emptyList()
+        if (rooms.isEmpty() && reminders.isEmpty()) return Result.success()
         try {
             RecordingService.monitor(applicationContext)
             repository.log(null, null, "INFO", "BACKGROUND_MONITOR_RESTORE", "系统调度已请求恢复后台持续检测")
@@ -49,8 +58,9 @@ class RoomMonitorWorker(
             repository.log(null, null, "WARN", "BACKGROUND_START_BLOCKED", "系统拒绝启动后台服务；请检查应用启动管理")
         }
         val semaphore = Semaphore(4)
+        val reminderNotifications = LiveReminderNotifications(applicationContext)
         coroutineScope {
-            rooms.map { room -> async(Dispatchers.IO) {
+            val roomChecks = rooms.map { room -> async(Dispatchers.IO) {
                 if (!repository.monitoringDue(room)) {
                     if (room.oneTimeEndAt != null && System.currentTimeMillis() >= room.oneTimeEndAt) {
                         runCatching { applicationContext.startService(RecordingService.stopIntent(applicationContext, room.id)) }
@@ -83,7 +93,15 @@ class RoomMonitorWorker(
                         repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", error.message ?: "自动检查开播失败")
                     }
                 }
-            } }.awaitAll()
+            } }
+            val reminderChecks = reminders.map { reminder -> async(Dispatchers.IO) {
+                semaphore.withPermit {
+                    if (repository.checkReminder(reminder.id, reminderNotifications.canNotify)) {
+                        runCatching { reminderNotifications.notifyOpened(reminder) }
+                    }
+                }
+            } }
+            (roomChecks + reminderChecks).awaitAll()
         }
         return Result.success()
     }
@@ -120,9 +138,14 @@ class RoomMonitorWorker(
             )
         }
 
-        suspend fun schedule(context: Context, preferences: AppPreferences) {
+        suspend fun schedule(
+            context: Context,
+            preferences: AppPreferences,
+            repository: StreamCapRepository,
+        ) {
             val settings = preferences.settings.first()
-            if (BackgroundMonitoringPolicy.enabled(settings)) schedule(context, settings.allowMobileData, immediate = false)
+            val hasReminders = repository.hasEnabledReminders()
+            if (BackgroundMonitoringPolicy.enabled(settings) || hasReminders) schedule(context, settings.allowMobileData, immediate = false)
             else cancelSchedule(context)
         }
 

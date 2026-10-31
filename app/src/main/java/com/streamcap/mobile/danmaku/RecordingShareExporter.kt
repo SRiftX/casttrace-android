@@ -16,7 +16,11 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
-class RecordingShareExporter(private val context: Context, private val repository: StreamCapRepository) {
+class RecordingShareExporter(
+    private val context: Context,
+    private val repository: StreamCapRepository,
+    private val storage: RecordingStorage = RecordingStorage(context),
+) {
     suspend fun prepare(ids: List<Long>, mode: VideoExportMode, appearance: DanmakuAppearance,
                         onProgress: (String) -> Unit = {}): Intent {
         require(ids.isNotEmpty()) { "请先选择录制" }
@@ -29,7 +33,6 @@ class RecordingShareExporter(private val context: Context, private val repositor
                 }
             }
         }
-        val storage = RecordingStorage(context)
         val sources = sessions.flatMap { it.outputUris.ifEmpty { listOfNotNull(it.outputUri) }.distinct() }
         if (mode == VideoExportMode.ORIGINAL) return withContext(Dispatchers.IO) {
             storage.shareIntent(sources.map(Uri::parse))
@@ -44,7 +47,7 @@ class RecordingShareExporter(private val context: Context, private val repositor
                 root.listFiles().orEmpty().filter { it.lastModified() < cutoff }.forEach { it.deleteRecursively() }
                 check(directory.mkdir()) { "无法创建分享文件夹" }
             }
-            val exporter = RecordingVideoExporter(context, repository)
+            val exporter = RecordingVideoExporter(context, repository, storage)
             val shared = mutableListOf<Uri>()
             sessions.forEach { session ->
                 session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }.distinct().forEachIndexed { index, source ->

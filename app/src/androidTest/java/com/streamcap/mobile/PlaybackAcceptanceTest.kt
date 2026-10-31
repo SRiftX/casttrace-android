@@ -8,23 +8,28 @@ import androidx.media3.ui.PlayerView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.streamcap.mobile.app.MainActivity
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.ui.player.RecordingPlayerScreen
 import com.streamcap.mobile.ui.theme.StreamCapTheme
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
+import org.junit.Rule
 import org.junit.Test
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-class PlaybackAcceptanceTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class PlaybackAcceptanceTest : HiltGraphTest() {
+    @get:Rule(order = Int.MIN_VALUE + 1)
+    val runtimePermissions = mainActivityRuntimePermissionsRule()
+
     @Test fun savedRecordingSeeksAndPlaysAtDoubleSpeed() {
-        val id = InstrumentationRegistry.getArguments().getString("playbackRecordingId")?.toLongOrNull()
-        assumeTrue("Requires an explicitly selected saved recording", id != null)
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val app = instrumentation.targetContext.applicationContext as StreamCapApplication
+        val app = instrumentation.targetContext.applicationContext
+        val selectedId = resolvePlaybackRecordingId(app, "playbackRecordingId")
+        assumeTrue("Requires a saved recording of at least ten minutes", selectedId != null)
+        val id = requireNotNull(selectedId)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
-                activity.setContent { StreamCapTheme { RecordingPlayerScreen(id!!, app.container) {} } }
+                activity.setContent { StreamCapTheme { RecordingPlayerScreen(id) {} } }
             }
             var player: Player? = null
             val deadline = android.os.SystemClock.elapsedRealtime() + 60000

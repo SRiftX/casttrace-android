@@ -13,16 +13,18 @@ data class PlatformCatalogEntry(
     val name: String,
     val domains: List<String>,
     val status: AndroidSupportStatus,
+    val aliases: List<String> = emptyList(),
+    val resolverId: String = key,
 )
 
 object PlatformCatalog {
     val entries = listOf(
-        PlatformCatalogEntry("custom", "HLS / FLV 直链", listOf(".m3u8", ".flv"), AndroidSupportStatus.AVAILABLE),
+        PlatformCatalogEntry("custom", "HLS / FLV 直链", listOf(".m3u8", ".flv"), AndroidSupportStatus.AVAILABLE, resolverId = "direct"),
         PlatformCatalogEntry("huya", "虎牙直播", listOf("huya.com", "hy.fan"), AndroidSupportStatus.AVAILABLE),
-        PlatformCatalogEntry("douyin", "抖音直播", listOf("douyin.com", "v.douyin.com"), AndroidSupportStatus.AVAILABLE),
-        PlatformCatalogEntry("bilibili", "B站直播", listOf("live.bilibili.com", "b23.tv"), AndroidSupportStatus.AVAILABLE),
+        PlatformCatalogEntry("douyin", "抖音直播", listOf("douyin.com", "v.douyin.com"), AndroidSupportStatus.AVAILABLE, aliases = listOf("抖音")),
+        PlatformCatalogEntry("bilibili", "B站直播", listOf("live.bilibili.com", "b23.tv"), AndroidSupportStatus.AVAILABLE, aliases = listOf("B站", "哔哩")),
         PlatformCatalogEntry("douyu", "斗鱼直播", listOf("douyu.com"), AndroidSupportStatus.AVAILABLE),
-        PlatformCatalogEntry("kuaishou", "快手直播", listOf("live.kuaishou.com"), AndroidSupportStatus.AVAILABLE),
+        PlatformCatalogEntry("kuaishou", "快手直播", listOf("live.kuaishou.com"), AndroidSupportStatus.NEEDS_REVIEW, aliases = listOf("快手")),
         PlatformCatalogEntry("tiktok", "TikTok直播", listOf("tiktok.com"), AndroidSupportStatus.NEEDS_REVIEW),
         PlatformCatalogEntry("yy", "YY直播", listOf("yy.com"), AndroidSupportStatus.NEEDS_REVIEW),
         PlatformCatalogEntry("rednote", "小红书直播", listOf("xiaohongshu.com", "xhslink.com", "app.xhs.cn"), AndroidSupportStatus.NEEDS_REVIEW),
@@ -50,8 +52,8 @@ object PlatformCatalog {
         PlatformCatalogEntry("chzzk", "CHZZK", listOf("chzzk.naver.com"), AndroidSupportStatus.NEEDS_REVIEW),
         PlatformCatalogEntry("haixiu", "嗨秀直播", listOf("haixiutv.com"), AndroidSupportStatus.PLANNED),
         PlatformCatalogEntry("vvxq", "VV星球", listOf("vvxqiu.com"), AndroidSupportStatus.NEEDS_REVIEW),
-        PlatformCatalogEntry("yiqilive", "17Live", listOf("17.live"), AndroidSupportStatus.NEEDS_REVIEW),
-        PlatformCatalogEntry("langlive", "浪Live", listOf("lang.live"), AndroidSupportStatus.NEEDS_REVIEW),
+        PlatformCatalogEntry("yiqilive", "17Live", listOf("17.live"), AndroidSupportStatus.NEEDS_REVIEW, aliases = listOf("17直播")),
+        PlatformCatalogEntry("langlive", "浪Live", listOf("lang.live"), AndroidSupportStatus.NEEDS_REVIEW, aliases = listOf("Lang")),
         PlatformCatalogEntry("piaopiao", "漂漂直播", listOf("weimipopo.com"), AndroidSupportStatus.NEEDS_REVIEW),
         PlatformCatalogEntry("sixroom", "六间房直播", listOf("6.cn"), AndroidSupportStatus.NEEDS_REVIEW),
         PlatformCatalogEntry("lehai", "乐嗨直播", listOf("lehaitv.com"), AndroidSupportStatus.PLANNED),
@@ -70,4 +72,28 @@ object PlatformCatalog {
         PlatformCatalogEntry("qiandurebo", "千度热播", listOf("qiandurebo.com"), AndroidSupportStatus.DISCONTINUED),
         PlatformCatalogEntry("winktv", "WinkTV", listOf("winktv.co.kr"), AndroidSupportStatus.DISCONTINUED),
     )
+
+    fun find(platform: String): PlatformCatalogEntry? {
+        val value = platform.trim()
+        if (value.isEmpty()) return null
+        return entries.firstOrNull { entry ->
+            (listOf(entry.key, entry.resolverId, entry.name) + entry.aliases).any { candidate ->
+                candidate.equals(value, ignoreCase = true)
+            }
+        } ?: entries.firstOrNull { entry ->
+            (listOf(entry.key, entry.resolverId, entry.name) + entry.aliases).any { candidate ->
+                candidate.isNotBlank() && value.contains(candidate, ignoreCase = true)
+            }
+        }
+    }
+
+    fun canonicalPlatform(platform: String): String = find(platform)?.let { entry ->
+        if (platform.trim().equals(entry.resolverId, ignoreCase = true) &&
+            entries.none { it.key.equals(entry.resolverId, ignoreCase = true) }) {
+            entry.resolverId
+        } else entry.key
+    } ?: platform.trim().lowercase()
+
+    val resolverEntries: List<PlatformCatalogEntry>
+        get() = entries.filter { it.status != AndroidSupportStatus.DISCONTINUED }
 }

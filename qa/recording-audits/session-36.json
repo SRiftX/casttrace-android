@@ -1,0 +1,46 @@
+{
+  "parts": [
+    {
+      "file": "session-36.mp4",
+      "duration_seconds": 77.95,
+      "video": "Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 720x1280, 1996 kb/s, 15 fps, 15 tbr, 16k tbn (default)",
+      "packets": 1169,
+      "longest_repeated_run": 0,
+      "replay_lag": 0,
+      "backwards_dts": 0,
+      "maximum_video_gap_seconds": 0.067,
+      "gaps_over_one_second": 0,
+      "total_gaps_over_one_second": 0,
+      "decode_samples": [
+        {
+          "at_seconds": 0,
+          "ok": true,
+          "stderr": ""
+        },
+        {
+          "at_seconds": 38.975,
+          "ok": true,
+          "stderr": ""
+        },
+        {
+          "at_seconds": 69.95,
+          "ok": true,
+          "stderr": ""
+        }
+      ]
+    }
+  ],
+  "media_seconds": 77.95,
+  "wall_seconds": 75.0,
+  "drift_seconds": 2.950000000000003,
+  "sampling_gate_passed": true,
+  "all_parts_packet_check": {
+    "packets": 1169,
+    "longest_repeated_run": 0,
+    "replay_lag": 0
+  },
+  "limitations": "Packet identity heuristic; sampled decoding; does not prove absence of gaps or full audiovisual continuity.",
+  "session_id": 36,
+  "apk_variant": "working checkout QA build37",
+  "media_sha256": "f2cd5fc246209869189ce1072702a0391626466a06c858a3eb4f7f5c83af9f06"
+}

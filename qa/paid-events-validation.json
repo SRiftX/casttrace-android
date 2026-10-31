@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-28",
+  "scope": "paid event protocol, storage, replay and export",
+  "unitTests": {
+    "tests": 227,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "buildTasks": [
+    ":app:testDebugUnitTest",
+    ":app:assembleDebug",
+    ":app:assembleDebugAndroidTest",
+    ":app:lintDebug"
+  ],
+  "build": "PASS",
+  "changedKotlinFilesMatchedIndex": [
+    "app/src/androidTest/java/com/streamcap/mobile/PaidEventsAcceptanceTest.kt",
+    "app/src/androidTest/java/com/streamcap/mobile/PlatformChatAcceptanceTest.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/BilibiliDanmakuClient.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/BilibiliPaidEvents.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/ChzzkDanmakuClient.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/DanmakuController.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/DanmakuPresentation.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/DouyinDanmakuClient.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/DouyuDanmakuClient.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/HuyaDanmakuClient.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/KuaishouDanmakuClient.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/PaidEventFactory.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/ProtobufGiftEvents.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/RealDanmakuClientFactory.kt",
+    "app/src/main/java/com/streamcap/mobile/danmaku/TwitchDanmakuClient.kt",
+    "app/src/main/java/com/streamcap/mobile/ui/player/RecordingPlayerScreen.kt",
+    "app/src/test/java/com/streamcap/mobile/danmaku/DanmakuControllerTest.kt",
+    "app/src/test/java/com/streamcap/mobile/danmaku/PaidEventsTest.kt",
+    "app/src/test/java/com/streamcap/mobile/danmaku/PlatformDanmakuProtocolTest.kt"
+  ],
+  "qaPackage": "com.streamcap.mobile.platformqa",
+  "device": "MuMu Android 15 / emulator-5556",
+  "apkSha256": "743d95311df5f70cdfbfeea260e37d7bab0fe45c9aef345d6f2c604729c3e572",
+  "deviceProtocolFixture": {
+    "result": "PASS",
+    "tests": 1,
+    "fixtureOnly": true,
+    "events": [
+      "SUPER_CHAT_MESSAGE",
+      "SEND_GIFT",
+      "GUARD_BUY"
+    ],
+    "checks": [
+      "Android JSON",
+      "disk round trip",
+      "type coverage",
+      "SRT amount"
+    ]
+  },
+  "livePaidEventAcceptance": "NOT_VERIFIED",
+  "liveProbes": [
+    {
+      "platform": "bilibili",
+      "room": "4350043",
+      "chat": 26,
+      "paid": 0
+    },
+    {
+      "platform": "huya",
+      "room": "333003",
+      "chat": 284,
+      "paid": 0,
+      "note": "Initial sample classified chats UNKNOWN; fixed before final build."
+    },
+    {
+      "platform": "douyin",
+      "room": "369324308707",
+      "state": "ROOM_UNAVAILABLE"
+    },
+    {
+      "platform": "kuaishou",
+      "room": "yall1102",
+      "state": "HANDSHAKE_FAILED"
+    },
+    {
+      "platform": "douyu",
+      "room": "252140",
+      "state": "CONNECTION_FAILED"
+    },
+    {
+      "platform": "twitch",
+      "room": "eslcs",
+      "state": "CONNECTION_FAILED"
+    },
+    {
+      "platform": "chzzk",
+      "room": "792acf9ca28b42918710327e14b06b68",
+      "state": "ROOM_UNAVAILABLE"
+    }
+  ],
+  "finalHuyaLiveProbe": {
+    "room": "333003",
+    "durationSeconds": 60,
+    "state": "CHAT_OK",
+    "eventTypes": {
+      "CHAT": 92
+    },
+    "paidEvents": 0
+  }
+}

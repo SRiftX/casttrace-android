@@ -29,8 +29,14 @@ try {
         $sdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } else { Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Android/Sdk' }
         $apksigner = Join-Path $sdk 'build-tools/35.0.0/apksigner.bat'
         if (!(Test-Path -LiteralPath $apksigner)) { throw 'Build Tools 35.0.0 apksigner is required to verify the release.' }
-        & $apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+        $signature = & $apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
         if ($LASTEXITCODE -ne 0) { throw 'APK signature verification failed.' }
+        $signature | Write-Output
+        $certificate = [regex]::Match(($signature -join [Environment]::NewLine), 'certificate SHA-256 digest:\s*([0-9a-fA-F]+)')
+        $expectedCertificate = 'D39B0394EE312DE5B1F25F8A215A0E81CA9C47229835D2F96DD0187694523C57'
+        if (!$certificate.Success -or $certificate.Groups[1].Value.ToUpperInvariant() -ne $expectedCertificate) {
+            throw 'APK certificate does not match the established CastTrace release identity.'
+        }
         Get-FileHash app/build/outputs/apk/release/app-release.apk -Algorithm SHA256
     }
 } finally {

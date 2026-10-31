@@ -27,9 +27,6 @@ class HuyaDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
             .header("User-Agent", USER_AGENT).header("Origin", "https://www.huya.com")
             .apply { context.cookie?.takeIf(String::isNotBlank)?.let { header("Cookie", it) } }.build()
         val listener = object : WebSocketListener() {
-            private var windowStartedAt = 0L
-            private var parsedThisWindow = 0
-
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 trySend(DanmakuFrame.Status("connected-real"))
                 // Huya's browser-compatible handshake is a command-1 join.
@@ -41,13 +38,8 @@ class HuyaDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
-                val now = SystemClock.elapsedRealtime()
-                if (now - windowStartedAt >= 1_000L) {
-                    windowStartedAt = now
-                    parsedThisWindow = 0
-                }
-                if (++parsedThisWindow > 20) return
                 try {
+                    require(bytes.size <= 4 * 1024 * 1024) { "虎牙弹幕帧过大" }
                     val outer = TarsWire.decode(bytes.toByteArray())
                     val cmd = (outer[0] as? Number)?.toInt() ?: return
                     val body = outer[1] as? ByteArray ?: return
@@ -119,18 +111,32 @@ class HuyaDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
         private val EPOCH = UUID.randomUUID().toString()
         internal fun command(type: Int, data: ByteArray) = TarsWire.encode(mapOf(0 to type, 1 to data, 2 to 0, 3 to ""))
 
-        internal fun parsePush(body: ByteArray, context: DanmakuConnectContext): DanmakuEvent? {
+        internal fun parsePush(body: ByteArray, context: DanmakuConnectContext,
+                               elapsedMs: Long = SystemClock.elapsedRealtime()): DanmakuEvent? {
             val push = TarsWire.decode(body)
+            if ((push[1] as? Number)?.toLong() == 6501L) {
+                val gift = TarsWire.decode(push[2] as? ByteArray ?: return null)
+                val giftId = (gift[0] as? Number)?.toLong()?.takeIf { it > 0 } ?: return null
+                val count = (gift[2] as? Number)?.toLong()?.takeIf { it > 0 } ?: return null
+                val payId = (gift[1] as? String)?.takeIf(String::isNotBlank)
+                return PaidEventFactory.event(context, "huya", "SendItemSubBroadcast", elapsedMs,
+                    "送出 礼物 #$giftId ×$count", gift[4]?.toString(), gift[6] as? String,
+                    id = payId?.let { "$it:$giftId:$count:${gift[8]}:${gift[9]}" },
+                    attributes = mapOf("giftId" to "$giftId", "quantity" to "$count", "quantityMode" to "platform-snapshot",
+                        "groupCount" to "${gift[8] ?: 0}", "comboId" to "${gift[9] ?: 0}") +
+                        (payId?.let { mapOf("payId" to it) } ?: emptyMap()))
+            }
             if ((push[1] as? Number)?.toLong() != 1400L) return null
             val notice = TarsWire.decode(push[2] as? ByteArray ?: return null)
             val content = (notice[3] as? String)?.takeIf { it.isNotBlank() } ?: return null
             val user = notice[0] as? Map<*, *>
             return DanmakuEvent(context.sessionId, "huya",
                 (push[5] as? Number)?.toLong()?.takeIf { it != 0L }?.toString(),
-                SystemClock.elapsedRealtime(), System.currentTimeMillis(), EPOCH,
+                elapsedMs, System.currentTimeMillis(), EPOCH,
                 userId = user?.get(0)?.toString(), userName = user?.get(2) as? String,
                 user = DanmakuUser(user?.get(0)?.toString(), user?.get(2) as? String),
-                text = content.take(16_384), rawType = "MessageNotice", parserVersion = "huya-tars-1")
+                text = content.take(16_384), rawType = "MessageNotice", eventType = DanmakuEventType.CHAT,
+                parserVersion = "huya-tars-1")
         }
     }
 }

@@ -1,7 +1,6 @@
 package com.streamcap.mobile
 
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.platform.AndroidSupportStatus
 import com.streamcap.mobile.platform.PlatformCatalog
 import com.streamcap.mobile.platform.resolver.UnsupportedPlatformException
@@ -10,10 +9,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Audits every catalog entry in batches of ten without claiming live media works. */
-class PlatformCatalogBatchTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class PlatformCatalogBatchTest : HiltGraphTest() {
     @Test fun everyCatalogEntryHasAnExplicitResolverState() {
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StreamCapApplication
-        val registry = app.container.resolverRegistry
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val registry = app.testGraph.resolverRegistry
         val entries = PlatformCatalog.entries
         val registered = entries.filter { it.status != AndroidSupportStatus.DISCONTINUED }.map { it.key }.toSet()
         assertEquals(entries.size, entries.map { it.key }.distinct().size)

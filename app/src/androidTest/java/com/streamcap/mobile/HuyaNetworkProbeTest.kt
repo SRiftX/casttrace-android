@@ -1,7 +1,6 @@
 package com.streamcap.mobile
 
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.recording.hls.HlsSourceSelector
 import kotlinx.coroutines.runBlocking
@@ -11,13 +10,14 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /** Explicit opt-in: checks CDN reuse without modifying rooms or recording history. */
-class HuyaNetworkProbeTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class HuyaNetworkProbeTest : HiltGraphTest() {
     @Test fun selectedPlaylistCanBeReadRepeatedly() = runBlocking {
         val id = InstrumentationRegistry.getArguments().getString("probeRoomId")?.toLongOrNull()
         assumeTrue("Requires explicit room ID", id != null)
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StreamCapApplication
-        val sources = app.container.repository.streams(id!!).filter { it.type == StreamType.HLS }
-        val probeClient = app.container.httpClient
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val sources = app.testGraph.repository.streams(id!!).filter { it.type == StreamType.HLS }
+        val probeClient = app.testGraph.httpClient
         val selected = HlsSourceSelector(probeClient).select(sources)
         android.util.Log.i("HuyaProbe", "selected matches original=${sources.any { it.url == selected.url }}")
         repeat(3) { index ->

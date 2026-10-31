@@ -58,17 +58,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.streamcap.mobile.BuildConfig
-import com.streamcap.mobile.app.AppContainer
-import com.streamcap.mobile.ui.ViewModelFactory
 import com.streamcap.mobile.data.preferences.RecordingTemplate
 import com.streamcap.mobile.ui.theme.ThemePalette
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
-    container: AppContainer,
     contentPadding: PaddingValues,
     onOpenLogs: () -> Unit,
     onOpenStorage: () -> Unit,
@@ -78,9 +75,7 @@ fun SettingsScreen(
     onOpenPlatforms: () -> Unit,
 ) {
     val context = LocalContext.current
-    val viewModel: SettingsViewModel = viewModel(
-        factory = ViewModelFactory { SettingsViewModel(context, container.preferences, container.repository) },
-    )
+    val viewModel: SettingsViewModel = hiltViewModel()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var showFormatDialog by remember { mutableStateOf(false) }
     var showQualityDialog by remember { mutableStateOf(false) }
@@ -120,7 +115,7 @@ fun SettingsScreen(
             .fillMaxSize()
             .widthIn(max = 1120.dp)
             .padding(contentPadding),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 24.dp),
+        contentPadding = PaddingValues(start = 20.dp, top = 24.dp, end = 20.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         item {
@@ -330,7 +325,7 @@ fun SettingsScreen(
                 SettingsRow(
                     modifier = Modifier.clickable(onClick = onOpenPlatforms),
                     title = "平台适配",
-                    value = "首批：虎牙、抖音、B站、斗鱼、快手",
+                    value = "查看已适配平台和已接入解析器",
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
                 )
             }
@@ -395,7 +390,7 @@ fun SettingsScreen(
                     modifier = Modifier.clickable(onClick = onOpenLogs),
                     icon = { Icon(Icons.Outlined.History, contentDescription = null) },
                     title = "任务日志",
-                    value = "预览脱敏诊断，再选择导出",
+                    value = "筛选记录、查看保存耗时与导出历史日志",
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
                 )
             }

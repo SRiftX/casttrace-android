@@ -2,9 +2,10 @@ package com.streamcap.mobile.ui.recordings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import com.streamcap.mobile.data.repository.StreamCapRepository
 import com.streamcap.mobile.domain.model.RecordingSession
-import com.streamcap.mobile.app.AppContainer
+import com.streamcap.mobile.data.preferences.AppPreferences
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -23,6 +24,7 @@ import com.streamcap.mobile.ui.common.formatBytes
 import java.io.File
 import com.streamcap.mobile.danmaku.VideoExportMode
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import android.content.Intent
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -30,11 +32,50 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.streamcap.mobile.storage.RecordingStorage
+import com.streamcap.mobile.danmaku.DanmakuAssetManager
+import com.streamcap.mobile.danmaku.RecordingShareExporter
+import com.streamcap.mobile.danmaku.RecordingVideoExporter
+import com.streamcap.mobile.data.database.TaskLogEntity
+import com.streamcap.mobile.domain.model.LiveRoom
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 
-class RecordingsViewModel(
+@HiltViewModel
+class RecordingsViewModel @Inject constructor(
     private val repository: StreamCapRepository,
-    private val container: AppContainer,
+    private val preferences: AppPreferences,
+    private val recordingStorage: RecordingStorage,
+    private val videoExporter: RecordingVideoExporter,
+    private val shareExporter: RecordingShareExporter,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
+    init {
+        // Older sessions sometimes persisted only the first published URI. Reconcile
+        // the indexed siblings once so the library, player and export use one list.
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.recordings.collect { sessions ->
+                sessions.forEach { session ->
+                    val explicit = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
+                    if (explicit.isEmpty()) return@forEach
+                    val discovered = runCatching {
+                        recordingStorage.publishedSiblingParts(explicit, session.roomName, session.startedAt)
+                    }.getOrDefault(explicit)
+                    if (session.status !in setOf(TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING, TaskStatus.FINALIZING)) {
+                        val durations = recordingStorage.publishedPartDurationsSeconds(discovered)
+                        val measured = durations.takeIf { it.isNotEmpty() && it.all { seconds -> seconds > 0L } }?.sum()
+                        if (discovered == explicit && (measured == null || measured == session.durationSeconds)) return@forEach
+                        val entity = repository.session(session.id) ?: return@forEach
+                        repository.updateSession(entity.copy(
+                            outputUri = discovered.firstOrNull(),
+                            outputUris = discovered,
+                            durationSeconds = measured ?: entity.durationSeconds,
+                        ))
+                    }
+                }
+            }
+        }
+    }
     private val _exportProgress = MutableStateFlow<String?>(null)
     val exportProgress = _exportProgress.asStateFlow()
     private val _fileMessage = MutableStateFlow<String?>(null)
@@ -47,6 +88,24 @@ class RecordingsViewModel(
     private val _deleteAuthorization = MutableStateFlow<RecordingStorage.DeleteAuthorization?>(null)
     val deleteAuthorization = _deleteAuthorization.asStateFlow()
     private var deleteAuthorizationAnswer: CompletableDeferred<Boolean>? = null
+
+    val rooms: StateFlow<List<LiveRoom>> = repository.rooms.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
+    )
+    val recordingEvents: StateFlow<List<TaskLogEntity>> = repository.recordingEvents.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
+    )
+    val storedViewMode: StateFlow<String?> = preferences.recordingViewMode.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), null,
+    )
+
+    fun setRecordingViewMode(value: String) {
+        viewModelScope.launch { preferences.setRecordingViewMode(value) }
+    }
+
+    suspend fun createDanmakuSimulation(recordingId: Long) = withContext(Dispatchers.IO) {
+        DanmakuAssetManager(context, repository).createSimulation(recordingId)
+    }
 
     fun completeDeleteAuthorization(granted: Boolean) { deleteAuthorizationAnswer?.complete(granted) }
 
@@ -72,8 +131,8 @@ class RecordingsViewModel(
         _exportProgress.value = "正在准备分享"
         exportJob = viewModelScope.launch {
             try {
-                val intent = container.shareExporter.prepare(
-                    ids, mode, container.preferences.danmakuAppearance.first()) { _exportProgress.value = it }
+                val intent = shareExporter.prepare(
+                    ids, mode, preferences.danmakuAppearance.first()) { _exportProgress.value = it }
                 shareRequests.send(intent)
             } catch (cancelled: CancellationException) {
                 _fileMessage.value = "分享已取消，未完成的临时文件已清理，原录制保留"
@@ -97,12 +156,12 @@ class RecordingsViewModel(
                     check(session.status in setOf(TaskStatus.COMPLETED, TaskStatus.PAUSED, TaskStatus.FAILED)) { "录制尚未结束" }
                     val sources = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
                     check(source in sources) { "文件记录已变化，请刷新后重试" }
-                    val renamed = container.recordingStorage.renamePublished(Uri.parse(source), baseName)
+                    val renamed = recordingStorage.renamePublished(Uri.parse(source), baseName)
                     repository.updateSession(session.copy(
                         outputUris = sources.map { if (it == source) renamed.toString() else it },
                         outputUri = if (session.outputUri == source) renamed.toString() else session.outputUri,
                     ))
-                    container.recordingStorage.displayName(renamed)
+                    recordingStorage.displayName(renamed)
                 }
                 _fileMessage.value = "已重命名为 $name"
             } catch (cancelled: CancellationException) {
@@ -123,9 +182,9 @@ class RecordingsViewModel(
             try {
                 var lastReported = 0L
                 if (mode == VideoExportMode.WITH_DANMAKU) {
-                    container.videoExporter.export(requireNotNull(recordingId), source, destination,
-                        container.preferences.danmakuAppearance.first()) { _exportProgress.value = it }
-                } else container.recordingStorage.exportCopy(Uri.parse(source), destination) { bytes ->
+                    videoExporter.export(requireNotNull(recordingId), source, destination,
+                        preferences.danmakuAppearance.first()) { _exportProgress.value = it }
+                } else recordingStorage.exportCopy(Uri.parse(source), destination) { bytes ->
                     if (bytes - lastReported >= 1_048_576L) {
                         _exportProgress.value = "正在导出 ${formatBytes(bytes)}"
                         lastReported = bytes
@@ -152,11 +211,12 @@ class RecordingsViewModel(
             try {
                 val session = requireNotNull(repository.session(recordingId)) { "录制记录不存在" }
                 check(session.status in setOf(TaskStatus.COMPLETED, TaskStatus.PAUSED, TaskStatus.FAILED)) { "录制尚未结束" }
-                val sources = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }.distinct()
+                val sources = recordingStorage.publishedSiblingParts(
+                    session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }, session.roomName, session.startedAt)
                 check(sources.isNotEmpty()) { "没有可导出的分段" }
-                val appearance = container.preferences.danmakuAppearance.first()
+                val appearance = preferences.danmakuAppearance.first()
                 withContext(Dispatchers.IO) {
-                    val folder = container.recordingStorage.exportDirectory(directory)
+                    val folder = recordingStorage.exportDirectory(directory)
                     check(folder.canWrite()) { "导出目录无写入权限" }
                     sources.forEachIndexed { index, source ->
                         kotlinx.coroutines.currentCoroutineContext().ensureActive()
@@ -167,7 +227,7 @@ class RecordingsViewModel(
                         if (existing != null) {
                             check(mode == VideoExportMode.ORIGINAL) { "带弹幕同名文件已存在：$name，请选择其他目录或先重命名该文件" }
                             _exportProgress.value = "正在核验已有第 ${index + 1}/${sources.size} 段"
-                            check(container.recordingStorage.sameContents(Uri.parse(source), existing.uri)) {
+                            check(recordingStorage.sameContents(Uri.parse(source), existing.uri)) {
                                 "同名文件内容不同：$name，未覆盖，请选择其他目录"
                             }
                             completed++
@@ -182,10 +242,10 @@ class RecordingsViewModel(
                         val destination = requireNotNull(folder.createFile(mime, name)) { "无法创建导出文件" }
                         try {
                             if (mode == VideoExportMode.WITH_DANMAKU) {
-                                container.videoExporter.export(recordingId, source, destination.uri, appearance) {
+                                videoExporter.export(recordingId, source, destination.uri, appearance) {
                                     _exportProgress.value = "第 ${index + 1}/${sources.size} 段 · $it"
                                 }
-                            } else container.recordingStorage.exportCopy(Uri.parse(source), destination.uri) { bytes ->
+                            } else recordingStorage.exportCopy(Uri.parse(source), destination.uri) { bytes ->
                                 _exportProgress.value = "正在导出 ${index + 1}/${sources.size} 段 · ${formatBytes(bytes)}"
                             }
                         } catch (failure: Throwable) {
@@ -209,7 +269,20 @@ class RecordingsViewModel(
         }
     }
 
-    val recordings: StateFlow<List<RecordingSession>> = repository.recordings.stateIn(
+    val recordings: StateFlow<List<RecordingSession>> = repository.recordings.map { sessions ->
+        withContext(Dispatchers.IO) {
+            sessions.map { session ->
+                val explicit = session.outputUris.ifEmpty { listOfNotNull(session.outputUri) }
+                if (explicit.isEmpty()) session else {
+                    val discovered = runCatching {
+                        recordingStorage.publishedSiblingParts(explicit, session.roomName, session.startedAt)
+                    }.getOrDefault(explicit)
+                    if (discovered.size > explicit.size) session.copy(outputUri = discovered.first(), outputUris = discovered)
+                    else session
+                }
+            }
+        }
+    }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         emptyList(),
@@ -230,7 +303,7 @@ class RecordingsViewModel(
                     "录制尚未结束，请先暂停后删除"
                 }
                 val uris = entity.outputUris.ifEmpty { listOfNotNull(entity.outputUri) }
-                var published = container.recordingStorage.deleteRecordingFiles(uris)
+                var published = recordingStorage.deleteRecordingFiles(uris)
                 val authorizedTargets = mutableSetOf<List<String>>()
                 val deletedBySystem = mutableSetOf<String>()
                 while (!published.successful && published.authorization != null) {
@@ -238,7 +311,7 @@ class RecordingsViewModel(
                     val authorization = requireNotNull(published.authorization)
                     if (!authorizeDeletion(authorization)) return "未授权删除，录制记录和恢复文件已保留"
                     deletedBySystem.addAll(authorization.deletedBySystem)
-                    published = container.recordingStorage.deleteRecordingFiles(uris, deletedBySystem)
+                    published = recordingStorage.deleteRecordingFiles(uris, deletedBySystem)
                 }
                 if (!published.successful) return "部分文件删除失败，请恢复原保存目录的读写权限后重试；录制记录和恢复文件已保留"
                 val temporaryDeleted = entity.temporaryPath?.let(::deleteTemporaryFamily) ?: true
@@ -292,7 +365,7 @@ class RecordingsViewModel(
             }?.toList().orEmpty().ifEmpty { listOf(first) }
         }
         return candidates.map { file ->
-            container.recordingStorage.discardPublication(file.absolutePath) && (!file.exists() || file.delete())
+            recordingStorage.discardPublication(file.absolutePath) && (!file.exists() || file.delete())
         }.all { it }
     }
 }

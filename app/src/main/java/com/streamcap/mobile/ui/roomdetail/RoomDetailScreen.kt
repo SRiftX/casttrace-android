@@ -65,11 +65,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.streamcap.mobile.app.AppContainer
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.service.RecordingService
-import com.streamcap.mobile.ui.ViewModelFactory
 import com.streamcap.mobile.ui.common.displayName
 import com.streamcap.mobile.ui.common.formatDateTime
 
@@ -77,14 +75,11 @@ import com.streamcap.mobile.ui.common.formatDateTime
 @Composable
 fun RoomDetailScreen(
     roomId: Long,
-    container: AppContainer,
     onBack: () -> Unit,
 ) {
     val recordAction = rememberRecordingAction()
     val context = LocalContext.current
-    val viewModel: RoomDetailViewModel = viewModel(
-        factory = ViewModelFactory { RoomDetailViewModel(roomId, container.repository) },
-    )
+    val viewModel: RoomDetailViewModel = hiltViewModel()
     val room by viewModel.room.collectAsStateWithLifecycle()
     LaunchedEffect(roomId) {
         // Inspecting a room must not clear a user's pause by issuing ACTION_START.
@@ -155,7 +150,7 @@ fun RoomDetailScreen(
                             else -> "开始录制"
                         })
                     }
-                    Text("暂停会保存本次内容，并暂停自动录制；再次开始会创建新一场。检查直播状态不会开始录制。", style = MaterialTheme.typography.bodySmall)
+                    Text("暂停会保存本次内容，并关闭该房间的自动录制；需要继续监测开播时，请重新打开下方开关。再次开始会创建新一场。", style = MaterialTheme.typography.bodySmall)
                 }
             }
             item {
@@ -178,14 +173,17 @@ fun RoomDetailScreen(
                     HorizontalDivider()
                     SettingRow(
                         title = "开播自动录制",
-                        value = if (current.scheduledMonitoringEnabled) "开启；房间启用且未暂停时生效" else "关闭；关闭会保存并停止当前录制",
+                        value = when {
+                            current.scheduledMonitoringEnabled -> "开启；房间启用且未暂停时生效"
+                            else -> "关闭；关闭会保存并停止当前录制"
+                        },
                         trailing = {
                             Switch(
                                 checked = current.scheduledMonitoringEnabled,
                                 modifier = Modifier.semantics { contentDescription = "开播自动录制" },
                                 onCheckedChange = { enabled ->
                                     viewModel.setScheduledMonitoringEnabled(enabled) {
-                                        if (enabled) RecordingService.monitor(context)
+                                        if (enabled) RecordingService.monitorRoomNow(context, roomId)
                                         else context.startService(RecordingService.stopIntent(context, roomId))
                                     }
                                 },

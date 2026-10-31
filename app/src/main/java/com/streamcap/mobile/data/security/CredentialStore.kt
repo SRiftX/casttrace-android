@@ -3,6 +3,7 @@ package com.streamcap.mobile.data.security
 import android.content.Context
 import android.util.Base64
 import com.streamcap.mobile.domain.model.PlatformCredential
+import com.streamcap.mobile.platform.PlatformCatalog
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -43,12 +44,7 @@ class CredentialStore(context: Context) {
 
     private fun key(platform: String): String = "cookie_${canonical(platform)}"
 
-    private fun canonical(platform: String): String = when {
-        platform.contains("抖音", true) || platform.contains("douyin", true) -> "douyin"
-        platform.contains("B站", true) || platform.contains("哔哩", true) || platform.contains("bilibili", true) -> "bilibili"
-        platform.contains("快手", true) || platform.contains("kuaishou", true) -> "kuaishou"
-        else -> platform.lowercase()
-    }
+    private fun canonical(platform: String): String = PlatformCatalog.canonicalPlatform(platform)
 
     private fun secretKey(): SecretKey {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }

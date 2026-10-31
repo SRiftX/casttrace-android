@@ -10,7 +10,6 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.StreamType
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertNull
@@ -19,14 +18,15 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
-class LivePreviewAcceptanceTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class LivePreviewAcceptanceTest : HiltGraphTest() {
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     @Test fun currentLineRendersFirstFrame() {
         val roomId = InstrumentationRegistry.getArguments().getString("previewRoomId")?.toLongOrNull()
         assumeTrue("Requires previewRoomId", roomId != null)
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val app = instrumentation.targetContext.applicationContext as StreamCapApplication
-        val source = runBlocking { app.container.repository.streams(roomId!!).first() }
+        val app = instrumentation.targetContext.applicationContext
+        val source = runBlocking { app.testGraph.repository.streams(roomId!!).first() }
         val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(source.headers)
             .setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15000).setReadTimeoutMs(20000)
         val texture = SurfaceTexture(false).apply { setDefaultBufferSize(1280, 720) }

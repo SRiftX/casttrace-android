@@ -9,6 +9,45 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RecordingRecoveryDaoTest {
+    @Test fun changingRecordingFormatAfterPauseCannotRestoreAutomaticRecording() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = Room.inMemoryDatabaseBuilder(context, StreamCapDatabase::class.java).build()
+        try {
+            val dao = db.liveRoomDao()
+            val id = dao.insert(LiveRoomEntity(originalUrl = "format", normalizedUrl = "format", platform = "qa", anchorName = "format", roomTitle = null, scheduledMonitoringEnabled = true, autoRecord = true))
+            dao.setStatus(id, LiveStatus.LIVE, TaskStatus.PAUSED, 10)
+            dao.updateRecordingOptions(id, "视频", "TS", "原画", false, null, true, 1800, true, 60, 11)
+            val room = dao.getById(id)!!
+            assertEquals(TaskStatus.PAUSED, room.taskStatus)
+            assertFalse(room.scheduledMonitoringEnabled)
+            assertFalse(room.autoRecord)
+        } finally { db.close() }
+    }
+    @Test fun everyPausedRoomStatusDisablesAutomaticRecordingAtomically() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = Room.inMemoryDatabaseBuilder(context, StreamCapDatabase::class.java).build()
+        try {
+            val dao = db.liveRoomDao()
+            val id = dao.insert(LiveRoomEntity(
+                originalUrl = "pause", normalizedUrl = "pause", platform = "qa", anchorName = "pause",
+                roomTitle = null, scheduledMonitoringEnabled = true, autoRecord = true,
+                oneTimeStartAt = 100, oneTimeEndAt = 200,
+            ))
+            dao.setStatus(id, LiveStatus.LIVE, TaskStatus.PAUSED, 10)
+            val paused = dao.getById(id)!!
+            assertEquals(TaskStatus.PAUSED, paused.taskStatus)
+            assertFalse(paused.scheduledMonitoringEnabled)
+            assertFalse(paused.autoRecord)
+            assertNull(paused.oneTimeStartAt)
+            assertNull(paused.oneTimeEndAt)
+
+            dao.setScheduledMonitoringEnabled(id, true, 11)
+            val resumed = dao.getById(id)!!
+            assertEquals(TaskStatus.WAITING, resumed.taskStatus)
+            assertTrue(resumed.scheduledMonitoringEnabled)
+        } finally { db.close() }
+    }
+
     @Test fun oneTimeWindowPersistsAndExpiresWithoutTouchingOtherRooms() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = Room.inMemoryDatabaseBuilder(context, StreamCapDatabase::class.java).build()
@@ -27,7 +66,7 @@ class RecordingRecoveryDaoTest {
             assertTrue(dao.getById(other)?.scheduledMonitoringEnabled == true)
         } finally { db.close() }
     }
-    @Test fun enablingGlobalMonitoringResumesEligiblePausedRoomsWithoutCreatingSessions() = runBlocking {
+    @Test fun repairClearsAutomaticRecordingOnPreviouslyPausedRooms() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = Room.inMemoryDatabaseBuilder(context, StreamCapDatabase::class.java).build()
         try {
@@ -45,11 +84,14 @@ class RecordingRecoveryDaoTest {
                 roomTitle = null, enabled = false, scheduledMonitoringEnabled = true, taskStatus = TaskStatus.PAUSED,
             ))
 
-            assertEquals(1, dao.resumePausedMonitoredRooms(10))
+            assertEquals(2, dao.repairPausedRoomSettings(10))
 
-            assertEquals(TaskStatus.WAITING, dao.getById(eligibleId)!!.taskStatus)
+            assertEquals(TaskStatus.PAUSED, dao.getById(eligibleId)!!.taskStatus)
+            assertFalse(dao.getById(eligibleId)!!.scheduledMonitoringEnabled)
+            assertFalse(dao.getById(eligibleId)!!.autoRecord)
             assertEquals(TaskStatus.PAUSED, dao.getById(manualOnlyId)!!.taskStatus)
             assertEquals(TaskStatus.PAUSED, dao.getById(disabledId)!!.taskStatus)
+            assertFalse(dao.getById(disabledId)!!.scheduledMonitoringEnabled)
             assertTrue(db.recordingSessionDao().getActive().isEmpty())
         } finally { db.close() }
     }
@@ -75,13 +117,18 @@ class RecordingRecoveryDaoTest {
             assertEquals(TaskStatus.FAILED, rooms.getById(id)!!.taskStatus)
         } finally { db.close() }
     }
-    @Test fun automaticRecordingToggleDoesNotReplaceActiveOrPausedState() = runBlocking {
+    @Test fun enablingAutomaticRecordingResumesPausedRoomWithoutInterruptingActiveRecording() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = Room.inMemoryDatabaseBuilder(context, StreamCapDatabase::class.java).build()
         try {
             val dao = db.liveRoomDao()
             val id = dao.insert(LiveRoomEntity(originalUrl = "qa", normalizedUrl = "qa", platform = "qa", anchorName = "qa", roomTitle = null))
-            for (status in listOf(TaskStatus.PAUSED, TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING, TaskStatus.FINALIZING)) {
+            dao.setStatus(id, LiveStatus.LIVE, TaskStatus.PAUSED, 1)
+            dao.setScheduledMonitoringEnabled(id, true, 2)
+            assertEquals(TaskStatus.WAITING, dao.getById(id)!!.taskStatus)
+            assertEquals(null, dao.getById(id)!!.lastCheckAt)
+
+            for (status in listOf(TaskStatus.STARTING, TaskStatus.RECORDING, TaskStatus.RECONNECTING, TaskStatus.FINALIZING)) {
                 dao.setStatus(id, LiveStatus.LIVE, status, 1)
                 dao.setScheduledMonitoringEnabled(id, true, 2)
                 assertEquals(status, dao.getById(id)!!.taskStatus)

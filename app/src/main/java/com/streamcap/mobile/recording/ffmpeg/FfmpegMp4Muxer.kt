@@ -36,7 +36,6 @@ object FfmpegMp4Muxer {
                     "-map", "0:a?",
                     "-c", "copy",
                     "-avoid_negative_ts", "make_zero",
-                    "-movflags", "+faststart",
                     staging.absolutePath,
                 ),
             ) }

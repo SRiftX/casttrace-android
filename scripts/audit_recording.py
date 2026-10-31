@@ -39,14 +39,23 @@ def packet_timestamps(lines):
     # with B frames, so only DTS is checked for backwards movement here.
     previous = None
     backwards = 0
+    timebase = None
+    gaps = []
     for line in lines:
+        if line.startswith("#tb 0:"):
+            numerator, denominator = map(int, line.split(":", 1)[1].strip().split("/"))
+            timebase = numerator / denominator
         if line.startswith("#") or not line.strip():
             continue
         dts = int(line.split(",")[1])
         if previous is not None and dts < previous:
             backwards += 1
+        if previous is not None and timebase is not None:
+            gaps.append((dts - previous) * timebase)
         previous = dts
-    return {"backwards_dts": backwards}
+    return {"backwards_dts": backwards, "maximum_video_gap_seconds": max(gaps, default=0),
+            "gaps_over_one_second": sum(gap > 1 for gap in gaps),
+            "total_gaps_over_one_second": sum(gap for gap in gaps if gap > 1)}
 
 
 def audit(ffmpeg, path):
@@ -83,10 +92,14 @@ def main():
     parser.add_argument("--ffmpeg", required=True)
     parser.add_argument("--wall-seconds", type=float, required=True)
     parser.add_argument("--output", help="Save the generated JSON evidence report")
+    parser.add_argument("--max-video-gap", type=float, default=1.0,
+                        help="Largest allowed gap between video packets in seconds (default: 1)")
     parser.add_argument("files", nargs="+")
     args = parser.parse_args()
     if args.wall_seconds <= 0:
         parser.error("wall-seconds must be positive")
+    if args.max_video_gap <= 0:
+        parser.error("max-video-gap must be positive")
     results = [audit(args.ffmpeg, path) for path in args.files]
     parts = [part for part, _ in results]
     # Preserve one identity history over the entire recording, including boundaries.
@@ -94,7 +107,8 @@ def main():
     total = sum(part["duration_seconds"] for part in parts)
     drift = total - args.wall_seconds
     passed = combined["longest_repeated_run"] < 60 and abs(drift) <= max(30, args.wall_seconds * .02) and all(
-        part["longest_repeated_run"] < 60 and part["backwards_dts"] == 0 and all(sample["ok"] for sample in part["decode_samples"])
+        part["longest_repeated_run"] < 60 and part["backwards_dts"] == 0 and
+        part["maximum_video_gap_seconds"] <= args.max_video_gap and all(sample["ok"] for sample in part["decode_samples"])
         for part in parts)
     report = json.dumps({"parts": parts, "media_seconds": total, "wall_seconds": args.wall_seconds,
                       "drift_seconds": drift, "sampling_gate_passed": passed, "all_parts_packet_check": combined,

@@ -7,14 +7,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.data.database.TaskLogEntity
 import com.streamcap.mobile.domain.model.RecordingSession
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.service.RecordingService
 
 @Composable
-fun RecoverySummary(container: AppContainer, recordings: List<RecordingSession>, logs: List<TaskLogEntity>, onOpen: (Long) -> Unit) {
+fun RecoverySummary(recordings: List<RecordingSession>, logs: List<TaskLogEntity>, onOpen: (Long) -> Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("ux", 0) }
     var dismissedThrough by remember { mutableLongStateOf(preferences.getLong("recoveryAcknowledged", 0)) }
@@ -30,6 +29,11 @@ fun RecoverySummary(container: AppContainer, recordings: List<RecordingSession>,
                 Text("中断恢复 · ${unread.size} 条结果 / ${pending.size} 项待处理", style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f))
                 TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起" else "展开") }
+            }
+            if (pending.isNotEmpty()) {
+                Button(onClick = { RecordingService.recover(context) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("一键重试保存 ${pending.size} 项")
+                }
             }
             if (expanded) {
             Text("恢复结果以旧录制已保存的片段为准；重新开始录制不算恢复。", style = MaterialTheme.typography.bodySmall)

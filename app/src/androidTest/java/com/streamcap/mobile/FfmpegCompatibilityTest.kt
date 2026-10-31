@@ -12,13 +12,13 @@ import android.net.Uri
 import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.service.RecordingService
 import com.streamcap.mobile.domain.model.TaskStatus
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 
-class FfmpegCompatibilityTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class FfmpegCompatibilityTest : HiltGraphTest() {
     @Test fun nativeLibrariesLoad() {
         val session = FFmpegKit.executeWithArguments(arrayOf("-version"))
         assertTrue(session.failStackTrace ?: session.output, ReturnCode.isSuccess(session.returnCode))
@@ -53,7 +53,7 @@ class FfmpegCompatibilityTest {
         val roomId = args.getString("roomId")?.toLongOrNull()
         org.junit.Assume.assumeTrue("Explicit live room required", roomId != null)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val repository = (context.applicationContext as StreamCapApplication).container.repository
+        val repository = (context.applicationContext).testGraph.repository
         val baseline = repository.recordings.first().maxOfOrNull { it.id } ?: 0
         context.startActivity(context.packageManager.getLaunchIntentForPackage(context.packageName)!!
             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -84,7 +84,7 @@ class FfmpegCompatibilityTest {
     }
 
     @Test fun listConfiguredRoomsAndRecordings(): Unit = runBlocking {
-        val repository = (InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StreamCapApplication).container.repository
+        val repository = (InstrumentationRegistry.getInstrumentation().targetContext.applicationContext).testGraph.repository
         android.util.Log.i("FfmpegCompatibility", "ROOMS ${repository.rooms.first()}")
         android.util.Log.i("FfmpegCompatibility", "SESSIONS ${repository.recordings.first().map { "${it.id}:${it.roomId}:${it.status}:${it.containerFormat}:${it.temporaryPath}" }}")
         repository.logs.first().take(15).forEach { android.util.Log.i("FfmpegCompatibility", "EVENT ${it.sessionId} ${it.eventType} ${it.message}") }
@@ -94,7 +94,7 @@ class FfmpegCompatibilityTest {
         val id = InstrumentationRegistry.getArguments().getString("sessionId")?.toLongOrNull()
         org.junit.Assume.assumeTrue("Explicit failed recording required", id != null)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val repository = (context.applicationContext as StreamCapApplication).container.repository
+        val repository = (context.applicationContext).testGraph.repository
         val before = repository.session(id!!)!!
         assertTrue(before.status in setOf(TaskStatus.FAILED, TaskStatus.COMPLETED))
         context.startActivity(context.packageManager.getLaunchIntentForPackage(context.packageName)!!
@@ -113,8 +113,8 @@ class FfmpegCompatibilityTest {
         val id = InstrumentationRegistry.getArguments().getString("sessionId")?.toLongOrNull()
         org.junit.Assume.assumeTrue("Explicit recording required", id != null)
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val app = instrumentation.targetContext.applicationContext as StreamCapApplication
-        val saved = runBlocking { app.container.repository.session(id!!)!! }
+        val app = instrumentation.targetContext.applicationContext
+        val saved = runBlocking { app.testGraph.repository.session(id!!)!! }
         val texture = android.graphics.SurfaceTexture(false)
         texture.setDefaultBufferSize(1920, 1080)
         val surface = android.view.Surface(texture)

@@ -1,106 +1,114 @@
 # CastTrace Android
 
 <p align="center">
-  <a href="https://github.com/lsr-05/casttrace-android/actions/workflows/android-checks.yml"><img alt="Android checks" src="https://github.com/lsr-05/casttrace-android/actions/workflows/android-checks.yml/badge.svg"></a>
-  <img alt="Android" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
-  <img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-Compose-7F52FF?logo=kotlin&logoColor=white">
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache--2.0-green"></a>
+  <a href="https://github.com/SRiftX/casttrace-android/actions/workflows/android-checks.yml"><img alt="Android checks" src="https://github.com/SRiftX/casttrace-android/actions/workflows/android-checks.yml/badge.svg"></a>
+  <a href="https://github.com/SRiftX/casttrace-android/releases"><img alt="GitHub Releases" src="https://img.shields.io/github/v/release/SRiftX/casttrace-android?display_name=tag&label=APK"></a>
+  <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white">
+  <img alt="Kotlin and Jetpack Compose" src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-7F52FF?logo=kotlin&logoColor=white">
+  <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/License-Apache--2.0-green"></a>
 </p>
 
-CastTrace 是使用 Kotlin、Jetpack Compose 和 FFmpeg 构建的 Android 多平台直播录制工具，支持批量管理直播间、后台监控、开播自动录制、分段保存和本地播放。
+CastTrace 是一款 Android 多平台直播监控和录制工具，使用 Kotlin、Jetpack Compose、Room、WorkManager、Media3 和 FFmpegKit 构建。它可在本机管理直播间、后台监控开播、自动录制与恢复，并支持直播提醒、弹幕采集和本地播放。
 
-本项目参考 [StreamCap](https://github.com/ihmily/StreamCap) 的平台录制思路，是独立维护的 Android 适配项目，并非上游官方移动端。上游支持的平台和功能不代表本项目全部支持。
+本项目参考了 [StreamCap](https://github.com/ihmily/StreamCap) 的平台录制思路，是独立维护的 Android 项目，并非 StreamCap 官方移动端；上游平台支持范围不代表本项目全部支持。
 
-## 功能特性
+## 下载 APK
 
-- **直播间管理**：添加直播地址或分享文本，预览主播信息，批量导入并检查重复项。
-- **开播自动录制**：按房间检查间隔循环监控，支持单次监控时间窗口。
-- **后台与息屏下载**：前台服务、常驻通知和 CPU / Wi-Fi 锁保护监测与录制。
-- **分段保存**：支持 FLV、TS 和 MP4，长录制可分段发布。
-- **断线恢复**：短暂断流重连、过期地址刷新、中断内容恢复与失败保存重试。
-- **视频库**：本地播放、拖动定位、倍速、重命名、删除、整场分段导出与分享。
-- **弹幕录制**：抖音、虎牙、斗鱼和 B 站文字弹幕保存、回放及带弹幕 MP4 导出。
-- **配置备份**：保存房间和应用设置，便于迁移配置。
+前往 [GitHub Releases](https://github.com/SRiftX/casttrace-android/releases) 查看 APK。只有 FFmpeg 完整对应源码通过核验后，Release 工作流才会发布正式 APK。目前源码清单仍将公开二进制分发标记为未就绪，因此尚无正式 APK 下载。门槛和发布步骤见 [RELEASING.md](RELEASING.md)。
 
-## 快速开始
+## 功能
 
-当前源码版本为 **0.2.13**。本仓库本次仅更新源码，不提供正式 APK 下载；FFmpeg 完整对应源码材料仍待补齐，暂不发布二进制安装包。
+- 管理多个直播间，支持添加地址、分享文本和批量导入。
+- 后台监控开播并自动开始录制，支持按时段设置直播提醒。
+- 处理短暂断流、过期线路刷新和进程重启后的录制恢复。
+- 保存 FLV、HLS/TS 或 MP4，支持长录制分段及未完成文件恢复。
+- 浏览和播放本地视频，支持定位、重命名、删除、导出和分享。
+- 采集已支持平台的文字弹幕，并导出带弹幕的视频。
+- 备份直播间和应用配置，便于迁移。
 
-在自行构建并安装应用后：
+后台能力受 Android 通知权限、电池策略及手机厂商的自启动管理影响。部分手机需要允许 CastTrace 自启动和后台活动。
 
-1. 在设置中确认保存目录，授予通知和视频读取权限。
-2. 添加直播间地址或粘贴平台的分享文本，确认平台和主播。
-3. 手动点击“开始录制”，或开启房间的“开播自动录制”。
-4. 自动录制还需开启全局自动录制；退出界面后继续检查需开启后台持续检测。
-5. 在视频库查看、播放、导出或分享已录制内容。
+## 平台状态
 
-暂停会保存当前内容并暂停该房间自动录制，再次开始会创建新一场。MP4 是最终保存格式，直播源可以是 FLV 或 HLS；虎牙优先下载 FLV，再封装为 MP4。
-
-## 支持平台
-
-| 平台 | 示例地址 / 输入形式 |
-| --- | --- |
-| 虎牙 | `https://www.huya.com/房间号`，`hy.fan` 分享链接 |
-| 抖音 | `https://live.douyin.com/房间号`，`v.douyin.com` 分享链接 |
-| B 站 | `https://live.bilibili.com/房间号`，`b23.tv` 直播分享链接 |
-| 斗鱼 | `https://www.douyu.com/房间号` |
-| 快手 | `https://live.kuaishou.com/u/主播标识` |
-| 自定义直播源 | HTTPS HLS（`.m3u8`）或 FLV 直链 |
-
-平台接口、分享跳转和登录要求可能变化。目录中标记为“计划支持”的平台尚未实现；分享链接识别成功也不代表对应房间正在直播或一定可录制。
+平台目录区分可用、需复核、计划支持和已停止的平台。目前标记为可用的主要入口是虎牙、抖音、B站、斗鱼及 HLS/FLV 直链。其他平台可能需要设备、账号或地区验证；识别出分享链接不代表房间正在直播或一定可录制。状态以源码中的 [PlatformCatalog.kt](app/src/main/java/com/streamcap/mobile/platform/PlatformCatalog.kt) 为准。
 
 ## 从源码构建
 
-需要 JDK 17、Android SDK Platform 35 和 Build Tools 35.0.0。设备要求 Android 8.0（API 26）及以上，当前 FFmpeg 依赖提供 `arm64-v8a` 和 `x86_64`。
+### 环境要求
+
+- JDK 17
+- Android SDK Platform 35 和 Build Tools 35.0.0
+- Android 8.0（API 26）及以上；APK 仅包含 `arm64-v8a` 和 `x86_64`
+- FFmpegKit 7.1.6 AAR，SHA-256 必须与下方固定值一致
+
+克隆仓库并下载固定版本 AAR。AAR 不提交到 Git，Gradle 和 CI 会校验它的 SHA-256。
 
 ```bash
-git clone https://github.com/lsr-05/casttrace-android.git
+git clone https://github.com/SRiftX/casttrace-android.git
 cd casttrace-android
+mkdir -p app/libs
+curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+  'https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar' \
+  -o app/libs/ffmpeg-kit-https-7.1.6.aar
+echo 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860  app/libs/ffmpeg-kit-https-7.1.6.aar' | sha256sum --check
 ```
 
-设置 `ANDROID_HOME`，或在未跟踪的 `local.properties` 中配置 SDK 路径。按 [FFmpeg 依赖说明](app/libs/README.md) 下载并校验固定版本的 AAR，放到 `app/libs/`；CI 也会下载并校验相同制品。
+设置 `ANDROID_HOME` 指向本机 Android SDK。Windows 上若 Gradle 报 `Unable to establish loopback connection`，请使用短且可写的临时目录后再构建：
+
+```powershell
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+$env:TEMP = 'C:\tmp'
+$env:TMP = 'C:\tmp'
+New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
+```
+
+运行单元测试、lint 并构建 Debug APK：
 
 ```bash
-# Linux / macOS
-bash gradlew :app:testDebugUnitTest :app:assembleDebug
-
-# Windows PowerShell
-./gradlew.bat :app:testDebugUnitTest :app:assembleDebug
+bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ```
 
-输出：`app/build/outputs/apk/debug/app-debug.apk`。应用显示名称为 CastTrace，包名保留 `com.streamcap.mobile`，以兼容已有安装和数据。
+```powershell
+./gradlew.bat --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+```
 
-正式签名可使用 `scripts/Build-SignedRelease.ps1`，签名私钥和密码需在本机单独保管，不能提交到仓库。
+APK 输出路径为 `app/build/outputs/apk/debug/app-debug.apk`。应用 id 保留为 `com.streamcap.mobile`，用于兼容已有安装和应用数据。
 
-## 测试与兼容性
+## 开发入口
+
+新贡献者先读 [CONTRIBUTING.md](CONTRIBUTING.md)，修改依赖注入、录制生命周期或数据边界前先读 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+生产代码位于 `app/src/main/java/com/streamcap/mobile/`：
+
+- `app/`：Hilt 根组件及 Android 应用入口。
+- `data/`：Room、偏好设置、网络策略和仓储组件。
+- `platform/`：平台身份、别名和 Resolver 构造。
+- `service/`：后台监控、录制协调、恢复和发布。
+- `storage/`：录制文件、MediaStore、导出、删除和分段发现。
+- `ui/`：Compose 页面和 Hilt ViewModel。
+
+新增平台时更新 `PlatformCatalog`；只有通用 Resolver 不足时才增加专用实现，并为 URL、别名和 Resolver 选择补充 JVM 测试。保持录制 Intent action 与 Room schema 兼容；新增数据库结构时必须同时提供迁移。
+
+## 测试
+
+跨模块改动运行完整本地检查：
 
 ```bash
-bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
 ```
 
-设备测试需构建 `assembleDebugAndroidTest`，在已有数据的设备上使用 `adb install -r` 覆盖安装。真实录制测试通过 `recordingRoomId` 指定已配置的房间，播放测试通过 `playbackRecordingId` 指定已保存录制；只有明确选择对象后才执行。
+Android instrumentation 测试需要已连接的设备或模拟器：
 
 ```bash
-adb shell am instrument -w -e class com.streamcap.mobile.RecordingAcceptanceTest -e recordingRoomId ROOM_ID -e recordingSeconds 1800 com.streamcap.mobile.test/androidx.test.runner.AndroidJUnitRunner
-adb shell am instrument -w -e class com.streamcap.mobile.PlaybackAcceptanceTest -e playbackRecordingId RECORDING_ID com.streamcap.mobile.test/androidx.test.runner.AndroidJUnitRunner
+bash gradlew --no-daemon :app:assembleDebugAndroidTest
 ```
 
-本轮单元测试 114 项通过；MuMu 完成分享链接、后台、息屏和删除授权专项验收。Mate 20 在 USB 充电、Wi-Fi 条件下完成约 51 分钟真实连续录制与分段 MP4 保存。此结果不代表所有系统、深度待机或手机品牌均已验证。
+真实录制用例需要显式提供房间 ID，可能会创建媒体文件；只测试获得授权的直播间。设备验证的设置和发布检查见 [CONTRIBUTING.md](CONTRIBUTING.md) 与 [RELEASING.md](RELEASING.md)。
 
-## 使用注意
+## 许可证
 
-- 华为等手机需允许自启动、关联启动和后台活动；电池优化豁免不能代替厂商应用启动管理。
-- 强制停止应用、禁用通知、断网或系统限制可能影响后台工作，常驻通知不保证进程永不被回收。
-- 保存 MP4 和导出视频需要额外空间；失败时保留原文件，可修复权限或空间后重试。
-- 删除外部视频可能需要系统确认，自定义目录需保持有效授权。
-- 请在取得必要授权后录制，遵守平台规则和相关法律，不传播未经许可的内容。
+应用源码采用 [Apache License 2.0](LICENSE)，归属说明见 [NOTICE](NOTICE)。第三方组件仍采用各自许可证。FFmpegKit 是 LGPLv3 构建，其完整对应源码和二进制分发状态与应用许可证分别核验。发布前请查看 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
-## 许可证与致谢
+## 参与和反馈
 
-应用源码采用 [Apache License 2.0](LICENSE)，归属说明见 [NOTICE](NOTICE)。第三方库分别适用其许可证，FFmpeg 来源、LGPLv3 声明和当前分发限制见 [THIRD_PARTY.md](THIRD_PARTY.md) 与 [依赖说明](app/libs/README.md)。
-
-感谢 [StreamCap](https://github.com/ihmily/StreamCap) 作者及贡献者，以及 [FFmpeg](https://ffmpeg.org/)、Jetpack Compose、Media3、OkHttp 等开源项目。
-
-问题和建议可提交到 [Issues](https://github.com/lsr-05/casttrace-android/issues)。反馈前请去除 Cookie、账号信息、设备标识和私人录制内容。
-
-贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)，安全问题报告见 [SECURITY.md](SECURITY.md)。
+通过 [Issues](https://github.com/SRiftX/casttrace-android/issues) 报告可复现问题或提交功能建议。提交 PR 前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。反馈前请移除 Cookie、账号信息、设备标识和私人录制内容。

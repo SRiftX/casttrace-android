@@ -2,12 +2,16 @@ package com.streamcap.mobile.app
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import dagger.hilt.android.AndroidEntryPoint
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
+import com.streamcap.mobile.data.preferences.AppPreferences
+import com.streamcap.mobile.data.repository.StreamCapRepository
 import com.streamcap.mobile.ui.StreamCapApp
 import com.streamcap.mobile.ui.theme.StreamCapTheme
 import com.streamcap.mobile.ui.theme.ThemePalette
@@ -17,8 +21,13 @@ import com.streamcap.mobile.service.RecordingService
 import kotlinx.coroutines.flow.first
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var preferences: AppPreferences
+    @Inject lateinit var repository: StreamCapRepository
+
     private val appPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { }
@@ -32,21 +41,30 @@ class MainActivity : ComponentActivity() {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
             else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
-        appPermissions.launch(storagePermissions)
+        val missingPermissions = storagePermissions.filter {
+            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missingPermissions.isNotEmpty()) {
+            appPermissions.launch(missingPermissions.toTypedArray())
+        }
         lifecycleScope.launch {
-            val settings = (application as StreamCapApplication).container.preferences.settings.first()
+            repository.repairPausedRoomSettings()
+            val settings = preferences.settings.first()
             if (settings.globalAutoRecordEnabled) {
                 RecordingService.monitor(this@MainActivity)
-            } else RecordingService.recover(this@MainActivity)
+            } else {
+                RecordingService.recover(this@MainActivity)
+                if (repository.hasEnabledReminders()) RecordingService.monitor(this@MainActivity)
+            }
         }
         setContent {
-            val settings by (application as StreamCapApplication).container.preferences.settings
-                .collectAsStateWithLifecycle(UserSettings())
+            val settings by preferences.settings.collectAsStateWithLifecycle(UserSettings())
             StreamCapTheme(palette = ThemePalette.fromId(settings.themePalette)) {
                 StreamCapApp(
                     launchToken = launchToken,
                     sharedUrl = launchIntent?.takeIf { it.action == Intent.ACTION_SEND }?.getStringExtra(Intent.EXTRA_TEXT),
                     notificationRoomId = launchIntent?.getLongExtra("roomId", -1)?.takeIf { it > 0 },
+                    openReminders = launchIntent?.getBooleanExtra(EXTRA_OPEN_REMINDERS, false) == true,
                 )
             }
         }
@@ -61,11 +79,14 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch {
-            val app = application as StreamCapApplication
-            val settings = app.container.preferences.settings.first()
-            if (settings.globalAutoRecordEnabled) {
+            val settings = preferences.settings.first()
+            if (settings.globalAutoRecordEnabled || repository.hasEnabledReminders()) {
                 RecordingService.monitor(this@MainActivity)
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_OPEN_REMINDERS = "openReminders"
     }
 }

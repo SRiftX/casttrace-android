@@ -1,0 +1,353 @@
+{
+  "date": "2026-10-28T01:15:15.532352",
+  "warning": "Preflight only; no recording acceptance implied",
+  "results": [
+    {
+      "key": "custom",
+      "state": "MEDIA_OK",
+      "candidate": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+      "reason": "公开 HLS 点播测试源；非直播成品验收",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "huya",
+      "candidate": "https://www.huya.com/281014",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "douyin",
+      "candidate": "https://live.douyin.com/369324308707",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "bilibili",
+      "candidate": "https://live.bilibili.com/4350043",
+      "state": "FAILED",
+      "reason": "all media routes failed: no HLS source",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "douyu",
+      "candidate": "https://www.douyu.com/252140",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "kuaishou",
+      "candidate": "https://live.kuaishou.com/u/yall1102",
+      "state": "FAILED",
+      "reason": "快手直播数据不可用：请求过快，请稍后重试",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "yy",
+      "candidate": "https://www.yy.com/22490906/22490906",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "rednote",
+      "state": "NO_ROOM_CANDIDATE",
+      "boundary": "NO_LIVE_CANDIDATE"
+    },
+    {
+      "key": "blued",
+      "candidate": "https://app.blued.cn/live?id=2VO8DM",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "netease",
+      "candidate": "https://cc.163.com/583946984",
+      "state": "FAILED",
+      "reason": "网易CC 页面未返回直播数据",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "maoer",
+      "candidate": "https://fm.missevan.com/live/869132345",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "look",
+      "candidate": "https://look.163.com/live?id=65108820",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "baidu",
+      "candidate": "https://live.baidu.com/m/media/pclive/pchome/live.html?room_id=9175031377",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "weibo",
+      "candidate": "https://weibo.com/l/wblive/p/show/1022:2321325026370190442592",
+      "state": "FAILED",
+      "reason": "请求失败：HTTP 400",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "kugou",
+      "candidate": "https://fanxing.kugou.com/3097365",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "huajiao",
+      "candidate": "https://www.huajiao.com/l/400607857",
+      "state": "FAILED",
+      "reason": "花椒直播数据不可用或需要登录 Cookie",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "acfun",
+      "candidate": "https://live.acfun.cn/live/23682490",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "inke",
+      "candidate": "https://www.inke.cn/live?uid=559124607&id=1793114592457905",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "yinbo",
+      "state": "NO_ROOM_CANDIDATE",
+      "boundary": "DISCONTINUED"
+    },
+    {
+      "key": "changliao",
+      "candidate": "https://live.tlclw.com/106188",
+      "state": "FAILED",
+      "reason": "java.security.cert.CertPathValidatorException: Trust anchor for certification path not found.",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "zhihu",
+      "candidate": "https://www.zhihu.com/theater/10687?drama_id=2037464603865642996",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "haixiu",
+      "state": "NO_ROOM_CANDIDATE",
+      "boundary": "NOT_IMPLEMENTED"
+    },
+    {
+      "key": "vvxq",
+      "candidate": "https://h5webcdn-pro.vvxqiu.com/activity/videoShare/videoShare.html?roomId=LP115924473",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "piaopiao",
+      "candidate": "https://m.pp.weimipopo.com/live/preview.html?anchorUid=91625862",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "sixroom",
+      "candidate": "https://v.6.cn/6218",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "lehai",
+      "state": "NO_ROOM_CANDIDATE",
+      "boundary": "NOT_IMPLEMENTED"
+    },
+    {
+      "key": "taobao",
+      "candidate": "https://tbzb.taobao.com/live?liveId=563820798126",
+      "state": "FAILED",
+      "reason": "淘宝直播需要登录 Cookie 中的 _m_h5_tk",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "jd",
+      "candidate": "https://3.cn/28MLBy-E",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "huamao",
+      "candidate": "https://h.catshow168.com/live/preview.html?anchorUid=18895331",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "lianjie",
+      "candidate": "https://show.lailianjie.com/10000258",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "migu",
+      "state": "NO_ROOM_CANDIDATE",
+      "boundary": "NOT_IMPLEMENTED"
+    },
+    {
+      "key": "laixiu",
+      "candidate": "https://www.imkktv.com/h5/share/video.html?roomId=1710496",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "xindongrebo",
+      "candidate": "https://xcqrkj.com/web/video.php?roomnumber=55333669",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "qiandurebo",
+      "state": "NO_ROOM_CANDIDATE",
+      "boundary": "DISCONTINUED"
+    },
+    {
+      "key": "tiktok",
+      "candidate": "https://www.tiktok.com/@pearlgaga88/live",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "bigo",
+      "candidate": "https://www.bigo.tv/219878136",
+      "state": "FAILED",
+      "reason": "Bigo 此房间需要登录 Cookie，不能据此判定主播下播",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "pandatv",
+      "candidate": "https://www.pandalive.co.kr/live/play/bara0109",
+      "state": "FAILED",
+      "reason": "请求失败：HTTP 400",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "flextv",
+      "candidate": "https://www.flextv.co.kr/channels/1013062/live",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "popkontv",
+      "state": "NO_ROOM_CANDIDATE",
+      "boundary": "NOT_IMPLEMENTED"
+    },
+    {
+      "key": "twitcasting",
+      "candidate": "https://twitcasting.tv/c:amuchin2525",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "twitch",
+      "candidate": "https://www.twitch.tv/eslcs",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "liveme",
+      "state": "NO_ROOM_CANDIDATE",
+      "boundary": "NOT_IMPLEMENTED"
+    },
+    {
+      "key": "showroom",
+      "candidate": "https://www.showroom-live.com/75721",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "chzzk",
+      "candidate": "https://chzzk.naver.com/live/792acf9ca28b42918710327e14b06b68",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "yiqilive",
+      "candidate": "https://17.live/en/live/6302408",
+      "state": "FAILED",
+      "reason": "17Live 请求失败：HTTP 420",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "langlive",
+      "candidate": "https://www.lang.live/en-US/room/3349463",
+      "state": "FAILED",
+      "reason": "请求失败：HTTP 403",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "shopee",
+      "candidate": "https://live.shopee.sg/watch?session=802458",
+      "state": "FAILED",
+      "reason": "请求失败：HTTP 500",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "youtube",
+      "candidate": "https://www.youtube.com/@SkyNews/live",
+      "state": "FAILED",
+      "reason": "YouTube 当前直播未提供可录制的 HLS 线路，暂不支持此播放器格式",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "faceit",
+      "candidate": "https://www.faceit.com/zh/players/Compl1/stream",
+      "state": "FAILED",
+      "reason": "请求失败：HTTP 403",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "picarto",
+      "candidate": "https://picarto.tv/UFO200",
+      "state": "MEDIA_OK",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "soop",
+      "candidate": "https://play.sooplive.com/yoomingseo/293945591",
+      "state": "NO_SOURCE",
+      "reason": "",
+      "instrumentation_ok": true
+    },
+    {
+      "key": "winktv",
+      "state": "NO_ROOM_CANDIDATE",
+      "boundary": "DISCONTINUED"
+    }
+  ],
+  "apk": "QA build40 full catalog; direct follow-up build41"
+}

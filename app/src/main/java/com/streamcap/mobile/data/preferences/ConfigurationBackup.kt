@@ -1,9 +1,11 @@
 package com.streamcap.mobile.data.preferences
 
 import androidx.room.withTransaction
-import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.data.database.LiveRoomEntity
+import com.streamcap.mobile.data.database.StreamCapDatabase
+import com.streamcap.mobile.data.repository.StreamCapRepository
 import com.streamcap.mobile.domain.model.TaskStatus
+import com.streamcap.mobile.platform.resolver.ResolverRegistry
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12,9 +14,9 @@ import java.net.URI
 data class BackupPreview(val rooms: List<LiveRoomEntity>, val format: String, val quality: String, val interval: Int)
 
 object ConfigurationBackup {
-    suspend fun export(container: AppContainer): String {
-        val settings = container.preferences.settings.first()
-        val rooms = container.repository.rooms.first()
+    suspend fun export(preferences: AppPreferences, repository: StreamCapRepository): String {
+        val settings = preferences.settings.first()
+        val rooms = repository.rooms.first()
         return JSONObject().put("version", 1).put("format", settings.defaultFormat).put("quality", settings.defaultQuality)
             .put("interval", settings.checkIntervalSeconds).put("rooms", JSONArray().apply {
                 rooms.forEach { room ->
@@ -57,19 +59,25 @@ object ConfigurationBackup {
         return BackupPreview(rooms, format(root.getString("format")), quality(root.getString("quality")), interval(root.getInt("interval")))
     }
 
-    suspend fun restore(container: AppContainer, preview: BackupPreview): Pair<Int, Int> {
-        check(container.repository.activeSessions().isEmpty()) { "请先暂停并保存所有录制，再导入配置" }
-        preview.rooms.forEach { container.resolverRegistry.resolverForPlatform(it.platform) }
+    suspend fun restore(
+        preferences: AppPreferences,
+        repository: StreamCapRepository,
+        resolverRegistry: ResolverRegistry,
+        database: StreamCapDatabase,
+        preview: BackupPreview,
+    ): Pair<Int, Int> {
+        check(repository.activeSessions().isEmpty()) { "请先暂停并保存所有录制，再导入配置" }
+        preview.rooms.forEach { resolverRegistry.resolverForPlatform(it.platform) }
         var added = 0
         var skipped = 0
-        container.database.withTransaction {
+        database.withTransaction {
             preview.rooms.forEach { room ->
-                val dao = container.database.liveRoomDao()
+                val dao = database.liveRoomDao()
                 if (dao.getByNormalizedUrl(room.normalizedUrl) != null) skipped++
                 else { dao.insert(room); added++ }
             }
         }
-        container.preferences.restoreDefaults(preview.format, preview.quality, preview.interval)
+        preferences.restoreDefaults(preview.format, preview.quality, preview.interval)
         return added to skipped
     }
 }

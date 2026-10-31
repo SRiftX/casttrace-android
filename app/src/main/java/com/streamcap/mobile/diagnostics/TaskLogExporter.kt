@@ -6,6 +6,20 @@ import java.util.Date
 import java.util.Locale
 
 object TaskLogExporter {
+    fun buildFullReport(logs: List<TaskLogEntity>, appVersion: String, deviceInfo: String): String = buildString {
+        appendLine("CastTrace 任务日志")
+        appendLine("应用版本: $appVersion")
+        appendLine("设备信息: $deviceInfo")
+        appendLine("导出时间: ${formatTime(System.currentTimeMillis())}")
+        appendLine("记录数量: ${logs.size}（最多最近 20000 条）")
+        appendLine("=".repeat(72))
+        logs.forEach { log ->
+            appendLine("[${formatTime(log.createdAt)}] ${log.level} ${log.eventType} roomId=${log.roomId ?: "-"} sessionId=${log.sessionId ?: "-"}")
+            appendLine(sanitize(log.message).replace(Regex("(?i)https?://[^\\s<>\"]+"), "[链接已隐藏]"))
+            appendLine()
+        }
+    }
+
     fun buildErrorReport(
         logs: List<TaskLogEntity>,
         appVersion: String,

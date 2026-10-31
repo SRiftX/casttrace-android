@@ -1,7 +1,9 @@
 package com.streamcap.mobile.ui.roomdetail
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import com.streamcap.mobile.data.repository.StreamCapRepository
 import com.streamcap.mobile.domain.model.LiveRoom
 import com.streamcap.mobile.domain.model.LiveStatus
@@ -10,11 +12,14 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-class RoomDetailViewModel(
-    private val roomId: Long,
+@HiltViewModel
+class RoomDetailViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val repository: StreamCapRepository,
 ) : ViewModel() {
+    private val roomId = checkNotNull(savedStateHandle.get<Long>("roomId"))
     val room: StateFlow<LiveRoom?> = repository.observeRoom(roomId).stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),

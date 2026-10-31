@@ -98,6 +98,18 @@ class DouyuDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
                 val fields = parseFields(body)
                 when (fields["type"]) {
                     "loginres" -> emit(DanmakuFrame.Status("subscribed-real"))
+                    "dgb" -> {
+                        val giftId = fields["gfid"]?.takeIf(String::isNotBlank)
+                        val count = fields["gfcnt"]?.toLongOrNull()?.takeIf { it > 0 }
+                        if (giftId != null && count != null) {
+                            val name = fields["gfn"]?.takeIf(String::isNotBlank) ?: "礼物 #$giftId"
+                            emit(DanmakuFrame.Event(PaidEventFactory.event(context, "douyu", "dgb", elapsedMs,
+                                "送出 $name ×$count", fields["uid"], fields["nn"],
+                                attributes = mapOf("giftId" to giftId, "giftName" to name,
+                                    "quantity" to "$count", "quantityMode" to "increment") +
+                                    fields.filterKeys { it in setOf("hits", "bat", "bc", "bnum", "dc") })))
+                        }
+                    }
                     "chatmsg" -> fields["txt"]?.takeIf(String::isNotBlank)?.let { text ->
                         emit(DanmakuFrame.Event(DanmakuEvent(
                             sessionId = context.sessionId, platform = "douyu", eventId = fields["cid"],

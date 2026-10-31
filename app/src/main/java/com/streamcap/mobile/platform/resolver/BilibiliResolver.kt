@@ -12,6 +12,7 @@ import org.json.JSONObject
 
 class BilibiliResolver(private val client: OkHttpClient) : PlatformResolver {
     override val platformId = "bilibili"
+    override val supportsCredentials = true
     override fun supports(url: String) = url.hasHost("live.bilibili.com", "b23.tv")
 
     override suspend fun resolveRoom(url: String): LiveRoomInfo {

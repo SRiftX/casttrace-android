@@ -8,10 +8,11 @@ import com.streamcap.mobile.domain.model.StreamSource
 import com.streamcap.mobile.domain.model.StreamType
 import okhttp3.OkHttpClient
 import org.json.JSONObject
+import org.jsoup.Jsoup
 
 class DouyuResolver(private val client: OkHttpClient) : PlatformResolver {
     override val platformId = "douyu"
-    override fun supports(url: String) = url.contains("douyu.com", true)
+    override fun supports(url: String) = url.hasHost("douyu.com")
 
     override suspend fun resolveRoom(url: String): LiveRoomInfo {
         val room = roomData(url)
@@ -81,8 +82,9 @@ class DouyuResolver(private val client: OkHttpClient) : PlatformResolver {
             id = Regex("\\\"rid\\\"\\s*:\\s*(\\d+)").find(html)?.groupValues?.get(1)
                 ?: error("无法取得斗鱼房间号")
         }
-        val room = JSONObject(client.getText("https://www.douyu.com/betard/$id", HEADERS).body)
-            .optJSONObject("room") ?: error("斗鱼没有返回房间信息")
+        val apiBody = runCatching { client.getText("https://www.douyu.com/betard/$id", HEADERS).body }.getOrNull()
+        val room = runCatching { JSONObject(apiBody ?: "").optJSONObject("room") }.getOrNull()
+            ?: return mobileRoomData(id)
         val title = room.optString("room_name").replace("&nbsp;", " ").trim()
         return DouyuRoom(
             id = room.optString("room_id", id),
@@ -90,6 +92,23 @@ class DouyuResolver(private val client: OkHttpClient) : PlatformResolver {
             anchor = room.optString("nickname").ifBlank { "斗鱼主播 $id" },
             title = if (room.optInt("videoLoop") == 1) "【轮播】$title" else title,
             live = room.optInt("show_status") == 1,
+        )
+    }
+
+    private suspend fun mobileRoomData(id: String): DouyuRoom {
+        val html = client.getText("https://m.douyu.com/$id", HEADERS).body
+        val data = Jsoup.parse(html).selectFirst("script#vike_pageContext")?.data()
+            ?: error("斗鱼没有返回房间信息")
+        val room = JSONObject(data).getJSONObject("pageProps").getJSONObject("room")
+            .getJSONObject("roomInfo").getJSONObject("roomInfo")
+        val resolvedId = room.optString("rid").takeIf { it.matches(Regex("\\d+")) }
+            ?: error("斗鱼分享页没有房间号")
+        return DouyuRoom(
+            id = resolvedId,
+            url = "https://www.douyu.com/$id",
+            anchor = room.optString("nickname").ifBlank { "斗鱼主播 $id" },
+            title = room.optString("roomName").ifBlank { "斗鱼直播间 $id" },
+            live = room.optInt("isLive") == 1,
         )
     }
 
