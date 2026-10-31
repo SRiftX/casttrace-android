@@ -15,7 +15,8 @@ concurrency:
 jobs:
   publish:
     if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,23 +49,32 @@ jobs:
 
       - uses: android-actions/setup-android@v4
         with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0 ndk;26.2.11394342'
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Download and verify pinned FFmpegKit AAR
+      - name: Install FFmpeg source build tools
         run: |
-          mkdir -p app/libs
-          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-            'https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar' \
-            -o app/libs/ffmpeg-kit-https-7.1.6.aar
-          echo 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860  app/libs/ffmpeg-kit-https-7.1.6.aar' | sha256sum --check
+          sudo apt-get update
+          sudo apt-get install --yes gettext
 
-      - name: Run unit tests and lint
-        run: bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug --console=plain
+      - name: Build FFmpegKit from pinned sources
+        run: |
+          bash scripts/build_ffmpeg_source.sh
+          aar="$GITHUB_WORKSPACE/build/compliance/ffmpeg-7.1.6/ffmpeg-kit-https-7.1.6.aar"
+          test -s "$aar"
+          digest="$(sha256sum "$aar" | cut -d' ' -f1)"
+          printf 'CASTTRACE_FFMPEG_AAR_PATH=%s\n' "$aar" >> "$GITHUB_ENV"
+          printf 'CASTTRACE_FFMPEG_AAR_SHA256=%s\n' "$digest" >> "$GITHUB_ENV"
+
+      - name: Collect FFmpeg corresponding-source materials
+        run: python scripts/prepare_ffmpeg_compliance.py --aar "$CASTTRACE_FFMPEG_AAR_PATH"
 
       - name: Enforce FFmpeg corresponding-source release gate
         run: python scripts/verify_release_readiness.py
+
+      - name: Run unit tests and lint with the release FFmpeg AAR
+        run: bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug --console=plain
 
       - name: Prepare signing key
         env:
@@ -127,11 +137,6 @@ jobs:
               raise SystemExit('APK version changed after tag validation.')
           PY
 
-      - name: Collect FFmpeg corresponding-source materials
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python scripts/prepare_ffmpeg_compliance.py
-
       - name: Check source materials and assemble release assets
         env:
           TAG_NAME: ${{ github.ref_name }}
@@ -141,10 +146,11 @@ jobs:
           mkdir -p build/release
           version="${TAG_NAME#v}"
           cp app/build/outputs/apk/release/app-release.apk "build/release/casttrace-${version}-release.apk"
+          cp app/build/ffmpeg/ffmpeg-kit-https-7.1.6-compatible.aar "build/release/casttrace-ffmpeg-7.1.6-compatible.aar"
           git archive --format=zip --prefix=casttrace-android/ HEAD -o "build/release/casttrace-${version}-source.zip"
           cp build/compliance/ffmpeg-7.1.6/casttrace-ffmpeg-7.1.6-source-materials.zip build/release/
           cd build/release
-          sha256sum casttrace-*-release.apk casttrace-*-source.zip casttrace-ffmpeg-7.1.6-source-materials.zip > SHA256SUMS
+          sha256sum casttrace-*-release.apk casttrace-*-compatible.aar casttrace-*-source.zip casttrace-ffmpeg-7.1.6-source-materials.zip > SHA256SUMS
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -154,6 +160,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             build/release/casttrace-*-release.apk
+            build/release/casttrace-*-compatible.aar
             build/release/casttrace-*-source.zip
             build/release/casttrace-ffmpeg-7.1.6-source-materials.zip
             build/release/SHA256SUMS

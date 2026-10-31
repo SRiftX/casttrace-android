@@ -1,5 +1,7 @@
 # CastTrace Android
 
+[简体中文](README.md) | [English](README.en.md)
+
 <p align="center">
   <a href="https://github.com/SRiftX/casttrace-android/actions/workflows/android-checks.yml"><img alt="Android checks" src="https://github.com/SRiftX/casttrace-android/actions/workflows/android-checks.yml/badge.svg"></a>
   <a href="https://github.com/SRiftX/casttrace-android/releases"><img alt="GitHub Releases" src="https://img.shields.io/github/v/release/SRiftX/casttrace-android?display_name=tag&label=APK"></a>
@@ -12,9 +14,26 @@ CastTrace 是一款 Android 多平台直播监控和录制工具，使用 Kotlin
 
 本项目参考了 [StreamCap](https://github.com/ihmily/StreamCap) 的平台录制思路，是独立维护的 Android 项目，并非 StreamCap 官方移动端；上游平台支持范围不代表本项目全部支持。
 
+<p align="center">
+  <a href="#界面截图">界面截图</a> ·
+  <a href="#下载-apk">下载 APK</a> ·
+  <a href="#功能">功能</a> ·
+  <a href="#从源码构建">从源码构建</a> ·
+  <a href="#开发入口">开发入口</a> ·
+  <a href="#参与和反馈">参与和反馈</a>
+</p>
+
+## 界面截图
+
+<p align="center">
+  <a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" height="300" alt="直播间监控和录制控制台"></a>
+  <a href="screenshots/live-reminders.png"><img src="screenshots/live-reminders.png" height="300" alt="开播提醒列表"></a>
+  <a href="screenshots/settings.png"><img src="screenshots/settings.png" height="300" alt="录制和后台运行设置"></a>
+</p>
+
 ## 下载 APK
 
-前往 [GitHub Releases](https://github.com/SRiftX/casttrace-android/releases) 查看 APK。只有 FFmpeg 完整对应源码通过核验后，Release 工作流才会发布正式 APK。目前源码清单仍将公开二进制分发标记为未就绪，因此尚无正式 APK 下载。门槛和发布步骤见 [RELEASING.md](RELEASING.md)。
+前往 [GitHub Releases](https://github.com/SRiftX/casttrace-android/releases) 下载 APK 和校验文件。应用支持 Android 8.0+，目前提供 `arm64-v8a` 与 `x86_64`。APK 使用 CastTrace 正式签名，可通过系统安装器覆盖旧版并保留应用数据。Release 同时提供应用源码、FFmpeg 对应源码材料、兼容 AAR 和 SHA-256 清单。发布门槛和步骤见 [RELEASING.md](RELEASING.md)。
 
 ## 功能
 
@@ -39,7 +58,7 @@ CastTrace 是一款 Android 多平台直播监控和录制工具，使用 Kotlin
 - JDK 17
 - Android SDK Platform 35 和 Build Tools 35.0.0
 - Android 8.0（API 26）及以上；APK 仅包含 `arm64-v8a` 和 `x86_64`
-- FFmpegKit 7.1.6 AAR，SHA-256 必须与下方固定值一致
+- 开发构建使用 FFmpegKit 7.1.6 Maven AAR，SHA-256 必须与下方固定值一致。正式 Release 从锁定源码构建 FFmpegKit，并通过 `CASTTRACE_FFMPEG_AAR_PATH` 提供给 Gradle；两种 AAR 不声明逐字节相同。
 
 克隆仓库并下载固定版本 AAR。AAR 不提交到 Git，Gradle 和 CI 会校验它的 SHA-256。
 
@@ -51,6 +70,20 @@ curl --fail --silent --show-error --location --proto '=https' --proto-redir '=ht
   'https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar' \
   -o app/libs/ffmpeg-kit-https-7.1.6.aar
 echo 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860  app/libs/ffmpeg-kit-https-7.1.6.aar' | sha256sum --check
+```
+
+Windows PowerShell:
+
+```powershell
+git clone https://github.com/SRiftX/casttrace-android.git
+Set-Location casttrace-android
+New-Item -ItemType Directory -Path app\libs -Force | Out-Null
+Invoke-WebRequest `
+  'https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar' `
+  -OutFile app\libs\ffmpeg-kit-https-7.1.6.aar
+$expected = 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860'
+$actual = (Get-FileHash app\libs\ffmpeg-kit-https-7.1.6.aar -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw "Unexpected FFmpegKit AAR SHA-256: $actual" }
 ```
 
 设置 `ANDROID_HOME` 指向本机 Android SDK。Windows 上若 Gradle 报 `Unable to establish loopback connection`，请使用短且可写的临时目录后再构建：
@@ -107,7 +140,7 @@ bash gradlew --no-daemon :app:assembleDebugAndroidTest
 
 ## 许可证
 
-应用源码采用 [Apache License 2.0](LICENSE)，归属说明见 [NOTICE](NOTICE)。第三方组件仍采用各自许可证。FFmpegKit 是 LGPLv3 构建，其完整对应源码和二进制分发状态与应用许可证分别核验。发布前请查看 [THIRD_PARTY.md](THIRD_PARTY.md)。
+应用源码采用 [Apache License 2.0](LICENSE)，归属说明见 [NOTICE](NOTICE)。第三方组件仍采用各自许可证。FFmpegKit 是 LGPLv3 构建，其完整对应源码和二进制分发状态与应用许可证分别核验。发布前请查看 [THIRD_PARTY.md](THIRD_PARTY.md) 和 [FFMPEG-LICENSE.md](FFMPEG-LICENSE.md)。
 
 ## 参与和反馈
 

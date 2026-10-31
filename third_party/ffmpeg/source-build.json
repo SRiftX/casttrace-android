@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "artifact": "CastTrace FFmpegKit HTTPS 7.1.6 source build",
+  "upstreamBuildCommit": "0cc470227a1730ce3d467967677de4f54e759f7a",
+  "buildRecipe": "scripts/build_ffmpeg_source.sh",
+  "patches": [
+    "third_party/ffmpeg/patches/0001-pin-gnutls-gnulib.patch",
+    "third_party/ffmpeg/patches/0002-pin-source-commits.patch"
+  ],
+  "buildEnvironment": {
+    "operatingSystem": "Ubuntu 24.04",
+    "java": "17",
+    "androidPlatform": "35",
+    "androidNdk": "26.2.11394342 (r26c)"
+  },
+  "expectedAbis": [
+    "arm64-v8a",
+    "x86_64"
+  ],
+  "requiredFfmpegOptions": [
+    "--enable-version3",
+    "--enable-gnutls",
+    "--enable-gmp",
+    "--enable-iconv",
+    "--enable-mediacodec"
+  ],
+  "forbiddenFfmpegOptions": [
+    "--enable-gpl",
+    "--enable-nonfree"
+  ],
+  "sourceSha256": {
+    "gnu-config": "0a7fc52cf626ed21097de5610b6597d2b26cf95c4d8b3231a06fd4abb35ae84a",
+    "ffmpegkit": "fbc24d857b71e3b65d878e9bf5f594c5db55e306bb1f8c2f4c098fd4230a2345",
+    "ffmpeg": "83220fe0807da10df19714176f02ec3d3812ef0e055f69e940d01b3ad1379cdb",
+    "cpu-features": "851c2f0b1e31b0d3a5389ba5df1850e27670fd7c09c8fa1d1ae322d6035135d2",
+    "gmp": "f7d64ef6e8dd121fec28088234a723c033fb05faeb08b0f429d3c523d3466441",
+    "gnutls": "24a986acadfdf5598eba06efecc77cbb9b7bc51285f70b9ec6bb62ef0051b827",
+    "libiconv": "f652b492c4107e3c887d78ae8bc1295dfecca53e932bac92f053fcd4b9a1ffa7",
+    "nettle": "f4c41e50012f9c559af5a85899dc32a031a1756b1091c210c44d3c3e0f78d008",
+    "libiconv-gnulib": "161290586d00a752fed2d8be64713b1b3ecfe8427f9b0e6f1d68b8fd9eee9e1f",
+    "gnutls-declared-gnulib": "41cafb20f14f9b9bd1330d0208cc8e7daf233076cf4359c862f867c08b84daca"
+  },
+  "systemLibraries": [
+    "Android libc/libm/libdl/liblog",
+    "Android MediaCodec",
+    "Android zlib"
+  ],
+  "redistributionReady": true,
+  "sourceGaps": [],
+  "verificationScope": "The release workflow builds the AAR from these pinned sources and patches, verifies the AAR SHA-256 and native configuration, and passes that same AAR to Gradle for testing and APK packaging. This does not claim byte-for-byte equivalence with the separate Maven development artifact."
+}

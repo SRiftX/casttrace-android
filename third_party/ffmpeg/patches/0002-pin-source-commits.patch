@@ -1,0 +1,70 @@
+diff --git a/android-7.1-lts/scripts/source.sh b/android-7.1-lts/scripts/source.sh
+--- a/android-7.1-lts/scripts/source.sh
++++ b/android-7.1-lts/scripts/source.sh
+@@ -11,5 +11,5 @@ get_library_source() {
+   config)
+     SOURCE_REPO_URL="https://github.com/arthenica/gnu-config"
+-    SOURCE_ID="v20210814"
+-    SOURCE_TYPE="TAG"
++    SOURCE_ID="805517123cbfe33d17c989a18e78c5789fab0437"
++    SOURCE_TYPE="COMMIT"
+     ;;
+@@ -23,5 +23,5 @@ get_library_source() {
+   cpu-features)
+     SOURCE_REPO_URL="https://github.com/arthenica/cpu_features"
+-    SOURCE_ID="v0.8.0"
+-    SOURCE_TYPE="TAG"
++    SOURCE_ID="936b9ab5515dead115606559502e3864958f7f6e"
++    SOURCE_TYPE="COMMIT"
+     ;;
+@@ -31,5 +31,5 @@ get_library_source() {
+   ffmpeg)
+     SOURCE_REPO_URL="https://github.com/arthenica/FFmpeg"
+-    SOURCE_ID="n7.1.5"
+-    SOURCE_TYPE="TAG"
++    SOURCE_ID="3a0867c2bfda4a4d4309ca1a8cbdc6175e67f587"
++    SOURCE_TYPE="COMMIT"
+     ;;
+@@ -39,5 +39,5 @@ get_library_source() {
+   gmp)
+     SOURCE_REPO_URL="https://github.com/arthenica/gmp"
+-    SOURCE_ID="v6.2.1"
+-    SOURCE_TYPE="TAG"
++    SOURCE_ID="66a538082b4a485bd2b34012db96e44a86a8e712"
++    SOURCE_TYPE="COMMIT"
+     ;;
+@@ -47,5 +47,5 @@ get_library_source() {
+   gnutls)
+     SOURCE_REPO_URL="https://github.com/arthenica/gnutls"
+-    SOURCE_ID="3.7.9"
+-    SOURCE_TYPE="TAG"
++    SOURCE_ID="ca61668d7764fc29fb4cc2aa396cb035e176636d"
++    SOURCE_TYPE="COMMIT"
+     ;;
+@@ -63,5 +63,5 @@ get_library_source() {
+   libiconv)
+     SOURCE_REPO_URL="https://github.com/arthenica/libiconv"
+-    SOURCE_ID="v1.17"
+-    SOURCE_TYPE="TAG"
++    SOURCE_ID="4b9c27bec873392533dd3ef309cd62962a644e18"
++    SOURCE_TYPE="COMMIT"
+     ;;
+@@ -79,5 +79,5 @@ get_library_source() {
+   nettle)
+     SOURCE_REPO_URL="https://github.com/arthenica/nettle"
+-    SOURCE_ID="nettle_3.8.1_release_20220727"
+-    SOURCE_TYPE="TAG"
++    SOURCE_ID="990abad16ceacd070747dcc76ed16a39c129321e"
++    SOURCE_TYPE="COMMIT"
+     ;;
+diff --git a/android-7.1-lts/scripts/function.sh b/android-7.1-lts/scripts/function.sh
+--- a/android-7.1-lts/scripts/function.sh
++++ b/android-7.1-lts/scripts/function.sh
+@@ -2233,1 +2233,5 @@ download_gnu_config() {
+-  DOWNLOAD_RC=$(clone_git_repository_with_tag "${SOURCE_REPO_URL}" "${SOURCE_ID}" "${LIB_LOCAL_PATH}")
++  if [ "${SOURCE_TYPE}" == "TAG" ]; then
++    DOWNLOAD_RC=$(clone_git_repository_with_tag "${SOURCE_REPO_URL}" "${SOURCE_ID}" "${LIB_LOCAL_PATH}")
++  else
++    DOWNLOAD_RC=$(clone_git_repository_with_commit_id "${SOURCE_REPO_URL}" "${LIB_LOCAL_PATH}" "${SOURCE_ID}")
++  fi
+     echo -e "INFO: Downloading gnu config failed. Can not get source from ${SOURCE_REPO_URL}\n" 1>>"${BASEDIR}"/build.log 2>&1

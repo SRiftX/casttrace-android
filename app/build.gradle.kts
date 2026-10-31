@@ -80,11 +80,17 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+val mavenFfmpegSha256 = "E80E5EE52248A3DCB1DDA0524DD784FE4BBB212DCD4D575E82E15D21A002D860"
+val ffmpegArtifactPath = providers.environmentVariable("CASTTRACE_FFMPEG_AAR_PATH")
+    .orElse(layout.projectDirectory.file("libs/ffmpeg-kit-https-7.1.6.aar").asFile.absolutePath)
+val ffmpegArtifact = providers.provider { file(ffmpegArtifactPath.get()) }
+val expectedFfmpegSha256 = providers.environmentVariable("CASTTRACE_FFMPEG_AAR_SHA256")
+    .orElse(mavenFfmpegSha256)
+
 val verifyFfmpegArtifact by tasks.registering {
-    val artifact = layout.projectDirectory.file("libs/ffmpeg-kit-https-7.1.6.aar")
-    inputs.file(artifact)
+    inputs.file(ffmpegArtifact)
     doLast {
-        val binary = artifact.asFile
+        val binary = ffmpegArtifact.get()
         check(binary.isFile) { "Missing FFmpegKit AAR: see app/libs/README.md; do not download an unverified replacement." }
         val digest = MessageDigest.getInstance("SHA-256")
         binary.inputStream().use { input ->
@@ -96,8 +102,10 @@ val verifyFfmpegArtifact by tasks.registering {
             }
         }
         val actual = digest.digest().joinToString("") { "%02X".format(it) }
-        check(actual == "E80E5EE52248A3DCB1DDA0524DD784FE4BBB212DCD4D575E82E15D21A002D860") {
-            "FFmpegKit AAR checksum differs from the reviewed local artifact. Verify provenance before updating the pin."
+        val expected = expectedFfmpegSha256.get().uppercase()
+        check(expected.matches(Regex("[A-F0-9]{64}"))) { "CASTTRACE_FFMPEG_AAR_SHA256 must be a SHA-256 digest." }
+        check(actual == expected) {
+            "FFmpegKit AAR checksum differs from CASTTRACE_FFMPEG_AAR_SHA256. Verify provenance before building."
         }
     }
 }
@@ -106,12 +114,12 @@ tasks.named("preBuild").configure { dependsOn(verifyFfmpegArtifact) }
 val compatibleFfmpegArtifact = layout.buildDirectory.file("ffmpeg/ffmpeg-kit-https-7.1.6-compatible.aar")
 val prepareCompatibleFfmpeg by tasks.registering {
     dependsOn(verifyFfmpegArtifact)
-    inputs.file(layout.projectDirectory.file("libs/ffmpeg-kit-https-7.1.6.aar"))
+    inputs.file(ffmpegArtifact)
     outputs.file(compatibleFfmpegArtifact)
     doLast {
         val target = compatibleFfmpegArtifact.get().asFile
         target.parentFile.mkdirs()
-        ZipFile(layout.projectDirectory.file("libs/ffmpeg-kit-https-7.1.6.aar").asFile).use { source ->
+        ZipFile(ffmpegArtifact.get()).use { source ->
             ZipOutputStream(target.outputStream()).use { output ->
                 source.entries().asSequence().forEach { entry ->
                     val bytes = source.getInputStream(entry).use { it.readBytes() }
