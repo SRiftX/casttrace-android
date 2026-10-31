@@ -72,6 +72,7 @@ fun SettingsScreen(
     onOpenBackup: () -> Unit,
     onOpenLicenses: () -> Unit,
     onOpenUserGuide: () -> Unit,
+    onOpenFeatureTour: () -> Unit,
     onOpenPlatforms: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -123,10 +124,10 @@ fun SettingsScreen(
             Spacer(Modifier.height(14.dp))
         }
         item {
-            SettingsSection("基础设置") {
+            SettingsSection("通知权限") {
                 SettingsRow(
-                    title = "录制通知",
-                    value = if (notificationsEnabled) "已开启" else "未开启，建议打开",
+                    title = "应用通知权限",
+                    value = if (notificationsEnabled) "已允许 · 强提醒可在主播项中单独设置" else "未允许 · 开播提醒无法弹出",
                     modifier = Modifier.clickable {
                         context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
                             putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
@@ -160,7 +161,24 @@ fun SettingsScreen(
             }
         }
         item {
-            SettingsSection("录制默认值 · 格式、画质和间隔仅用于新直播间") {
+            SettingsSection("录制默认值 · 仅用于新直播间") {
+                SettingsRow(
+                    title = "默认格式",
+                    value = settings.defaultFormat,
+                    modifier = Modifier.clickable { showFormatDialog = true },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "默认清晰度",
+                    value = settings.defaultQuality,
+                    modifier = Modifier.clickable { showQualityDialog = true },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                )
+            }
+        }
+        item {
+            SettingsSection("文件与存储") {
                 SettingsRow(
                     title = "存储管理",
                     value = "查看视频、待恢复媒体和预览缓存",
@@ -182,46 +200,8 @@ fun SettingsScreen(
                 )
                 HorizontalDivider()
                 SettingsRow(
-                    title = "默认格式",
-                    value = settings.defaultFormat,
-                    modifier = Modifier.clickable { showFormatDialog = true },
-                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
-                )
-                HorizontalDivider()
-                SettingsRow(
-                    title = "默认清晰度",
-                    value = settings.defaultQuality,
-                    modifier = Modifier.clickable { showQualityDialog = true },
-                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
-                )
-            }
-        }
-        item {
-            SettingsSection("后台运行") {
-                SettingsRow(
-                    title = "电池优化",
-                    value = if (powerUnrestricted) "已豁免电池优化" else "未豁免，可能被系统暂停",
-                    modifier = Modifier.clickable {
-                        val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                            data = android.net.Uri.parse("package:${context.packageName}")
-                        }
-                        runCatching { context.startActivity(request) }.onFailure {
-                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                        }
-                    },
-                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开电池设置") },
-                )
-                HorizontalDivider()
-                SettingsRow(
-                    title = "后台启动与自启动",
-                    value = if (isHuaweiDevice()) "应用启动管理：手动管理，允许自启动、关联启动和后台活动" else "部分厂商需要手动允许",
-                    modifier = Modifier.clickable { openBackgroundLaunchSettings(context) },
-                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开应用设置") },
-                )
-                HorizontalDivider()
-                SettingsRow(
                     title = "视频与存储权限",
-                    value = "允许访问录制视频和删除旧文件",
+                    value = "管理录制视频访问权限",
                     modifier = Modifier.clickable {
                         context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                             android.net.Uri.parse("package:${context.packageName}")))
@@ -229,40 +209,6 @@ fun SettingsScreen(
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开应用权限设置") },
                 )
                 HorizontalDivider()
-                SettingsRow(
-                    title = "全局自动录制",
-                    value = if (settings.globalAutoRecordEnabled) "开播后自动开始录制" else "仅手动录制",
-                    trailing = {
-                        Switch(
-                            checked = settings.globalAutoRecordEnabled,
-                            onCheckedChange = viewModel::setGlobalAutoRecordEnabled,
-                        )
-                    },
-                )
-                HorizontalDivider()
-                SettingsRow(
-                    title = "后台持续检测",
-                    value = if (settings.backgroundMonitoringEnabled) "应用关闭后继续检查" else "只在打开应用时检查",
-                    trailing = {
-                        Switch(
-                            checked = settings.backgroundMonitoringEnabled,
-                            onCheckedChange = viewModel::setBackgroundMonitoringEnabled,
-                        )
-                    },
-                )
-                HorizontalDivider()
-                SettingsRow(
-                    title = "省电检测",
-                    value = if (settings.powerSavingMonitoring) "空闲时每分钟检查；系统可能进一步延迟" else "及时检测，空闲时保持唤醒",
-                    trailing = {
-                        Switch(checked = settings.powerSavingMonitoring,
-                            onCheckedChange = viewModel::setPowerSavingMonitoring)
-                    },
-                )
-            }
-        }
-        item {
-            SettingsSection("文件命名 · 下次录制时读取，不重命名已有文件") {
                 SettingsRow(
                     title = "文件名包含标题",
                     value = if (settings.includeTitleInFileName) "已包含" else "不包含",
@@ -321,40 +267,64 @@ fun SettingsScreen(
             }
         }
         item {
-            SettingsSection("平台") {
+            SettingsSection("自动录制与开播监控") {
                 SettingsRow(
-                    modifier = Modifier.clickable(onClick = onOpenPlatforms),
-                    title = "平台适配",
-                    value = "查看已适配平台和已接入解析器",
-                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
-                )
-            }
-        }
-        item {
-            SettingsSection("录制任务模板") {
-                Text("模板只保存格式、画质、分段和检查间隔，不包含账号、密钥、视频或目录授权。", modifier = Modifier.padding(14.dp), style = MaterialTheme.typography.bodySmall)
-                templates.forEach { template ->
-                    HorizontalDivider()
-                    SettingsRow(title = template.name, value = "${template.format} · ${template.quality} · ${template.segmentSeconds / 60} 分钟分段 · ${template.intervalSeconds} 秒检查", trailing = {
-                        androidx.compose.material3.IconButton(onClick = { viewModel.deleteTemplate(template.name) }) { Icon(Icons.Outlined.Restore, contentDescription = "删除模板") }
-                    })
-                }
-                HorizontalDivider()
-                TextButton(onClick = { showTemplateDialog = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("从当前默认值保存模板") }
-            }
-        }
-        item {
-            SettingsSection("运行条件") {
-                SettingsRow(
-                    icon = { Icon(Icons.Outlined.NetworkCell, contentDescription = null) },
-                    title = "允许移动数据",
-                    value = (if (settings.allowMobileData) "已允许" else "仅 Wi-Fi") + " · 立即影响全部录制及直播预览",
+                    title = "全局自动录制",
+                    value = if (settings.globalAutoRecordEnabled) "开播后自动开始录制" else "仅手动录制",
                     trailing = {
                         Switch(
-                            checked = settings.allowMobileData,
-                            onCheckedChange = viewModel::setAllowMobileData,
+                            checked = settings.globalAutoRecordEnabled,
+                            onCheckedChange = viewModel::setGlobalAutoRecordEnabled,
                         )
                     },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "默认开播检查间隔",
+                    value = "${settings.checkIntervalSeconds} 秒 · 仅新直播间",
+                    modifier = Modifier.clickable { showIntervalDialog = true },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "后台持续检测",
+                    value = if (settings.backgroundMonitoringEnabled) "应用关闭后继续检查" else "只在打开应用时检查",
+                    trailing = {
+                        Switch(
+                            checked = settings.backgroundMonitoringEnabled,
+                            onCheckedChange = viewModel::setBackgroundMonitoringEnabled,
+                        )
+                    },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "省电检测",
+                    value = if (settings.powerSavingMonitoring) "空闲时每分钟检查；系统可能进一步延迟" else "及时检测，空闲时保持唤醒",
+                    trailing = {
+                        Switch(checked = settings.powerSavingMonitoring,
+                            onCheckedChange = viewModel::setPowerSavingMonitoring)
+                    },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "电池优化",
+                    value = if (powerUnrestricted) "已豁免电池优化" else "未豁免，可能被系统暂停",
+                    modifier = Modifier.clickable {
+                        val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                            data = android.net.Uri.parse("package:${context.packageName}")
+                        }
+                        runCatching { context.startActivity(request) }.onFailure {
+                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                    },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开电池设置") },
+                )
+                HorizontalDivider()
+                SettingsRow(
+                    title = "后台启动与自启动",
+                    value = if (isHuaweiDevice()) "应用启动管理：手动管理，允许自启动、关联启动和后台活动" else "部分厂商需要手动允许",
+                    modifier = Modifier.clickable { openBackgroundLaunchSettings(context) },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开应用设置") },
                 )
                 HorizontalDivider()
                 SettingsRow(
@@ -368,17 +338,48 @@ fun SettingsScreen(
                         )
                     },
                 )
-                HorizontalDivider()
+            }
+        }
+        item {
+            SettingsSection("平台与弹幕") {
                 SettingsRow(
-                    title = "默认开播检查间隔",
-                    value = "${settings.checkIntervalSeconds} 秒 · 仅新直播间",
-                    modifier = Modifier.clickable { showIntervalDialog = true },
+                    modifier = Modifier.clickable(onClick = onOpenPlatforms),
+                    title = "平台适配",
+                    value = "查看解析状态、设备实测结果和弹幕能力",
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
                 )
             }
         }
         item {
-            SettingsSection("迁移") {
+            SettingsSection("录制配置模板") {
+                Text("模板只保存格式、画质、分段和检查间隔，不包含账号、密钥、视频或目录授权。", modifier = Modifier.padding(14.dp), style = MaterialTheme.typography.bodySmall)
+                templates.forEach { template ->
+                    HorizontalDivider()
+                    SettingsRow(title = template.name, value = "${template.format} · ${template.quality} · ${template.segmentSeconds / 60} 分钟分段 · ${template.intervalSeconds} 秒检查", trailing = {
+                        androidx.compose.material3.IconButton(onClick = { viewModel.deleteTemplate(template.name) }) { Icon(Icons.Outlined.Restore, contentDescription = "删除模板") }
+                    })
+                }
+                HorizontalDivider()
+                TextButton(onClick = { showTemplateDialog = true }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("从当前默认值保存模板") }
+            }
+        }
+        item {
+            SettingsSection("网络") {
+                SettingsRow(
+                    icon = { Icon(Icons.Outlined.NetworkCell, contentDescription = null) },
+                    title = "允许移动数据",
+                    value = (if (settings.allowMobileData) "已允许" else "仅 Wi-Fi") + " · 立即影响全部录制及直播预览",
+                    trailing = {
+                        Switch(
+                            checked = settings.allowMobileData,
+                            onCheckedChange = viewModel::setAllowMobileData,
+                        )
+                    },
+                )
+            }
+        }
+        item {
+            SettingsSection("备份与恢复") {
                 SettingsRow(title = "配置备份与迁移", value = "预览后导入，重复房间不覆盖",
                     modifier = Modifier.clickable(onClick = onOpenBackup),
                     trailing = { Icon(Icons.Outlined.ChevronRight, null) })
@@ -399,6 +400,10 @@ fun SettingsScreen(
             SettingsSection("关于") {
                 SettingsRow(title = "支持者赞助", value = "感谢支持，扫码赞助完全自愿",
                     modifier = Modifier.clickable { showSupportDialog = true },
+                    trailing = { Icon(Icons.Outlined.ChevronRight, null) })
+                HorizontalDivider()
+                SettingsRow(title = "功能导览", value = "重新查看 5 步新手指引",
+                    modifier = Modifier.clickable(onClick = onOpenFeatureTour),
                     trailing = { Icon(Icons.Outlined.ChevronRight, null) })
                 HorizontalDivider()
                 SettingsRow(title = "使用说明", value = "第一次使用的操作步骤和故障排查",
@@ -520,7 +525,7 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(8.dp),
             shadowElevation = 1.dp,
         ) { Column { content() } }
     }

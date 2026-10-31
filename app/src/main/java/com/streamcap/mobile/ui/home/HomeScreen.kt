@@ -51,6 +51,7 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,6 +66,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -105,6 +107,7 @@ fun HomeScreen(
     onAddRoom: () -> Unit,
     onOpenRoom: (Long) -> Unit,
     onOpenRecording: (Long) -> Unit,
+    onTourTarget: (FeatureTourAnchor, Rect) -> Unit,
 ) {
     val viewModel: HomeViewModel = hiltViewModel()
     val rooms by viewModel.rooms.collectAsStateWithLifecycle()
@@ -189,11 +192,22 @@ fun HomeScreen(
                             )
                         }
                     }
-                    IconButton(onClick = { searchVisible = !searchVisible; if (!searchVisible) searchQuery = "" }) {
-                        Icon(if (searchVisible) Icons.Outlined.Close else Icons.Outlined.Search,
-                            if (searchVisible) "关闭搜索" else "搜索直播间")
+                    IconButton(onClick = {
+                        searchVisible = !searchVisible
+                        if (!searchVisible) searchQuery = ""
+                    }) {
+                        Icon(
+                            if (searchVisible) Icons.Outlined.Close else Icons.Outlined.Search,
+                            contentDescription = if (searchVisible) "关闭搜索" else "搜索直播间",
+                        )
                     }
-                    IconButton(onClick = onAddRoom) { Icon(Icons.Outlined.Add, contentDescription = "添加直播间") }
+                    FilledTonalIconButton(
+                        onClick = onAddRoom,
+                        modifier = Modifier.featureTourAnchor(FeatureTourAnchor.ADD_ROOM, onTourTarget),
+                    ) {
+                        Icon(Icons.Outlined.Add, contentDescription = "添加直播间")
+                    }
+                    Spacer(Modifier.width(4.dp))
                     Box(
                         Modifier
                             .size(10.dp)

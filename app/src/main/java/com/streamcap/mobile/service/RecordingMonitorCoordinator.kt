@@ -123,8 +123,8 @@ class RecordingMonitorCoordinator @Inject constructor(
                             System.currentTimeMillis() - it >= reminderInterval
                         } ?: true
                         if (!checkDue) return@forEach
-                        if (repository.checkReminder(reminder.id, reminderNotifications.canNotify)) {
-                            runCatching { reminderNotifications.notifyOpened(reminder) }
+                        if (repository.checkReminder(reminder.id, reminderNotifications.canNotify(reminder.strongNotificationEnabled))) {
+                            runCatching { reminderNotifications.notifyOpened(reminder, reminder.strongNotificationEnabled) }
                         }
                     }
                     delay(pollIntervalMillis())

@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RecordingSessionEntity::class,
         TaskLogEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -47,6 +47,11 @@ abstract class StreamCapDatabase : RoomDatabase() {
                     """CREATE TABLE IF NOT EXISTS `live_reminders` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `originalUrl` TEXT NOT NULL, `normalizedUrl` TEXT NOT NULL, `platform` TEXT NOT NULL, `anchorName` TEXT NOT NULL, `roomTitle` TEXT, `enabled` INTEGER NOT NULL, `liveStatus` TEXT NOT NULL, `notifiedForCurrentLive` INTEGER NOT NULL, `lastCheckAt` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL)""",
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_live_reminders_normalizedUrl` ON `live_reminders` (`normalizedUrl`)")
+            }
+        }
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE live_reminders ADD COLUMN strongNotificationEnabled INTEGER NOT NULL DEFAULT 1")
             }
         }
     }

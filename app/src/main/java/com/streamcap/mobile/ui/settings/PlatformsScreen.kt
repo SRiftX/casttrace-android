@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -48,8 +49,14 @@ fun PlatformsScreen(onBack: () -> Unit) {
     val viewModel: PlatformsViewModel = hiltViewModel()
     val entries = PlatformCatalog.entries
     val resolverIds = viewModel.resolverIds
+    val evidenceEntries = PlatformCatalog.entriesWithEvidence
     val available = entries.count { it.status in setOf(AndroidSupportStatus.AVAILABLE, AndroidSupportStatus.FIRST_BATCH) }
     val needsReview = entries.count { it.resolverId in resolverIds && it.status == AndroidSupportStatus.NEEDS_REVIEW }
+    val passedRecordingSamples = PlatformCatalog.entriesWithPassingRecordingSamples.size
+    var showAllPlatforms by remember { mutableStateOf(false) }
+    val visibleEntries = remember(showAllPlatforms, entries, evidenceEntries) {
+        if (showAllPlatforms) evidenceEntries + entries.filter { it.verification == null } else evidenceEntries
+    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -71,13 +78,29 @@ fun PlatformsScreen(onBack: () -> Unit) {
         ) {
             item {
                 Text(
-                    "当前可用入口 $available 个；另有 $needsReview 个平台待复核。取流与弹幕分别适配，实际可用性受房间状态和平台限制影响。",
+                    "解析器标记可用 $available 个、待复核 $needsReview 个；有设备实测记录 ${evidenceEntries.size} 个，其中 $passedRecordingSamples 个有录制通过样本。实测对应具体房间和时段，弹幕能力单独核对。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            items(entries, key = { it.key }) { entry -> PlatformRow(viewModel, entry, entry.resolverId in resolverIds) }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !showAllPlatforms,
+                        onClick = { showAllPlatforms = false },
+                        label = { Text("实测记录 ${evidenceEntries.size}") },
+                    )
+                    FilterChip(
+                        selected = showAllPlatforms,
+                        onClick = { showAllPlatforms = true },
+                        label = { Text("全部平台 ${entries.size}") },
+                    )
+                }
+            }
+            items(visibleEntries, key = { it.key }) { entry ->
+                PlatformRow(viewModel, entry, entry.resolverId in resolverIds)
+            }
         }
     }
 }
@@ -87,15 +110,22 @@ private fun PlatformRow(viewModel: PlatformsViewModel, entry: PlatformCatalogEnt
     var showCredential by remember { mutableStateOf(false) }
     var cookie by remember { mutableStateOf("") }
     val credentialSupported = remember(entry.key) { viewModel.supportsCredentials(entry.key) }
+    val verification = entry.verification
     val color = when (entry.status) {
         AndroidSupportStatus.AVAILABLE, AndroidSupportStatus.FIRST_BATCH -> LiveTeal
         AndroidSupportStatus.NEEDS_REVIEW -> WarningAmber
         AndroidSupportStatus.PLANNED -> MaterialTheme.colorScheme.onSurfaceVariant
         AndroidSupportStatus.DISCONTINUED -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val verificationColor = when {
+        verification?.level?.hasPassingRecordingSample == true -> LiveTeal
+        verification?.level == null -> MaterialTheme.colorScheme.onSurfaceVariant
+        verification?.level == com.streamcap.mobile.platform.PlatformEvidenceLevel.PREFLIGHT -> WarningAmber
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(8.dp),
         shadowElevation = 1.dp,
     ) {
         Row(
@@ -117,10 +147,29 @@ private fun PlatformRow(viewModel: PlatformsViewModel, entry: PlatformCatalogEnt
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (verification != null) {
+                    Text(
+                        "设备实测 ${verification.testedOn} · ${verification.level.label}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = verificationColor,
+                    )
+                    Text(
+                        verification.summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text("设备媒体实测：暂无记录", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(if (entry.status == AndroidSupportStatus.NEEDS_REVIEW && resolverAvailable) "已接入 · 待验证" else entry.status.displayName(),
-                    style = MaterialTheme.typography.labelSmall, color = color)
+                Text(
+                    if (entry.status == AndroidSupportStatus.NEEDS_REVIEW && resolverAvailable) "已接入 · 待复核"
+                    else entry.status.displayName(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = color,
+                )
                 if (credentialSupported) {
                     TextButton(onClick = {
                         cookie = viewModel.credentialCookie(entry.key).orEmpty()
@@ -168,7 +217,7 @@ private fun PlatformRow(viewModel: PlatformsViewModel, entry: PlatformCatalogEnt
 }
 
 private fun AndroidSupportStatus.displayName(): String = when (this) {
-    AndroidSupportStatus.AVAILABLE -> "当前可用"
+    AndroidSupportStatus.AVAILABLE -> "解析可用"
     AndroidSupportStatus.FIRST_BATCH -> "首批适配"
     AndroidSupportStatus.PLANNED -> "计划接入"
     AndroidSupportStatus.NEEDS_REVIEW -> "待复核"

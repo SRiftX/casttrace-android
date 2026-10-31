@@ -42,6 +42,7 @@ fun LiveReminderEntity.toDomain() = LiveReminder(
     enabled = enabled,
     liveStatus = liveStatus,
     notifiedForCurrentLive = notifiedForCurrentLive,
+    strongNotificationEnabled = strongNotificationEnabled,
     lastCheckAt = lastCheckAt,
     createdAt = createdAt,
     updatedAt = updatedAt,

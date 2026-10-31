@@ -298,6 +298,9 @@ class ReminderRepository(
     suspend fun setReminderEnabled(reminderId: Long, enabled: Boolean) =
         reminderDao.setEnabled(reminderId, enabled, System.currentTimeMillis())
 
+    suspend fun setStrongNotificationEnabled(reminderId: Long, enabled: Boolean) =
+        reminderDao.setStrongNotificationEnabled(reminderId, enabled, System.currentTimeMillis())
+
     suspend fun deleteReminder(reminderId: Long) {
         reminderDao.getById(reminderId)?.let { reminderDao.delete(it) }
     }

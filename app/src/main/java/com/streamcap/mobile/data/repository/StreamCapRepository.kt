@@ -64,6 +64,8 @@ class StreamCapRepository(
     suspend fun importRoomAsReminder(roomId: Long): Boolean = reminderRepository.importRoomAsReminder(roomId)
     suspend fun setReminderEnabled(reminderId: Long, enabled: Boolean) =
         reminderRepository.setReminderEnabled(reminderId, enabled)
+    suspend fun setReminderStrongNotification(reminderId: Long, enabled: Boolean) =
+        reminderRepository.setStrongNotificationEnabled(reminderId, enabled)
     suspend fun deleteReminder(reminderId: Long) = reminderRepository.deleteReminder(reminderId)
     suspend fun checkReminder(reminderId: Long, notificationsAllowed: Boolean = true): Boolean =
         reminderRepository.checkReminder(reminderId, notificationsAllowed)

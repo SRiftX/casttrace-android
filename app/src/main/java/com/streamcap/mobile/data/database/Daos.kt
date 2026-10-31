@@ -138,6 +138,9 @@ interface LiveReminderDao {
     @Query("UPDATE live_reminders SET enabled = :enabled, notifiedForCurrentLive = CASE WHEN :enabled THEN 0 ELSE notifiedForCurrentLive END, lastCheckAt = CASE WHEN :enabled THEN NULL ELSE lastCheckAt END, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean, updatedAt: Long)
 
+    @Query("UPDATE live_reminders SET strongNotificationEnabled = :enabled, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setStrongNotificationEnabled(id: Long, enabled: Boolean, updatedAt: Long)
+
     @Delete
     suspend fun delete(reminder: LiveReminderEntity)
 

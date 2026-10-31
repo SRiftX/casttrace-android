@@ -77,6 +77,7 @@ object AppModule {
         StreamCapDatabase.MIGRATION_4_5,
         StreamCapDatabase.MIGRATION_5_6,
         StreamCapDatabase.MIGRATION_6_7,
+        StreamCapDatabase.MIGRATION_7_8,
     ).build()
 
     @Provides

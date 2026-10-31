@@ -53,6 +53,7 @@ data class LiveReminderEntity(
     val enabled: Boolean = true,
     val liveStatus: LiveStatus = LiveStatus.UNKNOWN,
     val notifiedForCurrentLive: Boolean = false,
+    val strongNotificationEnabled: Boolean = true,
     val lastCheckAt: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),

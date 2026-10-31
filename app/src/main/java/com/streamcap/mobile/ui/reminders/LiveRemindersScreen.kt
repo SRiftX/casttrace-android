@@ -68,6 +68,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -299,8 +301,17 @@ fun LiveRemindersScreen(
                     Text("主播", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text("${visibleReminders.size} / ${reminders.size} 位", style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { compactView = !compactView }, contentPadding = PaddingValues(horizontal = 10.dp)) {
-                        Text(if (compactView) "紧凑视图" else "舒展视图", maxLines = 1)
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FilterChip(
+                            selected = compactView,
+                            onClick = { compactView = true },
+                            label = { Text("紧凑") },
+                        )
+                        FilterChip(
+                            selected = !compactView,
+                            onClick = { compactView = false },
+                            label = { Text("舒展") },
+                        )
                     }
                 }
             }
@@ -339,6 +350,7 @@ fun LiveRemindersScreen(
                             compact = compactView,
                             onWatch = { onWatch(reminder.id) },
                             onEnabledChange = { setEnabled(reminder, it) },
+                            onStrongNotificationChange = { viewModel.setStrongNotification(reminder.id, it) },
                             onDelete = { delete(reminder) },
                         )
                     }
@@ -519,6 +531,7 @@ private fun ReminderRow(
     compact: Boolean,
     onWatch: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
+    onStrongNotificationChange: (Boolean) -> Unit,
     onDelete: () -> Unit,
 ) {
     val isLive = reminder.enabled && reminder.liveStatus == LiveStatus.LIVE
@@ -537,87 +550,160 @@ private fun ReminderRow(
         else -> "未开播"
     }
     val avatarColor = platformAccent(reminder.platform)
-    var menuExpanded by remember(reminder.id) { mutableStateOf(false) }
-
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = if (compact) 10.dp else 16.dp),
-        verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(shape = CircleShape, color = avatarColor.copy(alpha = 0.14f), modifier = Modifier.size(if (compact) 40.dp else 48.dp)) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(
-                        reminder.anchorName.take(1).ifBlank { "播" },
-                        color = avatarColor,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+    if (compact) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ReminderAvatar(reminder.anchorName, avatarColor, 34.dp)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(reminder.anchorName, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis)
+                    Text(reminder.platform, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    reminder.anchorName,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                if (isLive) {
+                    IconButton(onClick = onWatch, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Outlined.PlayArrow, contentDescription = "观看${reminder.anchorName}直播")
+                    }
+                }
+                Switch(
+                    checked = reminder.enabled,
+                    onCheckedChange = onEnabledChange,
+                    modifier = Modifier.semantics { contentDescription = "${reminder.anchorName}开播监控" },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = scheme.primary,
+                        checkedTrackColor = scheme.primary.copy(alpha = 0.32f),
+                    ),
                 )
+                ReminderMoreMenu(reminder.id, reminder.anchorName, onDelete)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.size(7.dp).background(statusColor, CircleShape))
+                Text(statusText, style = MaterialTheme.typography.labelSmall, color = statusColor, maxLines = 1)
                 Text(
-                    buildString {
-                        append(reminder.platform)
-                        if (isLive && !reminder.roomTitle.isNullOrBlank()) append(" · ${reminder.roomTitle}")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
+                    reminder.lastCheckAt?.let { formatDateTime(it) } ?: "尚未检查",
+                    style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("强提醒", style = MaterialTheme.typography.labelSmall)
+                Switch(
+                    checked = reminder.strongNotificationEnabled,
+                    onCheckedChange = onStrongNotificationChange,
+                    modifier = Modifier.semantics { contentDescription = "${reminder.anchorName}强提醒" },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = scheme.primary,
+                        checkedTrackColor = scheme.primary.copy(alpha = 0.32f),
+                    ),
                 )
             }
-            Switch(
-                checked = reminder.enabled,
-                onCheckedChange = onEnabledChange,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = scheme.primary,
-                    checkedTrackColor = scheme.primary.copy(alpha = 0.32f),
-                ),
-            )
-            Box {
-                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Outlined.MoreVert, contentDescription = "更多操作：${reminder.anchorName}",
-                        tint = scheme.onSurfaceVariant)
+        }
+    } else {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 15.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ReminderAvatar(reminder.anchorName, avatarColor, 48.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(reminder.anchorName, style = MaterialTheme.typography.titleMedium, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis)
+                    Text(reminder.platform, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    reminder.roomTitle?.takeIf(String::isNotBlank)?.let { title ->
+                        Text(title, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
-                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                    DropdownMenuItem(
-                        text = { Text("移除主播") },
-                        leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null) },
-                        onClick = { menuExpanded = false; onDelete() },
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("监控开播", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                    Switch(
+                        checked = reminder.enabled,
+                        onCheckedChange = onEnabledChange,
+                        modifier = Modifier.semantics { contentDescription = "${reminder.anchorName}开播监控" },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = scheme.primary,
+                            checkedTrackColor = scheme.primary.copy(alpha = 0.32f),
+                        ),
+                    )
+                }
+                ReminderMoreMenu(reminder.id, reminder.anchorName, onDelete)
+            }
+            HorizontalDivider()
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(8.dp).background(statusColor, CircleShape))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(statusText, style = MaterialTheme.typography.bodyMedium, color = statusColor)
+                    Text(
+                        "最近检查 · ${reminder.lastCheckAt?.let { formatDateTime(it) } ?: "尚未检查"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box(Modifier.size(7.dp).background(statusColor, CircleShape))
-            Text(statusText, style = MaterialTheme.typography.labelMedium, color = statusColor)
-            Text("·", style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
-            Text(
-                reminder.lastCheckAt?.let { formatDateTime(it) } ?: "尚未检查",
-                style = MaterialTheme.typography.labelSmall,
-                color = scheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("开播强提醒", style = MaterialTheme.typography.bodyMedium)
+                    Text("响铃并震动，可单独为这位主播关闭", style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = reminder.strongNotificationEnabled,
+                    onCheckedChange = onStrongNotificationChange,
+                    modifier = Modifier.semantics { contentDescription = "${reminder.anchorName}强提醒" },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = scheme.primary,
+                        checkedTrackColor = scheme.primary.copy(alpha = 0.32f),
+                    ),
+                )
+            }
             if (isLive) {
-                TextButton(
+                Button(
                     onClick = onWatch,
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    modifier = Modifier.heightIn(min = 40.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                    shape = RoundedCornerShape(8.dp),
                 ) {
                     Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(2.dp))
-                    Text("观看", maxLines = 1)
+                    Spacer(Modifier.width(6.dp))
+                    Text("进入直播间")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReminderAvatar(name: String, color: Color, size: androidx.compose.ui.unit.Dp) {
+    Surface(shape = CircleShape, color = color.copy(alpha = 0.14f), modifier = Modifier.size(size)) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(name.take(1).ifBlank { "播" }, color = color, style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun ReminderMoreMenu(reminderId: Long, anchorName: String, onDelete: () -> Unit) {
+    var expanded by remember(reminderId) { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }, modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Outlined.MoreVert, contentDescription = "更多操作：$anchorName",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("移除主播") },
+                leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null) },
+                onClick = { expanded = false; onDelete() },
+            )
         }
     }
 }
