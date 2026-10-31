@@ -1,6 +1,11 @@
-# CastTrace Android
+<h1 align="center">CastTrace Android</h1>
 
-[简体中文](README.md) | [English](README.en.md)
+<p align="center">简体中文 | <a href="README.en.md">English</a></p>
+
+<p align="center">
+  <strong>Android 多平台直播监控与录制</strong><br>
+  本机管理直播间，后台监控开播，自动录制并恢复中断任务。
+</p>
 
 <p align="center">
   <a href="https://github.com/SRiftX/casttrace-android/actions/workflows/android-checks.yml"><img alt="Android checks" src="https://github.com/SRiftX/casttrace-android/actions/workflows/android-checks.yml/badge.svg"></a>
@@ -10,12 +15,18 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/License-Apache--2.0-green"></a>
 </p>
 
-CastTrace 是一款 Android 多平台直播监控和录制工具，使用 Kotlin、Jetpack Compose、Room、WorkManager、Media3 和 FFmpegKit 构建。它可在本机管理直播间、后台监控开播、自动录制与恢复，并支持直播提醒、弹幕采集和本地播放。
+<p align="center"><a href="https://github.com/SRiftX/casttrace-android/releases"><strong>下载最新版 APK</strong></a> · <a href="CONTRIBUTING.md">参与开发</a> · <a href="ARCHITECTURE.md">架构说明</a></p>
 
-本项目参考了 [StreamCap](https://github.com/ihmily/StreamCap) 的平台录制思路，是独立维护的 Android 项目，并非 StreamCap 官方移动端；上游平台支持范围不代表本项目全部支持。
+## 界面截图
 
 <p align="center">
-  <a href="#界面截图">界面截图</a> ·
+  <a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" height="280" alt="直播间监控和录制控制台"></a>
+  <a href="screenshots/live-reminders.png"><img src="screenshots/live-reminders.png" height="280" alt="开播提醒列表"></a>
+  <a href="screenshots/settings.png"><img src="screenshots/settings.png" height="280" alt="录制、后台运行和平台设置"></a>
+</p>
+<p align="center"><sub>直播间监控台 · 开播提醒 · 录制与后台设置。点击图片可查看原尺寸。</sub></p>
+
+<p align="center">
   <a href="#下载-apk">下载 APK</a> ·
   <a href="#功能">功能</a> ·
   <a href="#从源码构建">从源码构建</a> ·
@@ -23,13 +34,9 @@ CastTrace 是一款 Android 多平台直播监控和录制工具，使用 Kotlin
   <a href="#参与和反馈">参与和反馈</a>
 </p>
 
-## 界面截图
+CastTrace 使用 Kotlin、Jetpack Compose、Room、WorkManager、Media3 和 FFmpegKit 构建，支持直播提醒、弹幕采集与本地播放。
 
-<p align="center">
-  <a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" height="300" alt="直播间监控和录制控制台"></a>
-  <a href="screenshots/live-reminders.png"><img src="screenshots/live-reminders.png" height="300" alt="开播提醒列表"></a>
-  <a href="screenshots/settings.png"><img src="screenshots/settings.png" height="300" alt="录制和后台运行设置"></a>
-</p>
+本项目参考了 [StreamCap](https://github.com/ihmily/StreamCap) 的平台录制思路，是独立维护的 Android 项目，并非 StreamCap 官方移动端；上游平台支持范围不代表本项目全部支持。
 
 ## 下载 APK
 
