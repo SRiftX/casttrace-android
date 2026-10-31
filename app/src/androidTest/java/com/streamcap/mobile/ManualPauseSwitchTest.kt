@@ -1,7 +1,6 @@
 package com.streamcap.mobile
 
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.data.database.LiveRoomEntity
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.service.RecordingService
@@ -13,10 +12,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class ManualPauseSwitchTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class ManualPauseSwitchTest : HiltGraphTest() {
     @Test fun manualPauseDisablesOnlyItsRoomAutomaticRecording(): Unit = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val container = (context.applicationContext as StreamCapApplication).container
+        val container = (context.applicationContext).testGraph
         val dao = container.database.liveRoomDao()
         val future = System.currentTimeMillis() + 86_400_000L
         val first = dao.insert(LiveRoomEntity(

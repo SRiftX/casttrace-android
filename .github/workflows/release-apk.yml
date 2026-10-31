@@ -1,0 +1,163 @@
+name: Publish Android APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag and version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          TAG_SHA: ${{ github.sha }}
+        run: |
+          git fetch origin main --no-tags
+          git merge-base --is-ancestor "$TAG_SHA" origin/main
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          gradle = pathlib.Path('app/build.gradle.kts').read_text(encoding='utf-8')
+          version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle).group(1)
+          expected_tag = f'v{version}'
+          if os.environ['TAG_NAME'] != expected_tag:
+              raise SystemExit(f"Tag {os.environ['TAG_NAME']} does not match app version {expected_tag}")
+          print(f"Release version: {version}")
+          PY
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Download and verify pinned FFmpegKit AAR
+        run: |
+          mkdir -p app/libs
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            'https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar' \
+            -o app/libs/ffmpeg-kit-https-7.1.6.aar
+          echo 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860  app/libs/ffmpeg-kit-https-7.1.6.aar' | sha256sum --check
+
+      - name: Run unit tests and lint
+        run: bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug --console=plain
+
+      - name: Enforce FFmpeg corresponding-source release gate
+        run: python scripts/verify_release_readiness.py
+
+      - name: Prepare signing key
+        env:
+          CASTTRACE_KEYSTORE_BASE64: ${{ secrets.CASTTRACE_KEYSTORE_BASE64 }}
+          KEYSTORE_PATH: ${{ runner.temp }}/casttrace-release.p12
+        run: |
+          python - <<'PY'
+          import base64
+          import os
+          import pathlib
+
+          encoded = os.environ.get('CASTTRACE_KEYSTORE_BASE64', '')
+          if not encoded:
+              raise SystemExit('CASTTRACE_KEYSTORE_BASE64 is not configured.')
+          data = base64.b64decode(encoded, validate=True)
+          if not data.startswith(b'0'):
+              raise SystemExit('The configured signing key is not a PKCS#12 file.')
+          pathlib.Path(os.environ['KEYSTORE_PATH']).write_bytes(data)
+          PY
+
+      - name: Build signed release APK
+        env:
+          CASTTRACE_KEYSTORE: ${{ runner.temp }}/casttrace-release.p12
+          CASTTRACE_STORE_PASSWORD: ${{ secrets.CASTTRACE_STORE_PASSWORD }}
+          CASTTRACE_KEY_ALIAS: ${{ secrets.CASTTRACE_KEY_ALIAS }}
+          CASTTRACE_KEY_PASSWORD: ${{ secrets.CASTTRACE_KEY_PASSWORD }}
+        run: bash gradlew --no-daemon :app:assembleRelease --console=plain
+
+      - name: Verify APK package and signing identity
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+          import subprocess
+
+          root = pathlib.Path(os.environ['ANDROID_HOME'])
+          build_tools = root / 'build-tools' / '35.0.0'
+          apk = pathlib.Path('app/build/outputs/apk/release/app-release.apk')
+          gradle = pathlib.Path('app/build.gradle.kts').read_text(encoding='utf-8')
+          version = re.search(r'versionName\s*=\s*"([^"]+)"', gradle).group(1)
+          version_code = re.search(r'versionCode\s*=\s*(\d+)', gradle).group(1)
+
+          badging = subprocess.run([str(build_tools / 'aapt'), 'dump', 'badging', str(apk)],
+                                  check=True, capture_output=True, text=True).stdout
+          package = next(line for line in badging.splitlines() if line.startswith('package:'))
+          if f"name='com.streamcap.mobile'" not in package or f"versionCode='{version_code}'" not in package or f"versionName='{version}'" not in package:
+              raise SystemExit(f'Unexpected APK metadata: {package}')
+
+          signer = subprocess.run([str(build_tools / 'apksigner'), 'verify', '--verbose', '--print-certs', str(apk)],
+                                  check=True, capture_output=True, text=True).stdout
+          print(signer)
+          match = re.search(r'certificate SHA-256 digest:\s*([A-Fa-f0-9]+)', signer)
+          expected = 'D39B0394EE312DE5B1F25F8A215A0E81CA9C47229835D2F96DD0187694523C57'
+          if not match or match.group(1).upper() != expected:
+              raise SystemExit('APK was not signed by the established CastTrace release identity.')
+          if os.environ['TAG_NAME'] != f'v{version}':
+              raise SystemExit('APK version changed after tag validation.')
+          PY
+
+      - name: Collect FFmpeg corresponding-source materials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/prepare_ffmpeg_compliance.py
+
+      - name: Check source materials and assemble release assets
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python scripts/verify_release_readiness.py
+          git diff --exit-code -- app/src/main/assets/licenses third_party/ffmpeg
+          mkdir -p build/release
+          version="${TAG_NAME#v}"
+          cp app/build/outputs/apk/release/app-release.apk "build/release/casttrace-${version}-release.apk"
+          git archive --format=zip --prefix=casttrace-android/ HEAD -o "build/release/casttrace-${version}-source.zip"
+          cp build/compliance/ffmpeg-7.1.6/casttrace-ffmpeg-7.1.6-source-materials.zip build/release/
+          cd build/release
+          sha256sum casttrace-*-release.apk casttrace-*-source.zip casttrace-ffmpeg-7.1.6-source-materials.zip > SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: CastTrace ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            build/release/casttrace-*-release.apk
+            build/release/casttrace-*-source.zip
+            build/release/casttrace-ffmpeg-7.1.6-source-materials.zip
+            build/release/SHA256SUMS
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "${{ runner.temp }}/casttrace-release.p12"

@@ -64,15 +64,10 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.domain.model.LiveReminder
 import com.streamcap.mobile.domain.model.StreamSource
 import com.streamcap.mobile.domain.model.StreamType
-import com.streamcap.mobile.recording.hls.HlsSourceSelector
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.withContext
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 
 private val PlayerInk = Color.Black
 private val PlayerPanel = Color(0xFF202020)
@@ -84,60 +79,20 @@ private val PlayerRed = Color(0xFFFF8C83)
 @androidx.annotation.OptIn(UnstableApi::class)
 fun LiveReminderPlayerScreen(
     reminderId: Long,
-    container: AppContainer,
     contentPadding: PaddingValues,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val reminders by remember(reminderId) {
-        container.repository.reminders.map { list -> list.firstOrNull { it.id == reminderId } }
-    }.collectAsStateWithLifecycle(null)
+    val viewModel: LiveReminderPlayerViewModel = hiltViewModel()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var retry by remember(reminderId) { mutableIntStateOf(0) }
-    var sources by remember(reminderId) { mutableStateOf<List<StreamSource>>(emptyList()) }
-    var sourceIndex by remember(reminderId) { mutableIntStateOf(0) }
-    var loading by remember(reminderId) { mutableStateOf(true) }
-    var errorMessage by remember(reminderId) { mutableStateOf<String?>(null) }
+    val reminders = state.reminder
+    val sources = state.sources
+    val sourceIndex = state.sourceIndex
+    val loading = state.loading
+    val errorMessage = state.errorMessage
 
-    LaunchedEffect(reminderId, reminders?.originalUrl, retry) {
-        val reminder = reminders
-        if (reminder == null) {
-            loading = false
-            errorMessage = "这个主播提醒已不存在"
-            sources = emptyList()
-            return@LaunchedEffect
-        }
-        loading = true
-        errorMessage = null
-        sources = emptyList()
-        try {
-            val resolved = withContext(Dispatchers.IO) {
-                container.networkPolicy.requireAllowed()
-                container.repository.streams(reminder)
-            }
-            val playable = resolved.filterNot(StreamSource::requiresFfmpeg)
-            if (playable.isEmpty()) {
-                error(if (resolved.isEmpty()) "主播目前没有可用直播流" else "此直播线路暂不支持应用内播放")
-            }
-            val hls = playable.filter { it.type == StreamType.HLS }
-            val preferred = if (hls.isNotEmpty()) {
-                try {
-                    withContext(Dispatchers.IO) { HlsSourceSelector(container.httpClient).select(hls) }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    hls.first()
-                }
-            } else playable.first()
-            sources = playable
-            sourceIndex = playable.indexOf(preferred).coerceAtLeast(0)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            errorMessage = failure.message ?: "直播线路解析失败"
-        } finally {
-            loading = false
-        }
-    }
+    LaunchedEffect(reminderId, reminders?.normalizedUrl, retry) { viewModel.resolveSources() }
 
     val source = sources.getOrNull(sourceIndex)
     var playbackError by remember(source) { mutableStateOf<String?>(null) }
@@ -150,7 +105,7 @@ fun LiveReminderPlayerScreen(
                 .setReadTimeoutMs(20_000)
             val guarded = ResolvingDataSource.Factory(DefaultDataSource.Factory(context, http)) { spec ->
                 if (spec.uri.scheme in setOf("http", "https")) {
-                    kotlinx.coroutines.runBlocking { container.networkPolicy.requireAllowed() }
+                    viewModel.requireNetworkAllowed()
                 }
                 spec
             }
@@ -269,7 +224,7 @@ fun LiveReminderPlayerScreen(
                         retryEnabled = !loading,
                         onRetry = { retry++ },
                         onChangeSource = if (sources.size > 1) {
-                            { sourceIndex = (sourceIndex + 1) % sources.size }
+                            { viewModel.nextSource() }
                         } else null,
                     )
                     Spacer(Modifier.width(26.dp))
@@ -281,7 +236,7 @@ fun LiveReminderPlayerScreen(
                         sourceCount = sources.size,
                         error = playbackError ?: errorMessage,
                         onChangeSource = if (sources.size > 1) {
-                            { sourceIndex = (sourceIndex + 1) % sources.size }
+                            { viewModel.nextSource() }
                         } else null,
                     )
                 }
@@ -295,7 +250,7 @@ fun LiveReminderPlayerScreen(
                         retryEnabled = !loading,
                         onRetry = { retry++ },
                         onChangeSource = if (sources.size > 1) {
-                            { sourceIndex = (sourceIndex + 1) % sources.size }
+                            { viewModel.nextSource() }
                         } else null,
                     )
                     LiveRoomDetails(
@@ -306,7 +261,7 @@ fun LiveReminderPlayerScreen(
                         sourceCount = sources.size,
                         error = playbackError ?: errorMessage,
                         onChangeSource = if (sources.size > 1) {
-                            { sourceIndex = (sourceIndex + 1) % sources.size }
+                            { viewModel.nextSource() }
                         } else null,
                     )
                 }
@@ -412,6 +367,7 @@ private fun LiveRoomDetails(
     }
 }
 
+@androidx.annotation.OptIn(UnstableApi::class)
 private fun StreamSource.mimeType(): String? = when (type) {
     StreamType.HLS -> MimeTypes.APPLICATION_M3U8
     StreamType.FLV -> MimeTypes.VIDEO_FLV

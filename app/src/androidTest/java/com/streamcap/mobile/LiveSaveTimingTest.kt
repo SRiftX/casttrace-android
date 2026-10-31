@@ -1,7 +1,6 @@
 package com.streamcap.mobile
 
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.service.RecordingService
 import kotlinx.coroutines.delay
@@ -12,10 +11,11 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /** Opt-in real stream timing run. Pass roomId through instrumentation arguments. */
-class LiveSaveTimingTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class LiveSaveTimingTest : HiltGraphTest() {
     @Test fun timePauseOfExistingLiveRoom(): Unit = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val repository = (context.applicationContext as StreamCapApplication).container.repository
+        val repository = (context.applicationContext).testGraph.repository
         val roomId = InstrumentationRegistry.getArguments().getString("roomId")?.toLongOrNull()
         assumeTrue("Specify a roomId on an idle QA device", roomId != null && repository.activeSessions().isEmpty())
         assumeTrue("Room must exist", repository.room(roomId!!) != null)

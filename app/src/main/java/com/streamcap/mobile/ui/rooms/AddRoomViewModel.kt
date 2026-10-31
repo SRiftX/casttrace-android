@@ -2,11 +2,14 @@ package com.streamcap.mobile.ui.rooms
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import com.streamcap.mobile.data.repository.StreamCapRepository
 import com.streamcap.mobile.data.preferences.AppPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import com.streamcap.mobile.domain.model.RoomRecordingOptions
@@ -16,6 +19,7 @@ import com.streamcap.mobile.data.preferences.RecordingTemplate
 import com.streamcap.mobile.domain.model.LiveRoomInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import javax.inject.Inject
 
 data class ImportLine(
     val original: String,
@@ -51,10 +55,12 @@ data class AddRoomState(
     val batchResult: BatchImportResult? = null,
 )
 
-class AddRoomViewModel(
+@HiltViewModel
+class AddRoomViewModel @Inject constructor(
     private val repository: StreamCapRepository,
     private val preferences: AppPreferences,
 ) : ViewModel() {
+    val templates = preferences.templates.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val _state = MutableStateFlow(AddRoomState())
     val state: StateFlow<AddRoomState> = _state
 

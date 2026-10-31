@@ -31,6 +31,7 @@ SOURCES = [
     # Declared submodule, not proof of the revision selected by --remote in CI.
     ('gnutls-declared-gnulib', 'arthenica/gnulib', '3639c57a970191e0bf7a9789bd1341786d0255a1'),
 ]
+EXPECTED_SOURCE_HASHES = {}
 
 def sha(path):
     digest = hashlib.sha256()
@@ -64,6 +65,9 @@ def collect(item):
         commit = obj['sha']
     url = f'https://codeload.github.com/{repo}/tar.gz/{commit}'
     target = download(url, OUT / f'{name}-{commit}.tar.gz')
+    actual_hash = sha(target)
+    expected_hash = EXPECTED_SOURCE_HASHES.get(name)
+    assert expected_hash and actual_hash == expected_hash, f'Unexpected source archive hash: {name}'
     with tarfile.open(target) as archive:
         # Read rather than extract an untrusted archive into the workspace.
         members = [m for m in archive.getmembers() if m.isfile()]
@@ -84,11 +88,15 @@ def collect(item):
                 member = next(m for m in members if m.name.endswith('/' + suffix))
                 (ASSETS / ('gnutls-' + suffix.replace('/', '-') + '.txt')).write_bytes(archive.extractfile(member).read())
     result = {'name': name, 'repository': f'https://github.com/{repo}', 'ref': ref,
-              'commit': commit, 'url': url, 'file': target.name, 'sha256': sha(target), 'bytes': target.stat().st_size}
+              'commit': commit, 'url': url, 'file': target.name, 'sha256': actual_hash, 'bytes': target.stat().st_size}
     print(f'Collected {name}: {commit} ({target.stat().st_size} bytes)', flush=True)
     return result
 
 def main():
+    reviewed_manifest = json.loads((EVIDENCE / 'manifest.json').read_text(encoding='utf8'))
+    global EXPECTED_SOURCE_HASHES
+    EXPECTED_SOURCE_HASHES = {source['name']: source['sha256'] for source in reviewed_manifest.get('sources', [])}
+    assert set(EXPECTED_SOURCE_HASHES) == {name for name, _, _ in SOURCES}, 'Manifest source archive pins are incomplete.'
     for directory in (OUT, EVIDENCE, ASSETS):
         directory.mkdir(parents=True, exist_ok=True)
     for name in ('LICENSE', 'NOTICE'):
@@ -115,20 +123,16 @@ def main():
                 binaries.append({'file': name, 'configuration': config, 'version': next(s.decode() for s in strings if s.startswith(b'FFmpeg version '))})
     with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
         sources = list(executor.map(collect, SOURCES))
-    manifest = {'artifact': 'dev.ffmpegkit-maintained:ffmpeg-kit-https:7.1.6', 'sha256': AAR_SHA,
-                'url': MAVEN + aar.name, 'license': 'LGPL-3.0',
-                'buildCommit': BUILD_COMMIT, 'buildRun': 'https://github.com/ffmpegkit-maintained/ffmpeg/actions/runs/29181361560',
-                'buildAssociation': 'Workflow/version/timestamp evidence; no recovered run artifact checksum independently ties this run to the Maven AAR.',
+    manifest = {'artifact': reviewed_manifest['artifact'], 'sha256': AAR_SHA,
+                'url': reviewed_manifest['url'], 'license': reviewed_manifest['license'],
+                'buildCommit': reviewed_manifest['buildCommit'], 'buildRun': reviewed_manifest['buildRun'],
+                'buildAssociation': reviewed_manifest['buildAssociation'],
                 'native': binaries, 'sources': sources,
                 'javaSources': {'file': java.name, 'url': MAVEN + java.name, 'sha256': sha(java)},
-                'systemLibraries': ['Android libc/libm/libdl/liblog', 'Android MediaCodec', 'Android zlib'],
-                'redistributionReady': False,
-                'sourceGaps': [
-                    'Actual CI restored prebuilt/ and src/ from ci-cache-71-free-https; the branch now returns 404 and its revision is not recorded in the available log.',
-                    'GnuTLS bootstrap can update gnulib with --remote. The declared submodule archive is included but its use in this binary is unverified.',
-                    'Other GnuTLS bootstrap/test submodules and generated cache contents are not included; these archives are source materials, not a verified complete corresponding-source distribution.'
-                ],
-                'verificationScope': 'Maven SHA-256 match and pinned declared source inputs/build recipe. Exact cached native sources and a clean native rebuild remain unverified.'}
+                'systemLibraries': reviewed_manifest['systemLibraries'],
+                'redistributionReady': reviewed_manifest['redistributionReady'],
+                'sourceGaps': reviewed_manifest['sourceGaps'],
+                'verificationScope': reviewed_manifest['verificationScope']}
     for target in (EVIDENCE / 'manifest.json', OUT / 'manifest.json'):
         target.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf8')
     with zipfile.ZipFile(OUT / 'casttrace-ffmpeg-7.1.6-source-materials.zip', 'w', zipfile.ZIP_STORED) as bundle:
@@ -140,7 +144,8 @@ def main():
             if path.is_file(): bundle.write(path, 'evidence/' + path.name)
         for path in ASSETS.glob('*.txt'):
             bundle.write(path, 'licenses/' + path.name)
-    print('Source materials collected; redistribution gate remains OPEN: ' + str(OUT / 'casttrace-ffmpeg-7.1.6-source-materials.zip'))
+    status = 'passed' if manifest['redistributionReady'] and not manifest['sourceGaps'] else 'blocked'
+    print(f'Source materials collected; public binary release gate {status}: ' + str(OUT / 'casttrace-ffmpeg-7.1.6-source-materials.zip'))
 
 if __name__ == '__main__':
     main()

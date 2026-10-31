@@ -5,7 +5,6 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import com.streamcap.mobile.app.MainActivity
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.data.database.LiveRoomEntity
 import com.streamcap.mobile.data.database.RecordingSessionEntity
 import com.streamcap.mobile.data.database.toDomain
@@ -18,13 +17,14 @@ import org.junit.Rule
 import org.junit.Test
 import java.io.File
 
-class RecordingDeletePermissionTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class RecordingDeletePermissionTest : HiltGraphTest() {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
 
     @Test fun foreignMediaConsentCanBeCancelledThenApproved(): Unit = runBlocking {
         val context = compose.activity
-        val container = (context.application as StreamCapApplication).container
+        val container = (context.application).testGraph
         val repository = container.repository
         val raw = requireNotNull(InstrumentationRegistry.getArguments().getString("foreignMediaUri")) {
             "Create a disposable shell-owned MediaStore video and supply foreignMediaUri"
@@ -37,7 +37,14 @@ class RecordingDeletePermissionTest {
         val entity = RecordingSessionEntity(roomId = roomId, roomName = "QA删除权限", status = TaskStatus.COMPLETED,
             outputUri = raw, outputUris = listOf(raw), temporaryPath = temporary.absolutePath)
         val id = container.database.recordingSessionDao().insert(entity)
-        val viewModel = RecordingsViewModel(repository, container)
+        val viewModel = RecordingsViewModel(
+            repository = repository,
+            preferences = container.preferences,
+            recordingStorage = container.recordingStorage,
+            videoExporter = container.videoExporter,
+            shareExporter = container.shareExporter,
+            context = context,
+        )
         try {
             val cancelled = CompletableDeferred<String?>()
             viewModel.delete(entity.copy(id = id).toDomain()) { cancelled.complete(it) }

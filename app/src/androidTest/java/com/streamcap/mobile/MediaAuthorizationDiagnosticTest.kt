@@ -1,7 +1,6 @@
 package com.streamcap.mobile
 
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.platform.resolver.DESKTOP_USER_AGENT
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
@@ -9,14 +8,15 @@ import okhttp3.Request
 import org.junit.Test
 
 /** Receive-only diagnostics; logs status/reason without playback URLs or cookies. */
-class MediaAuthorizationDiagnosticTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class MediaAuthorizationDiagnosticTest : HiltGraphTest() {
     @Test fun inspectCdnRejection() = runBlocking {
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StreamCapApplication
-        val client = app.container.httpClient
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val client = app.testGraph.httpClient
         val url = requireNotNull(InstrumentationRegistry.getArguments().getString("authorizationUrl"))
-        val id = app.container.repository.rooms.first().firstOrNull { it.normalizedUrl == url }?.id
-            ?: app.container.repository.addRoom(url)
-        val source = app.container.repository.streams(id).first()
+        val id = app.testGraph.repository.rooms.first().firstOrNull { it.normalizedUrl == url }?.id
+            ?: app.testGraph.repository.addRoom(url)
+        val source = app.testGraph.repository.streams(id).first()
         for (mode in listOf("current", "no-origin", "no-referer", "minimal", "http1")) {
             val headers = source.headers.toMutableMap()
             if (mode == "no-origin") headers.remove("Origin")

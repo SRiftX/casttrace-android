@@ -2,6 +2,9 @@ package com.streamcap.mobile.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import com.streamcap.mobile.data.preferences.AppPreferences
+import com.streamcap.mobile.data.preferences.UserSettings
 import com.streamcap.mobile.data.repository.StreamCapRepository
 import com.streamcap.mobile.domain.model.LiveRoom
 import com.streamcap.mobile.domain.model.LiveStatus
@@ -9,9 +12,20 @@ import com.streamcap.mobile.domain.model.RecordingSession
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-class HomeViewModel(private val repository: StreamCapRepository) : ViewModel() {
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val repository: StreamCapRepository,
+    private val preferences: AppPreferences,
+) : ViewModel() {
+    val settings: StateFlow<UserSettings> = preferences.settings.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        UserSettings(),
+    )
     val rooms: StateFlow<List<LiveRoom>> = repository.rooms.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -46,6 +60,20 @@ class HomeViewModel(private val repository: StreamCapRepository) : ViewModel() {
     fun setScheduledMonitoringEnabled(roomId: Long, enabled: Boolean, afterChange: () -> Unit = {}) {
         viewModelScope.launch {
             repository.setScheduledMonitoringEnabled(roomId, enabled)
+            afterChange()
+        }
+    }
+
+    fun setGlobalAutoRecordEnabled(enabled: Boolean, afterChange: () -> Unit = {}) {
+        viewModelScope.launch {
+            preferences.setGlobalAutoRecordEnabled(enabled)
+            afterChange()
+        }
+    }
+
+    fun setBackgroundMonitoringEnabled(enabled: Boolean, afterChange: () -> Unit = {}) {
+        viewModelScope.launch {
+            preferences.setBackgroundMonitoringEnabled(enabled)
             afterChange()
         }
     }

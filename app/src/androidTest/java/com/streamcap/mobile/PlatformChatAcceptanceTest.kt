@@ -2,7 +2,6 @@ package com.streamcap.mobile
 
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.danmaku.DanmakuConnectContext
 import com.streamcap.mobile.danmaku.DanmakuFrame
 import kotlinx.coroutines.Dispatchers
@@ -15,17 +14,18 @@ import org.junit.Test
 import java.io.File
 
 /** Receive-only opt-in live probes. Never sends public messages or modifies saved rooms. */
-class PlatformChatAcceptanceTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class PlatformChatAcceptanceTest : HiltGraphTest() {
     @Test fun receiveRealChat() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val args = InstrumentationRegistry.getArguments()
         val urls = args.getString("chatUrls").orEmpty().split(',').map(String::trim).filter(String::isNotBlank)
         require(urls.isNotEmpty()) { "chatUrls must contain real room URLs" }
-        val app = instrumentation.targetContext.applicationContext as StreamCapApplication
+        val app = instrumentation.targetContext.applicationContext
         val seconds = args.getString("chatSeconds")?.toLongOrNull()?.coerceIn(15, 180) ?: 60L
         urls.chunked(10).forEach { batch -> batch.map { url -> async(Dispatchers.IO) {
-            val platform = app.container.resolverRegistry.resolverFor(url).platformId
-            val factory = app.container.danmakuClients
+            val platform = app.testGraph.resolverRegistry.resolverFor(url).platformId
+            val factory = app.testGraph.danmakuClients
             if (!factory.supports(platform)) {
                 Log.i("PlatformChat", "RESULT platform=$platform state=UNSUPPORTED")
                 return@async

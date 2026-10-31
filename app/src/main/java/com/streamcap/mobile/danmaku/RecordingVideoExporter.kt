@@ -7,13 +7,18 @@ import com.streamcap.mobile.data.preferences.DanmakuAppearance
 import com.streamcap.mobile.data.repository.StreamCapRepository
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.ui.player.RecordingPlaybackSourceResolver
+import com.streamcap.mobile.storage.RecordingStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 enum class VideoExportMode { ORIGINAL, WITH_DANMAKU }
 
-class RecordingVideoExporter(private val context: Context, private val repository: StreamCapRepository) {
+class RecordingVideoExporter(
+    private val context: Context,
+    private val repository: StreamCapRepository,
+    private val storage: RecordingStorage = RecordingStorage(context),
+) {
     suspend fun export(recordingId: Long, source: String, destination: Uri,
                        appearance: DanmakuAppearance, onProgress: (String) -> Unit = {}) {
         val session = requireNotNull(repository.session(recordingId)) { "录制记录不存在" }
@@ -47,13 +52,13 @@ class RecordingVideoExporter(private val context: Context, private val repositor
                             recordingId, (offset - 10_000L).coerceAtLeast(0L), offset + duration, 100_001)
                         check(events.any { it.mediaTimeMs != null }) { "当前视频片段没有可用弹幕" }
                         check(events.size <= 100_000) { "当前片段弹幕超过 10 万条，请缩小导出范围" }
-                        DanmakuVideoExporter(context).export(uri, destination, events, appearance, offset, onProgress)
+                        DanmakuVideoExporter(context, storage).export(uri, destination, events, appearance, offset, onProgress)
                     }
                 }
             }
         } catch (failure: Throwable) {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
-                runCatching { com.streamcap.mobile.storage.RecordingStorage(context).deletePublished(destination.toString()) }
+                runCatching { storage.deletePublished(destination.toString()) }
             }
             throw failure
         }

@@ -5,7 +5,6 @@ import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.platform.AndroidSupportStatus
 import com.streamcap.mobile.platform.PlatformCatalog
@@ -22,10 +21,11 @@ import org.junit.Test
 import java.util.concurrent.TimeUnit
 
 /** Read-only checks against the installed formal package; no room or recording is created. */
-class FormalPlatformBatchTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class FormalPlatformBatchTest : HiltGraphTest() {
     @Test fun catalogHostsTenAtATime() = runBlocking {
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StreamCapApplication
-        val client = app.container.httpClient.newBuilder().callTimeout(20, TimeUnit.SECONDS).build()
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val client = app.testGraph.httpClient.newBuilder().callTimeout(20, TimeUnit.SECONDS).build()
         PlatformCatalog.entries.filter { it.key != "custom" && it.status != AndroidSupportStatus.DISCONTINUED }
             .chunked(10).forEachIndexed { batch, entries ->
                 val start = SystemClock.elapsedRealtime()
@@ -45,22 +45,22 @@ class FormalPlatformBatchTest {
     }
 
     @Test fun savedRoomsResolveAndReadMediaTenAtATime() = runBlocking {
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StreamCapApplication
-        val rooms = app.container.repository.rooms.first()
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val rooms = app.testGraph.repository.rooms.first()
         assertTrue("No saved rooms in formal package", rooms.isNotEmpty())
         rooms.chunked(10).forEachIndexed { batch, group ->
             group.map { room -> async(Dispatchers.IO) {
                 val result = runCatching {
                     withTimeout(60_000) {
-                        val sources = app.container.repository.streams(room.id)
+                        val sources = app.testGraph.repository.streams(room.id)
                         if (sources.isEmpty()) "NO_SOURCE" else {
                             val hls = sources.filter { it.type == StreamType.HLS }
-                            val selected = runCatching { HlsSourceSelector(app.container.httpClient).select(hls) }.getOrNull()
+                            val selected = runCatching { HlsSourceSelector(app.testGraph.httpClient).select(hls) }.getOrNull()
                             if (selected != null) "MEDIA_OK_HLS" else {
                                 val flv = sources.firstOrNull { it.type == StreamType.FLV }
                                 if (flv == null) "MEDIA_FAILED" else {
                                     val request = Request.Builder().url(flv.url).apply { flv.headers.forEach(::header) }.build()
-                                    app.container.httpClient.newCall(request).execute().use { response ->
+                                    app.testGraph.httpClient.newCall(request).execute().use { response ->
                                         if (response.isSuccessful && response.body?.source()?.exhausted() == false) "MEDIA_OK_FLV" else "MEDIA_FAILED_HTTP_${response.code}"
                                     }
                                 }

@@ -65,11 +65,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.streamcap.mobile.app.AppContainer
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.service.RecordingService
-import com.streamcap.mobile.ui.ViewModelFactory
 import com.streamcap.mobile.ui.common.displayName
 import com.streamcap.mobile.ui.common.formatDateTime
 
@@ -77,14 +75,11 @@ import com.streamcap.mobile.ui.common.formatDateTime
 @Composable
 fun RoomDetailScreen(
     roomId: Long,
-    container: AppContainer,
     onBack: () -> Unit,
 ) {
     val recordAction = rememberRecordingAction()
     val context = LocalContext.current
-    val viewModel: RoomDetailViewModel = viewModel(
-        factory = ViewModelFactory { RoomDetailViewModel(roomId, container.repository) },
-    )
+    val viewModel: RoomDetailViewModel = hiltViewModel()
     val room by viewModel.room.collectAsStateWithLifecycle()
     LaunchedEffect(roomId) {
         // Inspecting a room must not clear a user's pause by issuing ACTION_START.

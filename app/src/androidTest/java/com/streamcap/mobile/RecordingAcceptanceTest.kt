@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.RoomRecordingOptions
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.service.RecordingService
@@ -16,7 +15,8 @@ import org.junit.Test
 import java.io.File
 
 /** Opt-in network/device acceptance: pass recordingRoomId or recordingRoomUrl. */
-class RecordingAcceptanceTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class RecordingAcceptanceTest : HiltGraphTest() {
     @Test fun recordTenMinutesAndPublish() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         val requestedRoomId = args.getString("recordingRoomId")?.toLongOrNull()
@@ -27,8 +27,8 @@ class RecordingAcceptanceTest {
         val outputFormat = args.getString("recordingOutputFormat")?.uppercase() ?: "FLV"
         require(outputFormat in setOf("FLV", "MP4", "TS")) { "不支持的测试输出格式: $outputFormat" }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val app = context.applicationContext as StreamCapApplication
-        val repository = app.container.repository
+        val app = context.applicationContext
+        val repository = app.testGraph.repository
         val roomId = requestedRoomId ?: repository.rooms.first().firstOrNull { it.normalizedUrl == roomUrl }?.id
             ?: repository.addRoom(requireNotNull(roomUrl), options = RoomRecordingOptions(outputFormat = outputFormat, segmentEnabled = false))
         val room = requireNotNull(repository.room(roomId))

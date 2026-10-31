@@ -1,6 +1,7 @@
 package com.streamcap.mobile.service
 
 import android.content.Context
+import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
@@ -10,8 +11,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.LiveStatus
+import com.streamcap.mobile.data.repository.StreamCapRepository
 import com.streamcap.mobile.notification.LiveReminderNotifications
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -23,16 +24,20 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CancellationException
 import java.util.concurrent.TimeUnit
 import com.streamcap.mobile.data.preferences.AppPreferences
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedInject
 
-class RoomMonitorWorker(
-    appContext: Context,
-    params: WorkerParameters,
+@HiltWorker
+class RoomMonitorWorker @AssistedInject constructor(
+    @Assisted appContext: Context,
+    @Assisted params: WorkerParameters,
+    private val preferences: AppPreferences,
+    private val repository: StreamCapRepository,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
-        val settings = AppPreferences(applicationContext).settings.first()
+        val settings = preferences.settings.first()
         val scheduledBoot = applicationContext.getSharedPreferences(RECOVERY_POLICY, Context.MODE_PRIVATE)
             .getInt("scheduledBoot", -1)
-        val repository = (applicationContext as StreamCapApplication).container.repository
         val reminders = repository.enabledReminders()
         if (!BackgroundMonitoringPolicy.mayRestore(settings, scheduledBoot, bootCount(applicationContext)) && reminders.isEmpty()) return Result.success()
         val rooms = if (settings.globalAutoRecordEnabled && settings.backgroundMonitoringEnabled) {
@@ -133,10 +138,13 @@ class RoomMonitorWorker(
             )
         }
 
-        suspend fun schedule(context: Context, preferences: AppPreferences) {
+        suspend fun schedule(
+            context: Context,
+            preferences: AppPreferences,
+            repository: StreamCapRepository,
+        ) {
             val settings = preferences.settings.first()
-            val hasReminders = (context.applicationContext as? StreamCapApplication)
-                ?.container?.repository?.hasEnabledReminders() == true
+            val hasReminders = repository.hasEnabledReminders()
             if (BackgroundMonitoringPolicy.enabled(settings) || hasReminders) schedule(context, settings.allowMobileData, immediate = false)
             else cancelSchedule(context)
         }

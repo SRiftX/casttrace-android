@@ -67,26 +67,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.streamcap.mobile.app.AppContainer
-import com.streamcap.mobile.ui.ViewModelFactory
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.streamcap.mobile.service.RecordingService
 import com.streamcap.mobile.data.preferences.RecordingTemplate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddRoomScreen(
-    container: AppContainer,
     initialUrl: String?,
     onBack: () -> Unit,
     onSaved: (Long) -> Unit,
     onOpenBackup: () -> Unit = {},
 ) {
-    val viewModel: AddRoomViewModel = viewModel(
-        factory = ViewModelFactory { AddRoomViewModel(container.repository, container.preferences) },
-    )
+    val viewModel: AddRoomViewModel = hiltViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val templates by container.preferences.templates.collectAsStateWithLifecycle(emptyList())
+    val templates by viewModel.templates.collectAsStateWithLifecycle()
     var advanced by rememberSaveable { mutableStateOf(false) }
     var batchMode by rememberSaveable { mutableStateOf(false) }
     var choice by remember { mutableStateOf<ChoiceType?>(null) }

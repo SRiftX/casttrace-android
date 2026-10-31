@@ -59,7 +59,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,26 +73,24 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.domain.model.LiveReminder
 import com.streamcap.mobile.domain.model.LiveRoom
 import com.streamcap.mobile.domain.model.LiveStatus
 import com.streamcap.mobile.notification.LiveReminderNotifications
-import com.streamcap.mobile.service.RecordingService
 import com.streamcap.mobile.ui.common.formatDateTime
 import com.streamcap.mobile.ui.rooms.RoomLinkInput
 import com.streamcap.mobile.ui.theme.LiveTeal
-import kotlinx.coroutines.launch
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 
 @Composable
 fun LiveRemindersScreen(
-    container: AppContainer,
     contentPadding: PaddingValues,
     onWatch: (Long) -> Unit,
 ) {
     val context = LocalContext.current
-    val reminders by container.repository.reminders.collectAsStateWithLifecycle(emptyList())
-    val rooms by container.repository.rooms.collectAsStateWithLifecycle(emptyList())
+    val viewModel: LiveRemindersViewModel = hiltViewModel()
+    val reminders by viewModel.reminders.collectAsStateWithLifecycle()
+    val rooms by viewModel.rooms.collectAsStateWithLifecycle()
     val notifications = remember(context) { LiveReminderNotifications(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
     var notificationRefresh by remember { mutableIntStateOf(0) }
@@ -105,7 +102,6 @@ fun LiveRemindersScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val canNotify = remember(notifications, notificationRefresh) { notifications.canNotify }
-    val scope = rememberCoroutineScope()
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
     var linkText by rememberSaveable { mutableStateOf("") }
@@ -144,8 +140,6 @@ fun LiveRemindersScreen(
         }
     }
 
-    fun refreshMonitoring() = RecordingService.monitor(context)
-
     fun openNotificationSettings() {
         val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
@@ -168,40 +162,21 @@ fun LiveRemindersScreen(
         }
         busy = true
         dialogError = null
-        scope.launch {
-            var added = 0
-            var skipped = 0
-            val failures = mutableListOf<String>()
-            lines.forEach { line ->
-                val url = RoomLinkInput.extract(line)
-                if (url == null) {
-                    failures += "未识别链接：$line"
-                } else {
-                    try {
-                        if (container.repository.addReminder(url)) added++ else skipped++
-                    } catch (error: Exception) {
-                        failures += error.message ?: "链接解析失败：$line"
-                    }
-                }
-            }
-            if (added > 0) refreshMonitoring()
+        viewModel.addLinks(linkText) { outcome ->
             busy = false
-            if (added > 0 || skipped > 0) {
-                feedback = "已添加 $added 位，跳过重复 $skipped 位"
+            if (outcome.added > 0 || outcome.skipped > 0) {
+                feedback = "已添加 ${outcome.added} 位，跳过重复 ${outcome.skipped} 位"
                 linkText = ""
                 showAddDialog = false
             }
-            dialogError = failures.take(3).joinToString("\n").ifBlank { null }
+            dialogError = outcome.failures.take(3).joinToString("\n").ifBlank { null }
         }
     }
 
     fun importRooms(ids: Set<Long>) {
         if (ids.isEmpty()) return
         busy = true
-        scope.launch {
-            var added = 0
-            ids.forEach { roomId -> if (container.repository.importRoomAsReminder(roomId)) added++ }
-            refreshMonitoring()
+        viewModel.importRooms(ids) { added ->
             busy = false
             feedback = "已导入 $added 位主播"
             showImportDialog = false
@@ -210,18 +185,14 @@ fun LiveRemindersScreen(
     }
 
     fun setEnabled(reminder: LiveReminder, enabled: Boolean) {
-        scope.launch {
-            container.repository.setReminderEnabled(reminder.id, enabled)
+        viewModel.setEnabled(reminder.id, enabled) {
             if (!enabled) notifications.cancel(reminder.id)
-            refreshMonitoring()
         }
     }
 
     fun delete(reminder: LiveReminder) {
-        scope.launch {
-            container.repository.deleteReminder(reminder.id)
+        viewModel.delete(reminder) {
             notifications.cancel(reminder.id)
-            refreshMonitoring()
             feedback = "已移除 ${reminder.anchorName}"
         }
     }

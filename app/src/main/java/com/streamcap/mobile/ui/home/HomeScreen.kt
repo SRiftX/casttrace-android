@@ -64,7 +64,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -74,13 +73,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.streamcap.mobile.app.AppContainer
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.streamcap.mobile.domain.model.LiveRoom
 import com.streamcap.mobile.domain.model.RecordingSession
 import com.streamcap.mobile.domain.model.LiveStatus
 import com.streamcap.mobile.domain.model.TaskStatus
-import com.streamcap.mobile.ui.ViewModelFactory
 import com.streamcap.mobile.ui.common.displayName
 import com.streamcap.mobile.ui.common.formatDateTime
 import com.streamcap.mobile.ui.theme.LiveTeal
@@ -92,7 +89,6 @@ import com.streamcap.mobile.service.BackgroundMonitorStatus
 import com.streamcap.mobile.service.BackgroundMonitorSnapshot
 import com.streamcap.mobile.ui.settings.openBackgroundLaunchSettings
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 private enum class RoomFilter(val label: String) {
     ALL("全部"),
@@ -105,18 +101,15 @@ private enum class RoomFilter(val label: String) {
 
 @Composable
 fun HomeScreen(
-    container: AppContainer,
     contentPadding: PaddingValues,
     onAddRoom: () -> Unit,
     onOpenRoom: (Long) -> Unit,
     onOpenRecording: (Long) -> Unit,
 ) {
-    val viewModel: HomeViewModel = viewModel(
-        factory = ViewModelFactory { HomeViewModel(container.repository) },
-    )
+    val viewModel: HomeViewModel = hiltViewModel()
     val rooms by viewModel.rooms.collectAsStateWithLifecycle()
     val recordings by viewModel.recordings.collectAsStateWithLifecycle()
-    val settings by container.preferences.settings.collectAsStateWithLifecycle(com.streamcap.mobile.data.preferences.UserSettings())
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     val recordingCount = rooms.count { it.taskStatus in activeRecordingStatuses }
     val monitoredCount = eligibleAutomaticMonitoringCount(rooms, settings.globalAutoRecordEnabled)
     val pausedMonitoredCount = pausedAutomaticMonitoringCount(rooms, settings.globalAutoRecordEnabled)
@@ -134,7 +127,6 @@ fun HomeScreen(
             delay(15_000L)
         }
     }
-    val scope = rememberCoroutineScope()
     var selectedFilter by rememberSaveable { mutableStateOf(RoomFilter.ALL) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
@@ -240,8 +232,7 @@ fun HomeScreen(
                     pausedCount = pausedMonitoredCount,
                     monitorSnapshot = monitorSnapshot,
                     onOpenBackgroundSettings = { openBackgroundLaunchSettings(context) },
-                    onEnabledChange = { value -> scope.launch {
-                        container.preferences.setGlobalAutoRecordEnabled(value)
+                    onEnabledChange = { value -> viewModel.setGlobalAutoRecordEnabled(value) {
                         if (value) {
                             RecordingService.monitor(context)
                             viewModel.refreshMonitoredRooms()
@@ -250,8 +241,7 @@ fun HomeScreen(
                         }
                     }
                     },
-                    onBackgroundChange = { value -> scope.launch {
-                        container.preferences.setBackgroundMonitoringEnabled(value)
+                    onBackgroundChange = { value -> viewModel.setBackgroundMonitoringEnabled(value) {
                         RecordingService.monitor(context)
                     }
                     },

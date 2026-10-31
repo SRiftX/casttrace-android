@@ -27,7 +27,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
@@ -36,21 +35,21 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import com.streamcap.mobile.platform.AndroidSupportStatus
 import com.streamcap.mobile.platform.PlatformCatalog
 import com.streamcap.mobile.platform.PlatformCatalogEntry
-import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.ui.theme.LiveTeal
 import com.streamcap.mobile.ui.theme.WarningAmber
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlatformsScreen(container: AppContainer, onBack: () -> Unit) {
+fun PlatformsScreen(onBack: () -> Unit) {
+    val viewModel: PlatformsViewModel = hiltViewModel()
     val entries = PlatformCatalog.entries
-    val resolverIds = remember(container) { container.resolverRegistry.platformIds }
+    val resolverIds = viewModel.resolverIds
     val available = entries.count { it.status in setOf(AndroidSupportStatus.AVAILABLE, AndroidSupportStatus.FIRST_BATCH) }
-    val needsReview = entries.count { it.key in resolverIds && it.status == AndroidSupportStatus.NEEDS_REVIEW }
+    val needsReview = entries.count { it.resolverId in resolverIds && it.status == AndroidSupportStatus.NEEDS_REVIEW }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -78,19 +77,16 @@ fun PlatformsScreen(container: AppContainer, onBack: () -> Unit) {
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            items(entries, key = { it.key }) { entry -> PlatformRow(entry, container, entry.key in resolverIds || (entry.key == "custom" && "direct" in resolverIds)) }
+            items(entries, key = { it.key }) { entry -> PlatformRow(viewModel, entry, entry.resolverId in resolverIds) }
         }
     }
 }
 
 @Composable
-private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer, resolverAvailable: Boolean) {
-    val scope = rememberCoroutineScope()
+private fun PlatformRow(viewModel: PlatformsViewModel, entry: PlatformCatalogEntry, resolverAvailable: Boolean) {
     var showCredential by remember { mutableStateOf(false) }
     var cookie by remember { mutableStateOf("") }
-    val credentialSupported = remember(entry.key, container) {
-        runCatching { container.resolverRegistry.resolverForPlatform(entry.key).supportsCredentials }.getOrDefault(false)
-    }
+    val credentialSupported = remember(entry.key) { viewModel.supportsCredentials(entry.key) }
     val color = when (entry.status) {
         AndroidSupportStatus.AVAILABLE, AndroidSupportStatus.FIRST_BATCH -> LiveTeal
         AndroidSupportStatus.NEEDS_REVIEW -> WarningAmber
@@ -115,7 +111,7 @@ private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer, re
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                val chat = container.danmakuClients.capability(entry.key)
+                val chat = viewModel.danmakuCapability(entry.key)
                 Text(
                     if (chat.enabled) "文字弹幕：${chat.identityQuality}" else "文字弹幕：暂未接入",
                     style = MaterialTheme.typography.labelSmall,
@@ -127,9 +123,9 @@ private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer, re
                     style = MaterialTheme.typography.labelSmall, color = color)
                 if (credentialSupported) {
                     TextButton(onClick = {
-                        cookie = container.credentialStore.get(entry.key)?.cookie.orEmpty()
+                        cookie = viewModel.credentialCookie(entry.key).orEmpty()
                         showCredential = true
-                    }) { Text(if (container.credentialStore.get(entry.key) == null) "设置 Cookie" else "已设置") }
+                    }) { Text(if (viewModel.hasCredential(entry.key)) "已设置" else "设置 Cookie") }
                 }
             }
         }
@@ -162,11 +158,8 @@ private fun PlatformRow(entry: PlatformCatalogEntry, container: AppContainer, re
             },
             confirmButton = {
                 TextButton(onClick = {
-                    scope.launch {
-                        if (cookie.isBlank()) container.credentialStore.clear(entry.key)
-                        else container.credentialStore.set(entry.key, cookie.trim())
-                        showCredential = false
-                    }
+                    viewModel.saveCredential(entry.key, cookie)
+                    showCredential = false
                 }) { Text("保存") }
             },
             dismissButton = { TextButton(onClick = { showCredential = false }) { Text("取消") } },

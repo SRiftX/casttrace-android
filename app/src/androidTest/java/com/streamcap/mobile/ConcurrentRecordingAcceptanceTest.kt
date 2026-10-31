@@ -3,7 +3,6 @@ package com.streamcap.mobile
 import android.content.Intent
 import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.RoomRecordingOptions
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.service.RecordingService
@@ -16,10 +15,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Device-only batch test: one real room per platform, recorded in parallel. */
-class ConcurrentRecordingAcceptanceTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class ConcurrentRecordingAcceptanceTest : HiltGraphTest() {
     @Test fun distinctPlatformsRecordTenMinutes() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val repository = (context.applicationContext as StreamCapApplication).container.repository
+        val repository = (context.applicationContext).testGraph.repository
         val urls = InstrumentationRegistry.getArguments().getString("platformUrls")
             .orEmpty().split(',').map(String::trim).filter(String::isNotBlank)
         require(urls.size in 2..10) { "platformUrls 需要传入 2 至 10 个平台 URL" }

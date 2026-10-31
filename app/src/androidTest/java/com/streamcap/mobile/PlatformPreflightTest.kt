@@ -1,7 +1,6 @@
 package com.streamcap.mobile
 
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.recording.hls.HlsSourceSelector
 import kotlinx.coroutines.Dispatchers
@@ -14,22 +13,23 @@ import okhttp3.Request
 import org.junit.Test
 
 /** Opt-in live preflight. Records failures as evidence without treating them as passes. */
-class PlatformPreflightTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class PlatformPreflightTest : HiltGraphTest() {
     @Test fun inspectLiveCandidates() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         val urls = args.getString("preflightUrls").orEmpty().split(',').map(String::trim).filter(String::isNotBlank)
         require(urls.isNotEmpty()) { "preflightUrls must contain real room URLs" }
-        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as StreamCapApplication
-        val registry = app.container.resolverRegistry
-        val client = app.container.httpClient
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        val registry = app.testGraph.resolverRegistry
+        val client = app.testGraph.httpClient
         urls.chunked(10).forEachIndexed { batch, candidates ->
             candidates.map { url -> async(Dispatchers.IO) {
                 try {
                     val resolver = registry.resolverFor(url)
                     val room = withTimeout(30_000) { resolver.resolveRoom(url) }
-                    val roomId = app.container.repository.rooms.first().firstOrNull { it.normalizedUrl == url }?.id
-                        ?: app.container.repository.addRoom(url)
-                    val sources = withTimeout(30_000) { app.container.repository.streams(roomId) }
+                    val roomId = app.testGraph.repository.rooms.first().firstOrNull { it.normalizedUrl == url }?.id
+                        ?: app.testGraph.repository.addRoom(url)
+                    val sources = withTimeout(30_000) { app.testGraph.repository.streams(roomId) }
                     if (sources.isEmpty()) {
                         android.util.Log.w("PlatformPreflight", "RESULT batch=${batch + 1} platform=${resolver.platformId} state=NO_SOURCE url=$url")
                         return@async

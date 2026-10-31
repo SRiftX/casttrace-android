@@ -42,12 +42,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.streamcap.mobile.BuildConfig
-import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.data.database.TaskLogEntity
 import com.streamcap.mobile.diagnostics.TaskLogExporter
-import com.streamcap.mobile.ui.ViewModelFactory
 import com.streamcap.mobile.ui.common.formatDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -58,17 +56,13 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LogsScreen(container: AppContainer, onBack: () -> Unit) {
+fun LogsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val viewModel: SettingsViewModel = viewModel(
-        factory = ViewModelFactory {
-            SettingsViewModel(context, container.preferences, container.repository)
-        },
-    )
+    val viewModel: SettingsViewModel = hiltViewModel()
     val logs by viewModel.logs.collectAsStateWithLifecycle()
     val logCount by viewModel.logCount.collectAsStateWithLifecycle()
-    val recordings by container.repository.recordings.collectAsStateWithLifecycle(emptyList())
-    val rooms by container.repository.rooms.collectAsStateWithLifecycle(emptyList())
+    val recordings by viewModel.recordings.collectAsStateWithLifecycle()
+    val rooms by viewModel.rooms.collectAsStateWithLifecycle()
     var selectedLevel by remember { mutableStateOf<String?>(null) }
     var selectedRoom by remember { mutableStateOf<Long?>(null) }
     val scope = rememberCoroutineScope()
@@ -133,7 +127,7 @@ fun LogsScreen(container: AppContainer, onBack: () -> Unit) {
             item {
                 val failed = recordings.count { it.status == com.streamcap.mobile.domain.model.TaskStatus.FAILED }
                 val playable = recordings.count { it.outputUri != null || it.outputUris.isNotEmpty() || it.temporaryPath?.let { path -> java.io.File(path).exists() } == true }
-                val freeBytes = container.recordingStorage.recordingRoot().usableSpace
+                val freeBytes = viewModel.recordingFreeBytes
                 val storageAdvice = if (freeBytes < 512L * 1_048_576L) "存储空间不足，建议先清理录制文件" else "存储空间正常"
                 Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("诊断摘要", style = MaterialTheme.typography.titleMedium)

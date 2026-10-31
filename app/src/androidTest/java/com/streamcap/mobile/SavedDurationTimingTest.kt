@@ -1,16 +1,16 @@
 package com.streamcap.mobile
 
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 
-class SavedDurationTimingTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class SavedDurationTimingTest : HiltGraphTest() {
     @Test fun measureExistingPartDurationLookup(): Unit = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val container = (context.applicationContext as StreamCapApplication).container
+        val container = (context.applicationContext).testGraph
         val sessionId = InstrumentationRegistry.getArguments().getString("sessionId")?.toLongOrNull()
         assumeTrue("Specify a sessionId", sessionId != null)
         val uris = container.repository.session(sessionId!!)?.outputUris.orEmpty()

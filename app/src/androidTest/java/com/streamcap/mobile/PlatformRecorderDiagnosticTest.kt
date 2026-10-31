@@ -2,7 +2,6 @@ package com.streamcap.mobile
 
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.recording.engine.*
 import com.streamcap.mobile.recording.hls.HlsRecorder
@@ -16,12 +15,13 @@ import java.io.File
 import okhttp3.ResponseBody.Companion.toResponseBody
 
 /** Isolates transport failures from service/muxer behavior; explicit live URL required. */
-class PlatformRecorderDiagnosticTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class PlatformRecorderDiagnosticTest : HiltGraphTest() {
     @Test fun inspectHlsTransport() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val url = requireNotNull(InstrumentationRegistry.getArguments().getString("transportUrl"))
-        val app = instrumentation.targetContext.applicationContext as StreamCapApplication
-        val client = app.container.httpClient.newBuilder().apply {
+        val app = instrumentation.targetContext.applicationContext
+        val client = app.testGraph.httpClient.newBuilder().apply {
             if (InstrumentationRegistry.getArguments().getString("transportProtocol") == "http1")
                 protocols(listOf(okhttp3.Protocol.HTTP_1_1))
             if (InstrumentationRegistry.getArguments().getString("transportHoldback") == "1") addInterceptor { chain ->
@@ -51,11 +51,11 @@ class PlatformRecorderDiagnosticTest {
                 }
             }
         }.build()
-        val resolver = app.container.resolverRegistry.resolverFor(url)
+        val resolver = app.testGraph.resolverRegistry.resolverFor(url)
         val info = resolver.resolveRoom(url)
-        val roomId = app.container.repository.rooms.first().firstOrNull { it.normalizedUrl == info.normalizedUrl }?.id
-            ?: app.container.repository.addRoom(info.normalizedUrl)
-        val sources = app.container.repository.streams(roomId).filter { it.type == StreamType.HLS }
+        val roomId = app.testGraph.repository.rooms.first().firstOrNull { it.normalizedUrl == info.normalizedUrl }?.id
+            ?: app.testGraph.repository.addRoom(info.normalizedUrl)
+        val sources = app.testGraph.repository.streams(roomId).filter { it.type == StreamType.HLS }
         val source = HlsSourceSelector(client).select(sources)
         Log.i("PlatformTransport", "SELECTED host=${java.net.URI(source.url).host} path=${java.net.URI(source.url).path}")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)

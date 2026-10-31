@@ -7,9 +7,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
-import androidx.test.platform.app.InstrumentationRegistry
 import com.streamcap.mobile.app.MainActivity
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.ui.player.PlaybackProgress
 import com.streamcap.mobile.ui.player.PlaybackProgressStore
 import com.streamcap.mobile.ui.player.PlaybackOptions
@@ -20,22 +18,27 @@ import org.junit.Rule
 import org.junit.Test
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-class PlayerLayoutAcceptanceTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class PlayerLayoutAcceptanceTest : HiltGraphTest() {
+    @get:Rule(order = Int.MIN_VALUE + 1)
+    val runtimePermissions = mainActivityRuntimePermissionsRule()
+
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test fun videoOwnsWindowAndControlsWorkOnDemand() {
-        val id = InstrumentationRegistry.getArguments().getString("recordingId")?.toLongOrNull()
-        assumeTrue("Requires an explicit saved real recording", id != null)
-        val app = compose.activity.application as StreamCapApplication
+        val app = compose.activity.application
+        val selectedId = resolvePlaybackRecordingId(app, "recordingId")
+        assumeTrue("Requires a saved recording of at least ten minutes", selectedId != null)
+        val id = requireNotNull(selectedId)
         val store = PlaybackProgressStore(app)
-        val previous = store.read(id!!)
+        val previous = store.read(id)
         val previousOptions = store.readOptions()
         val previousDanmaku = store.readDanmakuVisible()
         store.writeOptions(PlaybackOptions())
         store.write(id, PlaybackProgress(0, true))
         try {
             compose.activityRule.scenario.onActivity { activity ->
-                activity.setContent { RecordingPlayerScreen(id, app.container) {} }
+                activity.setContent { RecordingPlayerScreen(id) {} }
             }
             compose.waitUntil(60_000) {
                 var ready = false
@@ -86,7 +89,7 @@ class PlayerLayoutAcceptanceTest {
             compose.mainClock.advanceTimeBy(500)
             compose.onNodeWithText("弹幕设置").performClick()
             compose.mainClock.advanceTimeBy(500)
-            compose.onNodeWithContentDescription("弹幕大小").assertIsDisplayed()
+            compose.onNodeWithContentDescription("弹幕大小").performScrollTo().assertIsDisplayed()
             compose.onNodeWithText("完成").performClick()
             compose.mainClock.advanceTimeBy(500)
             compose.onNodeWithContentDescription("隐藏弹幕").performClick()
@@ -100,7 +103,7 @@ class PlayerLayoutAcceptanceTest {
             assertFalse(store.readDanmakuVisible())
             compose.mainClock.autoAdvance = true
             compose.activityRule.scenario.onActivity { activity ->
-                activity.setContent { RecordingPlayerScreen(id, app.container) {} }
+                activity.setContent { RecordingPlayerScreen(id) {} }
             }
             compose.waitUntil(60_000) {
                 var ready = false

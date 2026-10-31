@@ -7,14 +7,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.streamcap.mobile.app.AppContainer
 import com.streamcap.mobile.data.database.TaskLogEntity
 import com.streamcap.mobile.domain.model.RecordingSession
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.service.RecordingService
 
 @Composable
-fun RecoverySummary(container: AppContainer, recordings: List<RecordingSession>, logs: List<TaskLogEntity>, onOpen: (Long) -> Unit) {
+fun RecoverySummary(recordings: List<RecordingSession>, logs: List<TaskLogEntity>, onOpen: (Long) -> Unit) {
     val context = LocalContext.current
     val preferences = remember { context.getSharedPreferences("ux", 0) }
     var dismissedThrough by remember { mutableLongStateOf(preferences.getLong("recoveryAcknowledged", 0)) }

@@ -4,7 +4,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.streamcap.mobile.app.MainActivity
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.ui.rooms.AddRoomScreen
 import com.streamcap.mobile.ui.theme.StreamCapTheme
 import kotlinx.coroutines.runBlocking
@@ -13,7 +12,8 @@ import org.junit.Rule
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicLong
 
-class ShareLinkAcceptanceTest {
+@dagger.hilt.android.testing.HiltAndroidTest
+class ShareLinkAcceptanceTest : HiltGraphTest() {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test fun bilibiliFullShareText() = verify(
@@ -27,11 +27,11 @@ class ShareLinkAcceptanceTest {
     @Test fun huyaShortShareLink() = verify("https://hy.fan/CH965Gr", "虎牙直播", "https://www.huya.com/528300")
 
     private fun verify(text: String, platform: String, url: String) {
-        val app = compose.activity.application as StreamCapApplication
-        val existing = runBlocking { app.container.database.liveRoomDao().getByNormalizedUrl(url) }
+        val app = compose.activity.application
+        val existing = runBlocking { app.testGraph.database.liveRoomDao().getByNormalizedUrl(url) }
         val saved = AtomicLong()
         compose.activityRule.scenario.onActivity { activity ->
-            activity.setContent { StreamCapTheme { AddRoomScreen(app.container, null, {}, { saved.set(it) }) } }
+            activity.setContent { StreamCapTheme { AddRoomScreen(null, {}, { saved.set(it) }) } }
         }
         // setContent runs on the main thread; wait until Compose has published its tree.
         compose.waitUntil(10_000) {
@@ -42,7 +42,7 @@ class ShareLinkAcceptanceTest {
         compose.waitUntil(90_000) {
             compose.onAllNodesWithText("识别结果：$platform", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
-        val info = runBlocking { app.container.repository.previewRoom(text).first }
+        val info = runBlocking { app.testGraph.repository.previewRoom(text).first }
         assertEquals(url, info.normalizedUrl)
         assertEquals(platform, info.platform)
         assertTrue(info.anchorName.isNotBlank())
@@ -51,7 +51,7 @@ class ShareLinkAcceptanceTest {
             compose.onNodeWithText("URL").performScrollTo().performTextReplacement(text)
             compose.onNodeWithContentDescription("确认主播并添加").performClick()
             compose.waitUntil(90_000) { saved.get() > 0 }
-            val room = runBlocking { app.container.repository.room(saved.get())!! }
+            val room = runBlocking { app.testGraph.repository.room(saved.get())!! }
             assertEquals(url, room.normalizedUrl)
             assertEquals(platform, room.platform)
             assertEquals(info.anchorName, room.anchorName)
@@ -59,8 +59,8 @@ class ShareLinkAcceptanceTest {
             compose.onNodeWithText("这个直播间已存在，不会覆盖原设置").performScrollTo().assertIsDisplayed()
         }
         val roomId = saved.get().takeIf { it > 0 } ?: existing!!.id
-        val room = runBlocking { app.container.repository.room(roomId)!! }
-        val status = runBlocking { app.container.repository.recordingLiveStatus(roomId) }
+        val room = runBlocking { app.testGraph.repository.room(roomId)!! }
+        val status = runBlocking { app.testGraph.repository.recordingLiveStatus(roomId) }
         assertTrue("Canonical room must remain checkable: $status", status in setOf(
             com.streamcap.mobile.domain.model.LiveStatus.LIVE, com.streamcap.mobile.domain.model.LiveStatus.OFFLINE))
         android.util.Log.i("ShareLinkQA", "PASS $platform anchor=${info.anchorName} room=${room.normalizedUrl} status=$status saved=${saved.get()}")

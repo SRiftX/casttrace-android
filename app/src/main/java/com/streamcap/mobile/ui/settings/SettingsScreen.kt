@@ -58,17 +58,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.streamcap.mobile.BuildConfig
-import com.streamcap.mobile.app.AppContainer
-import com.streamcap.mobile.ui.ViewModelFactory
 import com.streamcap.mobile.data.preferences.RecordingTemplate
 import com.streamcap.mobile.ui.theme.ThemePalette
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
-    container: AppContainer,
     contentPadding: PaddingValues,
     onOpenLogs: () -> Unit,
     onOpenStorage: () -> Unit,
@@ -78,9 +75,7 @@ fun SettingsScreen(
     onOpenPlatforms: () -> Unit,
 ) {
     val context = LocalContext.current
-    val viewModel: SettingsViewModel = viewModel(
-        factory = ViewModelFactory { SettingsViewModel(context, container.preferences, container.repository) },
-    )
+    val viewModel: SettingsViewModel = hiltViewModel()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var showFormatDialog by remember { mutableStateOf(false) }
     var showQualityDialog by remember { mutableStateOf(false) }

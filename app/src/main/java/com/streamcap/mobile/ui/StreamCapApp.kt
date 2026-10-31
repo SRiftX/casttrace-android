@@ -48,7 +48,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.streamcap.mobile.app.StreamCapApplication
 import com.streamcap.mobile.ui.home.HomeScreen
 import com.streamcap.mobile.ui.player.RecordingPlayerScreen
 import com.streamcap.mobile.ui.recordings.RecordingsScreen
@@ -87,7 +86,6 @@ private object Routes {
 fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchToken: Int = 0, openReminders: Boolean = false) {
     val navController = rememberNavController()
     val context = LocalContext.current
-    val container = (context.applicationContext as StreamCapApplication).container
     val welcomePreferences = remember(context) {
         context.getSharedPreferences("welcome", android.content.Context.MODE_PRIVATE)
     }
@@ -97,8 +95,6 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     val currentRoute = backStackEntry?.destination?.route
     val topLevelRoutes = setOf(Routes.HOME, Routes.REMINDERS, Routes.RECORDINGS, Routes.SETTINGS)
     val motionScale = rememberMotionScale()
-
-    LaunchedEffect(container) { container.repository.repairPausedRoomSettings() }
 
     LaunchedEffect(sharedUrl, launchToken) {
         if (!sharedUrl.isNullOrBlank()) navController.navigate(Routes.ADD_ROOM)
@@ -164,7 +160,6 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
         ) {
             composable(Routes.HOME) {
                 HomeScreen(
-                    container = container,
                     contentPadding = pagePadding,
                     onAddRoom = { navController.navigate(Routes.ADD_ROOM) },
                     onOpenRoom = { navController.navigate(Routes.roomDetail(it)) },
@@ -173,21 +168,18 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
             }
             composable(Routes.RECORDINGS) {
                 RecordingsScreen(
-                    container = container,
                     contentPadding = pagePadding,
                     onOpenRecording = { navController.navigate(Routes.player(it)) },
                 )
             }
             composable(Routes.REMINDERS) {
                 LiveRemindersScreen(
-                    container = container,
                     contentPadding = pagePadding,
                     onWatch = { navController.navigate(Routes.liveReminderPlayer(it)) },
                 )
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
-                    container = container,
                     contentPadding = pagePadding,
                     onOpenStorage = { navController.navigate("storage") },
                     onOpenBackup = { navController.navigate("backup") },
@@ -199,7 +191,6 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
             }
             composable(Routes.ADD_ROOM) {
                 AddRoomScreen(
-                    container = container,
                     initialUrl = sharedUrl,
                     onBack = navController::popBackStack,
                     onOpenBackup = { navController.navigate("backup") },
@@ -216,19 +207,18 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
             ) { entry ->
                 RoomDetailScreen(
                     roomId = entry.arguments?.getLong("roomId") ?: return@composable,
-                    container = container,
                     onBack = navController::popBackStack,
                 )
             }
-            composable("storage") { StorageScreen(container, navController::popBackStack) { navController.navigate(Routes.RECORDINGS) { popUpTo(Routes.HOME); launchSingleTop = true } } }
-            composable("backup") { BackupScreen(container, navController::popBackStack) }
+            composable("storage") { StorageScreen(navController::popBackStack) { navController.navigate(Routes.RECORDINGS) { popUpTo(Routes.HOME); launchSingleTop = true } } }
+            composable("backup") { BackupScreen(navController::popBackStack) }
             composable("licenses") { com.streamcap.mobile.ui.settings.OpenSourceScreen(navController::popBackStack) }
             composable("user-guide") { com.streamcap.mobile.ui.settings.UserGuideScreen(navController::popBackStack) }
             composable(Routes.LOGS) {
-                LogsScreen(container = container, onBack = navController::popBackStack)
+                LogsScreen(onBack = navController::popBackStack)
             }
             composable(Routes.PLATFORMS) {
-                PlatformsScreen(container = container, onBack = navController::popBackStack)
+                PlatformsScreen(onBack = navController::popBackStack)
             }
             composable(
                 route = Routes.PLAYER,
@@ -236,7 +226,6 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
             ) { entry ->
                 RecordingPlayerScreen(
                     recordingId = entry.arguments?.getLong("recordingId") ?: return@composable,
-                    container = container,
                     onBack = navController::popBackStack,
                 )
             }
@@ -246,7 +235,6 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
             ) { entry ->
                 LiveReminderPlayerScreen(
                     reminderId = entry.arguments?.getLong("reminderId") ?: return@composable,
-                    container = container,
                     contentPadding = padding,
                     onBack = navController::popBackStack,
                 )
