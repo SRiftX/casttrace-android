@@ -10,6 +10,51 @@ WORKSPACE="$(mktemp -d "$ROOT/build/ffmpeg-source-build.XXXXXX")"
 SOURCE="$WORKSPACE/ffmpegkit"
 trap 'printf "FFmpeg source build workspace: %s\n" "$WORKSPACE"' EXIT
 
+collect_diagnostics() {
+  local status=$?
+  local diagnostics="$ROOT/build/ffmpeg-diagnostics"
+  trap - EXIT
+  if (( status != 0 )); then
+    mkdir -p "$diagnostics/logs"
+    {
+      printf 'exit_status=%s\n' "$status"
+      printf 'build_commit=%s\n' "$BUILD_COMMIT"
+      printf 'workspace=%s\n' "$WORKSPACE"
+      printf 'ANDROID_SDK_ROOT='
+      printenv ANDROID_SDK_ROOT || printenv ANDROID_HOME || true
+      printf 'ANDROID_NDK_ROOT='
+      printenv ANDROID_NDK_ROOT || true
+      printf '\n=== NDK source.properties ===\n'
+      if [[ -n "$(printenv ANDROID_NDK_ROOT || true)" && -f "$(printenv ANDROID_NDK_ROOT)/source.properties" ]]; then
+        cat "$(printenv ANDROID_NDK_ROOT)/source.properties"
+      fi
+      printf '\n=== tool versions ===\n'
+      for tool in java autoconf automake libtoolize pkg-config gettext; do
+        if command -v "$tool" >/dev/null 2>&1; then
+          "$tool" --version 2>&1 | head -n 2 || true
+        else
+          printf '%s: unavailable\n' "$tool"
+        fi
+      done
+    } > "$diagnostics/environment.txt"
+
+    if [[ -d "$SOURCE" ]]; then
+      while IFS= read -r -d '' log; do
+        local relative
+        relative="$(realpath --relative-to="$SOURCE" "$log")"
+        mkdir -p "$diagnostics/logs/$(dirname "$relative")"
+        cp "$log" "$diagnostics/logs/$relative"
+        printf '\n=== %s (last 200 lines) ===\n' "$relative" >&2
+        tail -n 200 "$log" >&2 || true
+      done < <(find "$SOURCE" -type f -name build.log -print0 -o -type f -name config.log -print0)
+    fi
+    printf 'FFmpeg source build diagnostics: %s\n' "$diagnostics" >&2
+  fi
+  printf 'FFmpeg source build workspace: %s\n' "$WORKSPACE"
+  exit "$status"
+}
+trap collect_diagnostics EXIT
+
 git init -q "$SOURCE"
 git -C "$SOURCE" remote add origin https://github.com/ffmpegkit-maintained/ffmpeg.git
 git -C "$SOURCE" fetch --depth=1 origin "$BUILD_COMMIT"
