@@ -96,8 +96,8 @@ class RoomMonitorWorker @AssistedInject constructor(
             } }
             val reminderChecks = reminders.map { reminder -> async(Dispatchers.IO) {
                 semaphore.withPermit {
-                    if (repository.checkReminder(reminder.id, reminderNotifications.canNotify)) {
-                        runCatching { reminderNotifications.notifyOpened(reminder) }
+                    if (repository.checkReminder(reminder.id, reminderNotifications.canNotify(reminder.strongNotificationEnabled))) {
+                        runCatching { reminderNotifications.notifyOpened(reminder, reminder.strongNotificationEnabled) }
                     }
                 }
             } }

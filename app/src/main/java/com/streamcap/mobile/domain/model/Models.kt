@@ -116,6 +116,7 @@ data class LiveReminder(
     val enabled: Boolean,
     val liveStatus: LiveStatus,
     val notifiedForCurrentLive: Boolean,
+    val strongNotificationEnabled: Boolean = true,
     val lastCheckAt: Long?,
     val createdAt: Long,
     val updatedAt: Long,

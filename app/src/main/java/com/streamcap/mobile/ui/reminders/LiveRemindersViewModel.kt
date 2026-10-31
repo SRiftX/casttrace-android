@@ -37,6 +37,9 @@ class LiveRemindersViewModel @Inject constructor(
         SharingStarted.WhileSubscribed(5_000),
         emptyList(),
     )
+    fun setStrongNotification(reminderId: Long, enabled: Boolean) {
+        viewModelScope.launch { repository.setReminderStrongNotification(reminderId, enabled) }
+    }
 
     fun addLinks(rawText: String, onComplete: (ReminderAddResult) -> Unit) {
         viewModelScope.launch {

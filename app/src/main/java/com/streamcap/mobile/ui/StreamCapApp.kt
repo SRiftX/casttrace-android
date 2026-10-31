@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -48,6 +49,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.streamcap.mobile.ui.home.HomeScreen
 import com.streamcap.mobile.ui.player.RecordingPlayerScreen
 import com.streamcap.mobile.ui.recordings.RecordingsScreen
@@ -62,6 +64,10 @@ import com.streamcap.mobile.ui.settings.SupportDialog
 import com.streamcap.mobile.ui.settings.StorageScreen
 import com.streamcap.mobile.ui.settings.BackupScreen
 import com.streamcap.mobile.ui.common.MotionTokens
+import com.streamcap.mobile.ui.common.FeatureTourAnchor
+import com.streamcap.mobile.ui.common.FeatureTourOverlay
+import com.streamcap.mobile.ui.common.featureTourAnchor
+import com.streamcap.mobile.ui.common.featureTourSteps
 import com.streamcap.mobile.ui.common.rememberMotionScale
 import com.streamcap.mobile.ui.common.scaledDuration
 
@@ -91,10 +97,48 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     }
     var showWelcome by remember { mutableStateOf(!welcomePreferences.getBoolean("shown", false)) }
     var showWelcomeQr by remember { mutableStateOf(false) }
+    var showFeatureTour by remember(welcomePreferences) {
+        mutableStateOf(
+            !welcomePreferences.getBoolean("feature_tour_shown", false) &&
+                (!welcomePreferences.getBoolean("shown", false) ||
+                    welcomePreferences.getBoolean("feature_tour_pending", false)),
+        )
+    }
+    var featureTourStep by rememberSaveable { mutableStateOf(0) }
+    var featureTourTargets by remember { mutableStateOf<Map<FeatureTourAnchor, Rect>>(emptyMap()) }
+    val updateFeatureTourTarget: (FeatureTourAnchor, Rect) -> Unit = { anchor, bounds ->
+        if (bounds.width > 0f && bounds.height > 0f && featureTourTargets[anchor] != bounds) {
+            featureTourTargets = featureTourTargets + (anchor to bounds)
+        }
+    }
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val topLevelRoutes = setOf(Routes.HOME, Routes.REMINDERS, Routes.RECORDINGS, Routes.SETTINGS)
     val motionScale = rememberMotionScale()
+
+    LaunchedEffect(showFeatureTour, featureTourStep) {
+        if (showFeatureTour) {
+            val route = when (featureTourSteps[featureTourStep].anchor) {
+                FeatureTourAnchor.HOME, FeatureTourAnchor.ADD_ROOM -> Routes.HOME
+                FeatureTourAnchor.REMINDERS -> Routes.REMINDERS
+                FeatureTourAnchor.RECORDINGS -> Routes.RECORDINGS
+                FeatureTourAnchor.SETTINGS -> Routes.SETTINGS
+            }
+            navController.navigate(route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+    val finishFeatureTour = {
+        welcomePreferences.edit()
+            .putBoolean("feature_tour_shown", true)
+            .putBoolean("feature_tour_pending", false)
+            .apply()
+        showFeatureTour = false
+        featureTourStep = 0
+    }
 
     LaunchedEffect(sharedUrl, launchToken) {
         if (!sharedUrl.isNullOrBlank()) navController.navigate(Routes.ADD_ROOM)
@@ -110,8 +154,9 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     val wideNavigation = maxWidth >= 900.dp
     Box(Modifier.fillMaxSize()) {
     Scaffold { padding ->
-        val pagePadding = if (currentRoute in topLevelRoutes && !wideNavigation)
-            PaddingValues(0.dp) else padding
+        val pagePadding = if (currentRoute in topLevelRoutes && !wideNavigation) {
+            PaddingValues(top = padding.calculateTopPadding())
+        } else padding
         Row(Modifier.fillMaxHeight()) {
         if (wideNavigation && currentRoute in topLevelRoutes) NavigationRail(
             containerColor = MaterialTheme.colorScheme.surface,
@@ -131,6 +176,7 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                     } },
                     icon = { Icon(icon, contentDescription = label) },
                     label = { Text(label) },
+                    modifier = Modifier.featureTourAnchor(tourAnchorForRoute(route), updateFeatureTourTarget),
                     colors = NavigationRailItemDefaults.colors(
                         indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                     ),
@@ -164,6 +210,7 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                     onAddRoom = { navController.navigate(Routes.ADD_ROOM) },
                     onOpenRoom = { navController.navigate(Routes.roomDetail(it)) },
                     onOpenRecording = { navController.navigate(Routes.player(it)) },
+                    onTourTarget = updateFeatureTourTarget,
                 )
             }
             composable(Routes.RECORDINGS) {
@@ -185,6 +232,11 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                     onOpenBackup = { navController.navigate("backup") },
                     onOpenLicenses = { navController.navigate("licenses") },
                     onOpenUserGuide = { navController.navigate("user-guide") },
+                    onOpenFeatureTour = {
+                        featureTourStep = 0
+                        welcomePreferences.edit().putBoolean("feature_tour_pending", true).apply()
+                        showFeatureTour = true
+                    },
                     onOpenLogs = { navController.navigate(Routes.LOGS) },
                     onOpenPlatforms = { navController.navigate(Routes.PLATFORMS) },
                 )
@@ -262,7 +314,8 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                     ).forEach { (route, label, icon) ->
                         val selected = currentRoute == route
                         Surface(
-                            modifier = Modifier.weight(1f).heightIn(min = 58.dp),
+                            modifier = Modifier.weight(1f).heightIn(min = 58.dp)
+                                .featureTourAnchor(tourAnchorForRoute(route), updateFeatureTourTarget),
                             shape = RoundedCornerShape(24.dp),
                             color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
                                 else Color.Transparent,
@@ -291,15 +344,39 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                 }
                 }
             }
+            if (showFeatureTour && !showWelcome && !showWelcomeQr) {
+                val step = featureTourSteps[featureTourStep]
+                FeatureTourOverlay(
+                    stepIndex = featureTourStep,
+                    step = step,
+                    targetBounds = featureTourTargets[step.anchor],
+                    onNext = {
+                        if (featureTourStep == featureTourSteps.lastIndex) finishFeatureTour()
+                        else featureTourStep += 1
+                    },
+                    onSkip = finishFeatureTour,
+                )
+            }
     }
     }
     if (showWelcome) SupportDialog(
         firstLaunch = true,
         onDismiss = {
-            welcomePreferences.edit().putBoolean("shown", true).apply()
+            val editor = welcomePreferences.edit().putBoolean("shown", true)
+            if (!welcomePreferences.getBoolean("feature_tour_shown", false)) {
+                editor.putBoolean("feature_tour_pending", true)
+            }
+            editor.apply()
             showWelcome = false
         },
         onShowQr = { showWelcomeQr = true },
     )
     if (showWelcomeQr) SupportDialog(firstLaunch = false, onDismiss = { showWelcomeQr = false })
     }
+
+private fun tourAnchorForRoute(route: String): FeatureTourAnchor = when (route) {
+    Routes.HOME -> FeatureTourAnchor.HOME
+    Routes.REMINDERS -> FeatureTourAnchor.REMINDERS
+    Routes.RECORDINGS -> FeatureTourAnchor.RECORDINGS
+    else -> FeatureTourAnchor.SETTINGS
+}
