@@ -25,6 +25,8 @@ jobs:
             'https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar' \
             -o app/libs/ffmpeg-kit-https-7.1.6.aar
           echo 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860  app/libs/ffmpeg-kit-https-7.1.6.aar' | sha256sum --check
+      - name: Validate FFmpeg source build script
+        run: bash -n scripts/build_ffmpeg_source.sh
       - name: Unit tests, lint and release build
         run: bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
       - name: Check committed Room schemas
