@@ -14,24 +14,17 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/License-Apache--2.0-green"></a>
 </p>
 
-<p align="center"><a href="https://github.com/SRiftX/casttrace-android/releases"><strong>Download the latest APK</strong></a> · <a href="CONTRIBUTING.md">Contribute</a> · <a href="ARCHITECTURE.md">Architecture</a></p>
+<p align="center"><a href="https://github.com/SRiftX/casttrace-android/releases"><strong>Download the latest APK</strong></a> · <a href="CONTRIBUTING.md">Contribute</a> · <a href="ARCHITECTURE.md">Architecture</a> · <a href="https://github.com/SRiftX/casttrace-android/issues">Report an issue</a></p>
 
 ## Screenshots
 
+<p align="center"><strong>Phone layout</strong></p>
 <p align="center">
-  <a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" height="280" alt="Live room monitoring and recording console"></a>
-  <a href="screenshots/live-reminders.png"><img src="screenshots/live-reminders.png" height="280" alt="Live reminder list"></a>
-  <a href="screenshots/settings.png"><img src="screenshots/settings.png" height="280" alt="Recording, background operation and platform settings"></a>
+  <a href="screenshots/live-rooms.png"><img src="screenshots/live-rooms.png" width="210" alt="Phone live room monitoring and recording console"></a>
+  <a href="screenshots/live-reminders.png"><img src="screenshots/live-reminders.png" width="210" alt="Phone live reminders with a paused example"></a>
+  <a href="screenshots/settings.png"><img src="screenshots/settings.png" width="210" alt="Recording and background operation settings"></a>
 </p>
-<p align="center"><sub>Room monitoring · Live reminders · Recording and background settings. Click an image to view it full size.</sub></p>
-
-<p align="center">
-  <a href="#download">Download APK</a> ·
-  <a href="#features">Features</a> ·
-  <a href="#build-from-source">Build from source</a> ·
-  <a href="#developer-guide">Developer guide</a> ·
-  <a href="#contributing">Contributing</a>
-</p>
+<p align="center"><sub>Room monitoring · Live reminders · Recording settings. Click an image to view it full size.</sub></p>
 
 CastTrace is built with Kotlin, Jetpack Compose, Room, WorkManager, Media3 and FFmpegKit. It also supports live reminders, chat capture and local playback.
 
@@ -110,7 +103,7 @@ The Debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`. The app
 
 ## Developer Guide
 
-Start with [CONTRIBUTING.md](CONTRIBUTING.md). Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing dependency injection, recording lifecycle or data boundaries.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing dependency injection, recording lifecycle or data boundaries. See [RELEASING.md](RELEASING.md) for versioning and APK publishing.
 
 Production code is under `app/src/main/java/com/streamcap/mobile/`:
 

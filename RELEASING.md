@@ -52,8 +52,8 @@ byte-for-byte equivalent to the source build.
 4. Create and push the matching annotated tag, for example:
 
    ```bash
-   git tag -a v0.2.14 -m "CastTrace 0.2.14"
-   git push origin v0.2.14
+   git tag -a v0.2.15 -m "CastTrace 0.2.15"
+   git push origin v0.2.15
    ```
 
 5. Follow the `Publish Android APK` Actions run. The workflow verifies the
