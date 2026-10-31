@@ -31,7 +31,7 @@ jobs:
         run: bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
       - name: Check committed Room schemas
         run: git diff --exit-code -- app/schemas
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: android-check-reports
