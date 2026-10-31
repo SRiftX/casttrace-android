@@ -15,16 +15,21 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/License-Apache--2.0-green"></a>
 </p>
 
-<p align="center"><a href="https://github.com/SRiftX/casttrace-android/releases"><strong>下载最新版 APK</strong></a> · <a href="CONTRIBUTING.md">参与开发</a> · <a href="ARCHITECTURE.md">架构说明</a></p>
+<p align="center"><a href="https://github.com/SRiftX/casttrace-android/releases"><strong>下载最新版 APK</strong></a> · <a href="CONTRIBUTING.md">参与开发</a> · <a href="ARCHITECTURE.md">架构说明</a> · <a href="https://github.com/SRiftX/casttrace-android/issues">反馈问题</a></p>
 
 ## 界面截图
 
+<p align="center"><strong>手机布局</strong></p>
 <p align="center">
-  <a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" height="280" alt="直播间监控和录制控制台"></a>
-  <a href="screenshots/live-reminders.png"><img src="screenshots/live-reminders.png" height="280" alt="开播提醒列表"></a>
-  <a href="screenshots/settings.png"><img src="screenshots/settings.png" height="280" alt="录制、后台运行和平台设置"></a>
+  <a href="screenshots/live-rooms.png"><img src="screenshots/live-rooms.png" width="210" alt="手机上的直播间监控和录制控制台"></a>
+  <a href="screenshots/live-reminders.png"><img src="screenshots/live-reminders.png" width="210" alt="手机上的开播提醒列表与暂停提醒示例"></a>
+  <a href="screenshots/settings.png"><img src="screenshots/settings.png" width="210" alt="录制和后台运行设置"></a>
 </p>
-<p align="center"><sub>直播间监控台 · 开播提醒 · 录制与后台设置。点击图片可查看原尺寸。</sub></p>
+<p align="center"><sub>直播间监控 · 开播提醒 · 录制设置。点击图片可查看原尺寸。</sub></p>
+
+<p align="center"><strong>大屏布局</strong></p>
+<p align="center"><a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" width="720" alt="大屏上的直播间监控和录制控制台"></a></p>
+<p align="center"><sub>大屏直播间监控台。点击图片可查看原尺寸。</sub></p>
 
 <p align="center">
   <a href="#下载-apk">下载 APK</a> ·
@@ -35,7 +40,6 @@
 </p>
 
 CastTrace 使用 Kotlin、Jetpack Compose、Room、WorkManager、Media3 和 FFmpegKit 构建，支持直播提醒、弹幕采集与本地播放。
-
 本项目参考了 [StreamCap](https://github.com/ihmily/StreamCap) 的平台录制思路，是独立维护的 Android 项目，并非 StreamCap 官方移动端；上游平台支持范围不代表本项目全部支持。
 
 ## 下载 APK
@@ -116,7 +120,7 @@ APK 输出路径为 `app/build/outputs/apk/debug/app-debug.apk`。应用 id 保�
 
 ## 开发入口
 
-新贡献者先读 [CONTRIBUTING.md](CONTRIBUTING.md)，修改依赖注入、录制生命周期或数据边界前先读 [ARCHITECTURE.md](ARCHITECTURE.md)。
+新贡献者先读 [CONTRIBUTING.md](CONTRIBUTING.md)，修改依赖注入、录制生命周期或数据边界前先读 [ARCHITECTURE.md](ARCHITECTURE.md)。维护版本和发布 APK 的步骤见 [RELEASING.md](RELEASING.md)。
 
 生产代码位于 `app/src/main/java/com/streamcap/mobile/`：
 

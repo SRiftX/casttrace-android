@@ -23,8 +23,8 @@ android {
         }
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "0.2.14"
+        versionCode = 26
+        versionName = "0.2.15"
 
         // The pinned FFmpegKit AAR ships only these ABIs. Do not advertise
         // partial 32-bit support through unrelated AndroidX native libraries.
