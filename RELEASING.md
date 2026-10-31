@@ -1,54 +1,70 @@
-# Android APK 发布
+# Release Process
 
-正式 APK 只能从已合入 `main` 的版本标签构建。发布工作流会运行 JVM 单测和 lint，校验 FFmpeg AAR、对应源码分发状态及签名证书，最后把 APK、应用源码、FFmpeg 源码材料和 SHA-256 校验文件放入同一 GitHub Release。
+This repository publishes CastTrace APKs as GitHub Releases. A release tag is
+accepted only when it matches `versionName` in `app/build.gradle.kts`, points to
+a commit on `main`, passes the FFmpeg corresponding-source gate, and produces an
+APK signed with the established CastTrace release certificate.
 
-## 当前发布门槛
+## Release prerequisites
 
-`third_party/ffmpeg/manifest.json` 中的 `redistributionReady` 必须为 `true`，`sourceGaps` 必须为空。当前清单仍为 `false`，原因是上游构建缓存和浮动子模块等原生源码输入尚未核实。因此 tag 工作流会停止，不会上传或发布 APK。单独签名成功或收集到源码归档都不等于该门槛已通过。
+- The release commit is merged into `main` and its Android checks pass.
+- `third_party/ffmpeg/source-build.json` pins every source archive, build option,
+  patch, ABI and toolchain used by the release FFmpegKit build.
+- The GitHub Actions repository secrets are configured:
+  - `CASTTRACE_KEYSTORE_BASE64`: base64-encoded PKCS#12 signing keystore.
+  - `CASTTRACE_STORE_PASSWORD`: keystore password.
+  - `CASTTRACE_KEY_ALIAS`: signing key alias.
+  - `CASTTRACE_KEY_PASSWORD`: signing key password.
+- The configured certificate SHA-256 is
+  `D39B0394EE312DE5B1F25F8A215A0E81CA9C47229835D2F96DD0187694523C57`.
 
-关闭门槛前，维护者必须取得或自行构建与实际 AAR 对应的完整 LGPL 源码和构建输入，校验归档，并更新清单、`THIRD_PARTY.md`、README 与许可证说明。不能只把未核实的源码材料包标记为完整对应源码。
+Do not commit a keystore or password. Keep an offline backup of the signing key;
+Android updates must keep the same application id and signing identity.
 
-## GitHub Actions 配置
+## Local release checks
 
-发布工作流需要仓库 Actions secrets。它们只用于签名，不应放在普通变量、仓库文件或命令行参数中：
+Use Ubuntu 24.04, JDK 17, Android SDK Platform 35, Build Tools 35.0.0, NDK
+26.2.11394342 (r26c), Python 3 and `gettext`. Download or install the pinned
+sources only through the tracked build recipe. From the repository root:
 
-| Secret | 内容 |
-| --- | --- |
-| `CASTTRACE_KEYSTORE_BASE64` | 正式 `.p12` 密钥文件的 Base64 内容 |
-| `CASTTRACE_STORE_PASSWORD` | 密钥库密码 |
-| `CASTTRACE_KEY_ALIAS` | 正式密钥别名，当前为 `casttrace-release` |
-| `CASTTRACE_KEY_PASSWORD` | 密钥密码 |
-
-需由仓库所有者在 GitHub 仓库 Settings → Secrets and variables → Actions 添加。`CASTTRACE_KEYSTORE_BASE64` 必须是单行 Base64，不要加 PEM 头、换行或空格。私钥不进入 GitHub Release、构建日志或生成的源码包。签名身份必须继续与既有安装兼容，不能临时生成新密钥替代。
-
-## 发布步骤
-
-1. 更新 `versionName`、`versionCode` 和 `CHANGELOG.md`，确认 README 与许可证材料反映本次发布状态。
-2. 确保改动已合入 `main`，并通过 `:app:testDebugUnitTest`、`:app:lintDebug`、`:app:assembleRelease` 以及必要的设备回归。
-3. 确认源码清单通过发布门槛，并验证正式密钥已配置且证书指纹与既有身份一致。
-4. 创建并推送匹配 `versionName` 的标签，例如 `v0.2.14`。
-5. GitHub Actions 会再次验证标签位于 `main` 历史、版本号匹配、测试通过、签名正确，然后创建 GitHub Release。
-6. 下载 Release 中的 APK、应用源码包、FFmpeg 对应源码材料包和 `SHA256SUMS`，核对文件哈希与 APK 签名后再对外宣传。
-
-Release 资产应包含：
-
-- `casttrace-<version>-release.apk`
-- `casttrace-<version>-source.zip`
-- `casttrace-ffmpeg-7.1.6-source-materials.zip`
-- `SHA256SUMS`
-
-任何一个门槛失败，工作流都不会创建包含 APK 的 Release。当前不要为源码状态未就绪的版本创建正式标签。
-
-## 本地签名验证
-
-仓库维护者可在本机使用受保护的密钥生成候选 APK：
-
-```powershell
-$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
-$env:TEMP = 'C:\tmp'
-$env:TMP = 'C:\tmp'
-New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
-./scripts/Build-SignedRelease.ps1
+```bash
+export ANDROID_HOME="$ANDROID_HOME"
+export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/26.2.11394342"
+bash scripts/build_ffmpeg_source.sh
+export CASTTRACE_FFMPEG_AAR_PATH="$PWD/build/compliance/ffmpeg-7.1.6/ffmpeg-kit-https-7.1.6.aar"
+export CASTTRACE_FFMPEG_AAR_SHA256="$(sha256sum "$CASTTRACE_FFMPEG_AAR_PATH" | cut -d' ' -f1)"
+python scripts/prepare_ffmpeg_compliance.py --aar "$CASTTRACE_FFMPEG_AAR_PATH"
+python scripts/verify_release_readiness.py
+bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
 ```
 
-脚本会验证 APK 签名并输出 SHA-256。此本地步骤只用于验证构建，不能绕过源码分发门槛，也不代表该 APK 可以公开发布。密钥保管细节见仓库所有者本机维护的签名说明。
+The release workflow repeats these checks from a clean runner. Its APK uses the
+source-built FFmpegKit AAR; ordinary local development may use the pinned Maven
+AAR described in `app/libs/README.md`. The Maven artifact is not claimed to be
+byte-for-byte equivalent to the source build.
+
+## Publish
+
+1. Update `versionName` and `versionCode` in `app/build.gradle.kts`, then update
+   `CHANGELOG.md` and user-facing release notes.
+2. Merge the release commit into `main`; wait for Android checks to pass.
+3. Confirm the corresponding-source policy and signing secrets are ready.
+4. Create and push the matching annotated tag, for example:
+
+   ```bash
+   git tag -a v0.2.14 -m "CastTrace 0.2.14"
+   git push origin v0.2.14
+   ```
+
+5. Follow the `Publish Android APK` Actions run. The workflow verifies the
+   source inputs, builds FFmpegKit, runs tests and lint, signs the APK, checks
+   its package/version/certificate, and creates the GitHub Release.
+6. Verify every uploaded asset and its SHA-256 using `SHA256SUMS`. The release
+   contains the APK, the Gradle-compatible FFmpeg AAR, CastTrace source, FFmpeg
+   corresponding-source materials and checksums.
+7. Install the APK over an existing CastTrace installation with `adb install
+   -r` and verify app startup, native FFmpeg loading, playback and recording
+   before announcing the release.
+
+The APK is intended for Android 8.0+ on `arm64-v8a` and `x86_64`. Keep the
+repository public if the Release is intended for unauthenticated downloads.

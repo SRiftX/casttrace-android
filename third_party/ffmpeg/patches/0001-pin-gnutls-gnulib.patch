@@ -1,0 +1,10 @@
+diff --git a/android-7.1-lts/scripts/android/gnutls.sh b/android-7.1-lts/scripts/android/gnutls.sh
+--- a/android-7.1-lts/scripts/android/gnutls.sh
++++ b/android-7.1-lts/scripts/android/gnutls.sh
+@@ -42,3 +42,4 @@
+-  ./bootstrap --skip-po || return 1
+-  git submodule update --remote gnulib || return 1
++  # Initialize the gitlink before bootstrap, using its pinned commit.
++  git submodule update --init -- gnulib || return 1
++  ./bootstrap --skip-po || return 1
+   overwrite_file ./gnulib/lib/fpending.c ./src/gl/fpending.c || return 1

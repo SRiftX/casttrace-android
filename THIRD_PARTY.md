@@ -14,18 +14,21 @@ are bundled in `app/src/main/assets/licenses/rust-srec-MIT.txt`.
 JVM parser tests use JSON-java 20240303 (public domain / Unlicense,
 https://github.com/stleary/JSON-java); Android uses its built-in `org.json` API.
 
-The local FFmpegKit binary is excluded from Git. Its SHA-256 matches Maven
-Central `dev.ffmpegkit-maintained:ffmpeg-kit-https:7.1.6` exactly. This is the
-LGPLv3 HTTPS build containing FFmpeg n7.1.5, with no enable-gpl/nonfree flags.
-It is not Apache-2.0 licensed. Full notices are bundled in the application's
-offline Settings / Open-source licenses screen.
+The development FFmpegKit AAR is excluded from Git and downloaded from Maven
+Central as `dev.ffmpegkit-maintained:ffmpeg-kit-https:7.1.6`. Its SHA-256 is
+pinned in Gradle. Official Release APKs use an AAR built from the source commits
+and patches pinned in `third_party/ffmpeg/source-build.json`; the source-built
+AAR is not claimed to be byte-for-byte identical to Maven Central's artifact.
+Both are LGPLv3 HTTPS builds containing FFmpeg n7.1.5, with no enable-gpl or
+nonfree flags. Full notices are bundled in the application's offline Settings
+/ Open-source licenses screen and in the Release source-material archive.
 
-The exact upstream native source cache and floating GnuTLS gnulib input remain
-unverified, so public binary redistribution is still blocked. Collected source
-archives are investigation materials, not a complete corresponding-source claim.
-See `app/libs/README.md` and `third_party/ffmpeg/manifest.json` for
-the provenance, obligations and remaining gap.
-Publishing this source repository does not automatically publish an APK.
+FFmpegKit's binary provenance, license scope, source-build procedure and
+redistribution gate are documented in `FFMPEG-LICENSE.md`. The Maven artifact
+evidence is in `third_party/ffmpeg/manifest.json`; the release source build and
+its input hashes are pinned in `third_party/ffmpeg/source-build.json`. The tag
+workflow builds the AAR from those sources and will not publish an APK unless
+the resulting source materials and binary checks pass.
 
 Upstream project references:
 
