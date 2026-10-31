@@ -26,8 +26,19 @@
 </p>
 <p align="center"><sub>Room monitoring · Live reminders · Recording settings. Click an image to view it full size.</sub></p>
 
-CastTrace is built with Kotlin, Jetpack Compose, Room, WorkManager, Media3 and FFmpegKit. It also supports live reminders, chat capture and local playback.
+<p align="center"><strong>Large-screen layout</strong></p>
+<p align="center"><a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" width="720" alt="Large-screen live room monitoring and recording console"></a></p>
+<p align="center"><sub>Live room monitoring console for larger screens. Click the image to view it full size.</sub></p>
 
+<p align="center">
+  <a href="#download">Download APK</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#build-from-source">Build from source</a> ·
+  <a href="#developer-guide">Developer guide</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
+
+CastTrace is built with Kotlin, Jetpack Compose, Room, WorkManager, Media3 and FFmpegKit. It also supports live reminders, chat capture and local playback.
 This is an independently maintained Android project that takes inspiration from the platform recording approach in [StreamCap](https://github.com/ihmily/StreamCap). It is not an official StreamCap mobile client. A platform being supported upstream does not mean that CastTrace supports it.
 
 ## Download

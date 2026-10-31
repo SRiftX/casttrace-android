@@ -27,8 +27,19 @@
 </p>
 <p align="center"><sub>直播间监控 · 开播提醒 · 录制设置。点击图片可查看原尺寸。</sub></p>
 
-CastTrace 使用 Kotlin、Jetpack Compose、Room、WorkManager、Media3 和 FFmpegKit 构建，支持直播提醒、弹幕采集与本地播放。
+<p align="center"><strong>大屏布局</strong></p>
+<p align="center"><a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" width="720" alt="大屏上的直播间监控和录制控制台"></a></p>
+<p align="center"><sub>大屏直播间监控台。点击图片可查看原尺寸。</sub></p>
 
+<p align="center">
+  <a href="#下载-apk">下载 APK</a> ·
+  <a href="#功能">功能</a> ·
+  <a href="#从源码构建">从源码构建</a> ·
+  <a href="#开发入口">开发入口</a> ·
+  <a href="#参与和反馈">参与和反馈</a>
+</p>
+
+CastTrace 使用 Kotlin、Jetpack Compose、Room、WorkManager、Media3 和 FFmpegKit 构建，支持直播提醒、弹幕采集与本地播放。
 本项目参考了 [StreamCap](https://github.com/ihmily/StreamCap) 的平台录制思路，是独立维护的 Android 项目，并非 StreamCap 官方移动端；上游平台支持范围不代表本项目全部支持。
 
 ## 下载 APK
