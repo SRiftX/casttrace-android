@@ -24,8 +24,11 @@ Android updates must keep the same application id and signing identity.
 ## Local release checks
 
 Use Ubuntu 24.04, JDK 17, Android SDK Platform 35, Build Tools 35.0.0, NDK
-26.2.11394342 (r26c), Python 3 and `gettext`. Download or install the pinned
-sources only through the tracked build recipe. From the repository root:
+26.2.11394342 (r26c), Python 3 and the native build packages installed by the
+release workflow (`autoconf`, `automake`, `libtool`, `autopoint`, `gettext`,
+`gperf`, `bison`, `ragel`, `yasm`, `nasm`, `meson`, `ninja-build` and the
+remaining packages in `.github/workflows/release-apk.yml`). Download or install
+the pinned sources only through the tracked build recipe. From the repository root:
 
 ```bash
 export ANDROID_HOME="$ANDROID_HOME"
@@ -52,8 +55,8 @@ byte-for-byte equivalent to the source build.
 4. Create and push the matching annotated tag, for example:
 
    ```bash
-   git tag -a v0.2.15 -m "CastTrace 0.2.15"
-   git push origin v0.2.15
+   git tag -a v0.2.16 -m "CastTrace 0.2.16"
+   git push origin v0.2.16
    ```
 
 5. Follow the `Publish Android APK` Actions run. The workflow verifies the

@@ -56,7 +56,12 @@ jobs:
       - name: Install FFmpeg source build tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes gettext
+          sudo apt-get install --yes \
+            autoconf automake libtool pkg-config curl git \
+            build-essential yasm nasm gperf texinfo bison ragel \
+            python3 python3-pip unzip zip wget meson ninja-build \
+            doxygen cmake autogen autopoint gettext groff \
+            gtk-doc-tools libtasn1-bin
 
       - name: Build FFmpegKit from pinned sources
         run: |
@@ -66,6 +71,15 @@ jobs:
           digest="$(sha256sum "$aar" | cut -d' ' -f1)"
           printf 'CASTTRACE_FFMPEG_AAR_PATH=%s\n' "$aar" >> "$GITHUB_ENV"
           printf 'CASTTRACE_FFMPEG_AAR_SHA256=%s\n' "$digest" >> "$GITHUB_ENV"
+
+      - name: Upload FFmpeg source build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-source-build-diagnostics
+          path: build/ffmpeg-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Collect FFmpeg corresponding-source materials
         run: python scripts/prepare_ffmpeg_compliance.py --aar "$CASTTRACE_FFMPEG_AAR_PATH"
