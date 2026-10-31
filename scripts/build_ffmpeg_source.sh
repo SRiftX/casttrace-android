@@ -16,8 +16,8 @@ git -C "$SOURCE" fetch --depth=1 origin "$BUILD_COMMIT"
 git -C "$SOURCE" checkout --detach FETCH_HEAD
 
 for patch in "$ROOT"/third_party/ffmpeg/patches/*.patch; do
-  git -C "$SOURCE" apply --check "$patch"
-  git -C "$SOURCE" apply "$patch"
+  git -C "$SOURCE" apply --unidiff-zero --check "$patch"
+  git -C "$SOURCE" apply --unidiff-zero "$patch"
 done
 
 export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
