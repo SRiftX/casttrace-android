@@ -1,6 +1,11 @@
-# CastTrace Android
+<h1 align="center">CastTrace Android</h1>
 
-[简体中文](README.md) | English
+<p align="center"><a href="README.md">简体中文</a> | English</p>
+
+<p align="center">
+  <strong>Android live-stream monitoring and recording</strong><br>
+  Manage rooms locally, monitor streams in the background, and resume interrupted recordings.
+</p>
 
 <p align="center">
   <a href="https://github.com/SRiftX/casttrace-android/actions/workflows/android-checks.yml"><img alt="Android checks" src="https://github.com/SRiftX/casttrace-android/actions/workflows/android-checks.yml/badge.svg"></a>
@@ -9,12 +14,18 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/License-Apache--2.0-green"></a>
 </p>
 
-CastTrace is an Android application for monitoring live rooms and recording supported streams. It is built with Kotlin, Jetpack Compose, Room, WorkManager, Media3 and FFmpegKit. It manages room lists locally, monitors live status in the background, resumes interrupted recordings, collects supported chat messages, and plays saved videos.
+<p align="center"><a href="https://github.com/SRiftX/casttrace-android/releases"><strong>Download the latest APK</strong></a> · <a href="CONTRIBUTING.md">Contribute</a> · <a href="ARCHITECTURE.md">Architecture</a></p>
 
-This is an independently maintained Android project that takes inspiration from the platform recording approach in [StreamCap](https://github.com/ihmily/StreamCap). It is not an official StreamCap mobile client. A platform being supported upstream does not mean that CastTrace supports it.
+## Screenshots
 
 <p align="center">
-  <a href="#screenshots">Screenshots</a> ·
+  <a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" height="280" alt="Live room monitoring and recording console"></a>
+  <a href="screenshots/live-reminders.png"><img src="screenshots/live-reminders.png" height="280" alt="Live reminder list"></a>
+  <a href="screenshots/settings.png"><img src="screenshots/settings.png" height="280" alt="Recording, background operation and platform settings"></a>
+</p>
+<p align="center"><sub>Room monitoring · Live reminders · Recording and background settings. Click an image to view it full size.</sub></p>
+
+<p align="center">
   <a href="#download">Download APK</a> ·
   <a href="#features">Features</a> ·
   <a href="#build-from-source">Build from source</a> ·
@@ -22,13 +33,9 @@ This is an independently maintained Android project that takes inspiration from 
   <a href="#contributing">Contributing</a>
 </p>
 
-## Screenshots
+CastTrace is built with Kotlin, Jetpack Compose, Room, WorkManager, Media3 and FFmpegKit. It also supports live reminders, chat capture and local playback.
 
-<p align="center">
-  <a href="screenshots/live-rooms-large-screen.png"><img src="screenshots/live-rooms-large-screen.png" height="300" alt="Live room monitoring and recording console"></a>
-  <a href="screenshots/live-reminders.png"><img src="screenshots/live-reminders.png" height="300" alt="Live reminder list"></a>
-  <a href="screenshots/settings.png"><img src="screenshots/settings.png" height="300" alt="Recording and background operation settings"></a>
-</p>
+This is an independently maintained Android project that takes inspiration from the platform recording approach in [StreamCap](https://github.com/ihmily/StreamCap). It is not an official StreamCap mobile client. A platform being supported upstream does not mean that CastTrace supports it.
 
 ## Download
 
