@@ -94,8 +94,9 @@ class HlsSourceSelectorTest {
             val sources = listOf("bad.m3u8", "path/master.m3u8").map {
                 StreamSource(server.url(it).toString(), StreamType.HLS, "original", headers = mapOf("Referer" to "https://example.com/"))
             }
-            val selected = HlsSourceSelector(OkHttpClient()).select(sources)
-            assertEquals(server.url("path/media.m3u8").toString(), selected.url)
+            val selection = HlsSourceSelector(OkHttpClient()).selectWithIndex(sources)
+            assertEquals(1, selection.sourceIndex)
+            assertEquals(server.url("path/media.m3u8").toString(), selection.source.url)
             repeat(4) { assertEquals("https://example.com/", server.takeRequest().getHeader("Referer")) }
         }
     }
