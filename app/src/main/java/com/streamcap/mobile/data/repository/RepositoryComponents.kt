@@ -402,7 +402,8 @@ class LiveStatusChecker(
         return streams(room)
     }
 
-    suspend fun streams(reminder: LiveReminder): List<StreamSource> = streams(reminder.toResolverRoom())
+    suspend fun streams(reminder: LiveReminder, quality: String = "原画"): List<StreamSource> =
+        streams(reminder.toResolverRoom(quality))
 
     private suspend fun streams(room: LiveRoom): List<StreamSource> = withTimeoutOrNull(STREAM_LOOKUP_TIMEOUT_MILLIS) {
         resolvers.resolverForPlatform(room.platform).getStreams(room, credentialStore.get(room.platform))
@@ -442,7 +443,7 @@ private fun LiveReminderEntity.toResolverRoom() = toResolverRoom(
     updatedAt = updatedAt,
 )
 
-private fun LiveReminder.toResolverRoom() = toResolverRoom(
+private fun LiveReminder.toResolverRoom(quality: String = "原画") = toResolverRoom(
     id = id,
     originalUrl = originalUrl,
     normalizedUrl = normalizedUrl,
@@ -453,6 +454,7 @@ private fun LiveReminder.toResolverRoom() = toResolverRoom(
     lastCheckAt = lastCheckAt,
     createdAt = createdAt,
     updatedAt = updatedAt,
+    quality = quality,
 )
 
 private fun toResolverRoom(
@@ -466,6 +468,7 @@ private fun toResolverRoom(
     lastCheckAt: Long?,
     createdAt: Long,
     updatedAt: Long,
+    quality: String = "原画",
 ) = LiveRoom(
     id = id,
     originalUrl = originalUrl,
@@ -475,7 +478,7 @@ private fun toResolverRoom(
     roomTitle = roomTitle,
     enabled = true,
     autoRecord = false,
-    quality = "原画",
+    quality = quality,
     mediaType = "视频",
     outputFormat = "MP4",
     flvDirectDownload = false,
