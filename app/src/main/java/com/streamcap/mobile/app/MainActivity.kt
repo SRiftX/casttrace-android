@@ -3,6 +3,7 @@ package com.streamcap.mobile.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -33,8 +34,12 @@ class MainActivity : ComponentActivity() {
     ) { }
     private var launchToken by mutableIntStateOf(0)
     private var launchIntent by mutableStateOf<Intent?>(null)
+    var inPictureInPicture by mutableStateOf(false)
+        private set
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        inPictureInPicture = isInPictureInPictureMode
         launchIntent = intent
         val storagePermissions = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.POST_NOTIFICATIONS)
@@ -74,6 +79,11 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         launchToken++
         launchIntent = intent
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        inPictureInPicture = isInPictureInPictureMode
     }
 
     override fun onResume() {

@@ -12,23 +12,37 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
+data class HlsSourceSelection(val sourceIndex: Int, val source: StreamSource)
+
 class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis: Long = 30_000L) {
     private val client = client.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
 
     suspend fun select(sources: List<StreamSource>, quality: String = "原画", previousHost: String? = null): StreamSource =
+        selectWithIndex(sources, quality, previousHost).source
+
+    suspend fun selectWithIndex(
+        sources: List<StreamSource>,
+        quality: String = "原画",
+        previousHost: String? = null,
+    ): HlsSourceSelection =
         withTimeoutOrNull(selectionTimeoutMillis) {
             // A stalled CDN may still return playlist/segment headers successfully.
             // Try another CDN before reusing it when the recorder requests a refresh.
-            val ordered = if (previousHost == null) sources else sources.sortedBy {
-                it.url.toHttpUrlOrNull()?.host.equals(previousHost, ignoreCase = true)
+            val indexed = sources.withIndex().toList()
+            val ordered = if (previousHost == null) indexed else indexed.sortedBy {
+                    it.value.url.toHttpUrlOrNull()?.host.equals(previousHost, ignoreCase = true)
             }
             selectWithinDeadline(ordered, quality, client.newBuilder().addNetworkInterceptor(HlsSessionCookies()).build())
         }
             ?: error("直播线路探测超时，请稍后重试")
 
-    private suspend fun selectWithinDeadline(sources: List<StreamSource>, quality: String, client: OkHttpClient): StreamSource = withContext(Dispatchers.IO) {
+    private suspend fun selectWithinDeadline(
+        sources: List<IndexedValue<StreamSource>>,
+        quality: String,
+        client: OkHttpClient,
+    ): HlsSourceSelection = withContext(Dispatchers.IO) {
         val failures = linkedSetOf<String>()
-        for (source in sources) {
+        for ((sourceIndex, source) in sources) {
             coroutineContext.ensureActive()
             try {
                 var url = secureStreamUrl(source.url)
@@ -50,8 +64,11 @@ class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis
                                 check(media.isSuccessful) { "Media segment HTTP ${media.code}" }
                                 check(media.body?.source()?.exhausted() == false) { "Empty media segment" }
                             }
-                            return@withContext selectedSource.copy(url = if (source.separateAudio) source.url
-                                else secureStreamUrl(response.request.url.toString()))
+                            return@withContext HlsSourceSelection(
+                                sourceIndex,
+                                selectedSource.copy(url = if (source.separateAudio) source.url
+                                    else secureStreamUrl(response.request.url.toString())),
+                            )
                         }
                         val lines = body.lines().map(String::trim)
                         val variants = lines.mapIndexedNotNull { index, line ->

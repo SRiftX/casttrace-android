@@ -98,7 +98,8 @@ class StreamCapRepository(
         liveStatusChecker.resetStaleChecks(now)
     suspend fun refresh(roomId: Long): LiveStatus = liveStatusChecker.refresh(roomId)
     suspend fun streams(roomId: Long): List<StreamSource> = liveStatusChecker.streams(roomId)
-    suspend fun streams(reminder: LiveReminder): List<StreamSource> = liveStatusChecker.streams(reminder)
+    suspend fun streams(reminder: LiveReminder, quality: String = "原画"): List<StreamSource> =
+        liveStatusChecker.streams(reminder, quality)
     suspend fun recordingLiveStatus(roomId: Long): LiveStatus = liveStatusChecker.recordingLiveStatus(roomId)
 
     suspend fun createSession(
