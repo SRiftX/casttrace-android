@@ -3,6 +3,7 @@ package com.streamcap.mobile.ui.reminders
 import com.streamcap.mobile.domain.model.StreamSource
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.recording.hls.HlsSourceSelection
+import androidx.media3.common.Player
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -44,10 +45,45 @@ class LiveReminderPreviewSupportTest {
     }
 
     @Test fun failedRoutesAdvanceOnceAndStopAfterEveryRouteWasTried() {
-        assertEquals(1, nextPreviewSourceIndex(3, setOf(0), 0))
-        assertEquals(1, nextPreviewSourceIndex(3, setOf(0, 2), 2))
-        assertNull(nextPreviewSourceIndex(3, setOf(0, 1, 2), 2))
-        assertNull(nextPreviewSourceIndex(0, emptySet(), 0))
+        val routes = listOf(
+            StreamSource("https://flv-a.example/live.flv", StreamType.FLV, "原画"),
+            StreamSource("https://hls-a.example/live.m3u8", StreamType.HLS, "原画"),
+            StreamSource("https://flv-b.example/live.flv", StreamType.FLV, "原画"),
+            StreamSource("https://hls-b.example/live.m3u8", StreamType.HLS, "原画"),
+        )
+
+        assertEquals(2, nextPreviewSourceIndex(routes, setOf(1), 1))
+        assertEquals(3, nextPreviewSourceIndex(routes, setOf(1, 2), 2))
+        assertEquals(0, nextPreviewSourceIndex(routes, setOf(1, 2, 3), 3))
+        assertNull(nextPreviewSourceIndex(routes, routes.indices.toSet(), 3))
+        assertNull(nextPreviewSourceIndex(emptyList(), emptySet(), 0))
+    }
+
+    @Test fun playbackStatusWaitsForARealVideoFrame() {
+        val route = StreamSource("https://hls.example/live.m3u8", StreamType.HLS, "原画")
+
+        assertEquals("正在连接", previewPlaybackStatus(false, route, null, Player.STATE_IDLE, false, false))
+        assertEquals("正在缓冲", previewPlaybackStatus(false, route, null, Player.STATE_BUFFERING, false, false))
+        assertEquals("线路已结束", previewPlaybackStatus(false, route, null, Player.STATE_ENDED, true, false))
+        assertEquals("正在播放", previewPlaybackStatus(false, route, null, Player.STATE_READY, true, true))
+        assertEquals("线路异常", previewPlaybackStatus(false, route, "HTTP 403", Player.STATE_BUFFERING, false, false))
+    }
+
+    @Test fun onlyAPlayingHuyaFlvReconnectsAfterEof() {
+        assertEquals(true, shouldReconnectHuyaFlvAfterEof("虎牙直播", StreamType.FLV, Player.STATE_ENDED, true))
+        assertEquals(true, shouldReconnectHuyaFlvAfterEof("huya", StreamType.FLV, Player.STATE_ENDED, true))
+        assertEquals(false, shouldReconnectHuyaFlvAfterEof("douyu", StreamType.FLV, Player.STATE_ENDED, true))
+        assertEquals(false, shouldReconnectHuyaFlvAfterEof("huya", StreamType.HLS, Player.STATE_ENDED, true))
+        assertEquals(false, shouldReconnectHuyaFlvAfterEof("huya", StreamType.FLV, Player.STATE_ENDED, false))
+        assertEquals(false, shouldReconnectHuyaFlvAfterEof("huya", StreamType.FLV, Player.STATE_BUFFERING, true))
+    }
+
+    @Test fun stalledPreviewFallsBackOnlyWhenPlaybackIsExpected() {
+        assertEquals(true, previewPlaybackNeedsFallback(Player.STATE_ENDED, true, false, true))
+        assertEquals(true, previewPlaybackNeedsFallback(Player.STATE_READY, true, false, true))
+        assertEquals(false, previewPlaybackNeedsFallback(Player.STATE_READY, true, false, false))
+        assertEquals(false, previewPlaybackNeedsFallback(Player.STATE_BUFFERING, true, false, true))
+        assertEquals(false, previewPlaybackNeedsFallback(Player.STATE_READY, false, false, true))
     }
 
     @Test fun hlsPreflightFallbackKeepsAnAttemptableRouteWhenAllCandidatesAreHls() {

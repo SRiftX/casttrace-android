@@ -41,6 +41,10 @@ class LiveRemindersViewModel @Inject constructor(
         viewModelScope.launch { repository.setReminderStrongNotification(reminderId, enabled) }
     }
 
+    fun refreshReminderPreview(reminderId: Long) {
+        viewModelScope.launch { runCatching { repository.refreshReminderPreview(reminderId) } }
+    }
+
     fun addLinks(rawText: String, onComplete: (ReminderAddResult) -> Unit) {
         viewModelScope.launch {
             var added = 0

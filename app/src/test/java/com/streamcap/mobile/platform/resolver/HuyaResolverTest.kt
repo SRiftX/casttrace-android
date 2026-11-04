@@ -3,8 +3,10 @@ package com.streamcap.mobile.platform.resolver
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 
 class HuyaResolverTest {
     private val resolver = HuyaResolver(OkHttpClient())
@@ -34,5 +36,13 @@ class HuyaResolverTest {
             "{\"data\":[{\"nested\":{\"name\":\"x\"}}]}",
             resolver.extractJsonObject(html, html.indexOf('{')),
         )
+    }
+
+    @Test fun usesLiveScreenshotAsRoomCoverAndSecuresIt() {
+        assertEquals(
+            "https://live-cover.example/frame.jpg",
+            huyaCoverUrl(JSONObject("""{"screenshot":"http://live-cover.example/frame.jpg"}""")),
+        )
+        assertNull(huyaCoverUrl(JSONObject("""{"screenshot":""}""")))
     }
 }

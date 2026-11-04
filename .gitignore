@@ -33,7 +33,9 @@ keystore.properties
 __pycache__/
 *.pyc
 
-# Local documentation and device QA evidence stay off GitHub.
-/docs/
+# Local documentation and device QA evidence stay off GitHub, except the
+# shared build guide.
+/docs/*
+!/docs/BUILDING.md
 /scripts/Test-Mate20Endurance.ps1
 /scripts/package_release_candidate.py

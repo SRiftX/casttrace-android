@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.Cookie
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 
@@ -42,6 +43,7 @@ data class LiveReminderPlayerState(
     val errorMessage: String? = null,
     val liveDanmaku: List<DanmakuEvent> = emptyList(),
     val danmakuStatus: String = "等待连接",
+    val hlsSessionCookies: List<Cookie> = emptyList(),
 )
 
 @HiltViewModel
@@ -58,6 +60,7 @@ class LiveReminderPlayerViewModel @Inject constructor(
     private val _state = MutableStateFlow(LiveReminderPlayerState())
     val state: StateFlow<LiveReminderPlayerState> = _state.asStateFlow()
     val danmakuAppearance = preferences.danmakuAppearance
+
     private var danmakuJob: Job? = null
     private var resolveJob: Job? = null
     private var activeDanmakuClient: com.streamcap.mobile.danmaku.DanmakuClient? = null
@@ -87,7 +90,12 @@ class LiveReminderPlayerViewModel @Inject constructor(
         val quality = _state.value.quality
         resolveJob?.cancel()
         resolveJob = viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true, errorMessage = null, sources = emptyList())
+            _state.value = _state.value.copy(
+                loading = true,
+                errorMessage = null,
+                sources = emptyList(),
+                hlsSessionCookies = emptyList(),
+            )
             try {
                 val resolved = withContext(Dispatchers.IO) {
                     networkPolicy.requireAllowed()
@@ -100,6 +108,7 @@ class LiveReminderPlayerViewModel @Inject constructor(
                 val hls = playable.filter { it.type == StreamType.HLS }
                 var playbackSources = playable
                 var selectedIndex = fallbackPreviewSourceIndex(playable)
+                var hlsSessionCookies = emptyList<Cookie>()
                 if (hls.isNotEmpty()) {
                     try {
                         val selection = withContext(Dispatchers.IO) {
@@ -108,6 +117,7 @@ class LiveReminderPlayerViewModel @Inject constructor(
                         val resolved = applyPreferredHlsSelection(playable, hls, selection)
                         playbackSources = resolved.first
                         selectedIndex = resolved.second
+                        hlsSessionCookies = selection.sessionCookies
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (_: Exception) {
@@ -121,12 +131,17 @@ class LiveReminderPlayerViewModel @Inject constructor(
                     sourceIndex = selectedIndex,
                     loading = false,
                     errorMessage = null,
+                    hlsSessionCookies = hlsSessionCookies,
                 )
                 failedSourceIndexes.clear()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                _state.value = _state.value.copy(errorMessage = failure.message ?: "直播线路解析失败", loading = false)
+                _state.value = _state.value.copy(
+                    errorMessage = failure.message ?: "直播线路解析失败",
+                    loading = false,
+                    hlsSessionCookies = emptyList(),
+                )
             }
         }
     }
@@ -160,7 +175,7 @@ class LiveReminderPlayerViewModel @Inject constructor(
         val sources = _state.value.sources
         if (index !in sources.indices) return false
         failedSourceIndexes += index
-        val next = nextPreviewSourceIndex(sources.size, failedSourceIndexes, index)
+        val next = nextPreviewSourceIndex(sources, failedSourceIndexes, index)
         if (next == null) {
             _state.value = _state.value.copy(errorMessage = "此画质下的线路均无法播放，请降低画质或重新解析")
             return false

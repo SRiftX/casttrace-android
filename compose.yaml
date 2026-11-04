@@ -1,0 +1,37 @@
+services:
+  android:
+    build:
+      context: .
+      target: android
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - gradle-cache:/root/.gradle
+    command:
+      - bash
+      - -lc
+      - bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --console=plain
+
+  release:
+    profiles: [release]
+    build:
+      context: .
+      target: release
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - gradle-cache:/root/.gradle
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        bash scripts/build_ffmpeg_source.sh
+        export CASTTRACE_FFMPEG_AAR_PATH="$$PWD/build/compliance/ffmpeg-7.1.6/ffmpeg-kit-https-7.1.6.aar"
+        export CASTTRACE_FFMPEG_AAR_SHA256="$$(sha256sum "$$CASTTRACE_FFMPEG_AAR_PATH" | cut -d' ' -f1)"
+        python3 scripts/prepare_ffmpeg_compliance.py --aar "$$CASTTRACE_FFMPEG_AAR_PATH"
+        python3 scripts/verify_release_readiness.py
+        bash gradlew --no-daemon :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease --console=plain
+
+volumes:
+  gradle-cache:

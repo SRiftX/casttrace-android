@@ -70,6 +70,8 @@ Requirements:
 - Android 8.0 (API 26) or newer; APKs include `arm64-v8a` and `x86_64`
 - The pinned FFmpegKit 7.1.6 AAR, verified by SHA-256
 
+See the [build guide](docs/BUILDING.md) for Windows, Linux and Docker Compose instructions, plus the distinction between local FFmpeg source builds and the official release workflow.
+
 The AAR is excluded from Git. Download and verify it before building:
 
 Linux and macOS:
@@ -79,7 +81,8 @@ mkdir -p app/libs
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
   'https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar' \
   -o app/libs/ffmpeg-kit-https-7.1.6.aar
-echo 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860  app/libs/ffmpeg-kit-https-7.1.6.aar' | sha256sum --check
+actual="$(openssl dgst -sha256 app/libs/ffmpeg-kit-https-7.1.6.aar | awk '{print $NF}')"
+test "$actual" = 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860'
 ```
 
 Windows PowerShell:

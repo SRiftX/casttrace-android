@@ -63,7 +63,7 @@ adb shell am instrument -w \
 3. PR 描述问题、触发条件、修改后的行为、验证结果和已知限制。
 4. 检查 diff 不包含密钥、私有诊断、真实录屏或本机路径。
 
-根目录 README、CONTRIBUTING、ARCHITECTURE、RELEASING、CHANGELOG 和 THIRD_PARTY 是对外维护文档。个人工作记录与设备原始证据留在本机 `docs/`；该目录被 `.gitignore` 排除，不作为对外文档入口。
+根目录 README、CONTRIBUTING、ARCHITECTURE、RELEASING、CHANGELOG 和 THIRD_PARTY，以及 `docs/BUILDING.md` 是对外维护文档。个人工作记录与设备原始证据仍留在本机 `docs/`，不会随构建指南一起提交。
 
 不要提交 APK、AAB、AAR、签名私钥、密码、DPAPI 凭据、本机配置、数据库、Cookie、账号信息或私人录制内容。测试用 `preview.ts` 是公开的合成素材，规则见 `app/src/androidTest/assets/README.md`。
 

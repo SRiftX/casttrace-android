@@ -71,6 +71,8 @@ CastTrace 使用 Kotlin、Jetpack Compose、Room、WorkManager、Media3 和 FFmp
 - Android 8.0（API 26）及以上；APK 仅包含 `arm64-v8a` 和 `x86_64`
 - 开发构建使用 FFmpegKit 7.1.6 Maven AAR，SHA-256 必须与下方固定值一致。正式 Release 从锁定源码构建 FFmpegKit，并通过 `CASTTRACE_FFMPEG_AAR_PATH` 提供给 Gradle；两种 AAR 不声明逐字节相同。
 
+Windows、Linux 和 Docker Compose 的完整构建步骤，以及本地 FFmpeg 源码构建与正式发布之间的区别，见 [构建指南](docs/BUILDING.md)。
+
 克隆仓库并下载固定版本 AAR。AAR 不提交到 Git，Gradle 和 CI 会校验它的 SHA-256。
 
 ```bash
@@ -80,7 +82,8 @@ mkdir -p app/libs
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
   'https://repo.maven.apache.org/maven2/dev/ffmpegkit-maintained/ffmpeg-kit-https/7.1.6/ffmpeg-kit-https-7.1.6.aar' \
   -o app/libs/ffmpeg-kit-https-7.1.6.aar
-echo 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860  app/libs/ffmpeg-kit-https-7.1.6.aar' | sha256sum --check
+actual="$(openssl dgst -sha256 app/libs/ffmpeg-kit-https-7.1.6.aar | awk '{print $NF}')"
+test "$actual" = 'e80e5ee52248a3dcb1dda0524dd784fe4bbb212dcd4d575e82e15d21a002d860'
 ```
 
 Windows PowerShell:

@@ -1,0 +1,211 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1728" viewBox="0 0 800 1728" role="img" aria-labelledby="title desc">
+  <title id="title">CastTrace Android 手机横屏设计稿</title>
+  <desc id="desc">四个适配手机横屏的页面，保留底部导航并收紧内容布局。</desc>
+  <defs>
+    <style>
+      text { font-family: "Roboto", "Noto Sans SC", "Microsoft YaHei UI", sans-serif; fill: #1d1d1f; }
+      .title { font-size: 26px; font-weight: 600; }
+      .page-title { font-size: 23px; font-weight: 650; }
+      .body { font-size: 14px; }
+      .small { font-size: 12px; }
+      .tiny { font-size: 10px; }
+      .secondary { fill: #6e6e73; }
+      .tertiary { fill: #8e8e93; }
+      .blue { fill: #007aff; }
+      .orange { fill: #b86e00; }
+      .white { fill: #fff; }
+      .line { stroke: #e5e5ea; }
+      .icon { fill: none; stroke: #4d4d52; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+      .nav-active { color: #007aff; }
+    </style>
+    <g id="home-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m3 12 13-10 13 10M6 10v18h8V17h5v11h8V10"/>
+    </g>
+    <g id="bell-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7 21h18l-2-3v-7a7 7 0 0 0-14 0v7l-2 3Zm6 4h6"/>
+    </g>
+    <g id="library-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="23" height="25" rx="3"/><path d="M13 9v13l9-6.5z"/>
+    </g>
+    <g id="settings-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="16" cy="16" r="10"/><circle cx="16" cy="16" r="3"/>
+      <path d="M16 2v3m0 22v3M2 16h3m22 0h3M6.1 6.1l2.1 2.1m15.6 15.6 2.1 2.1m0-19.8-2.1 2.1M8.2 23.8l-2.1 2.1"/>
+    </g>
+    <g id="nav-shell">
+      <rect x="0" y="360" width="800" height="72" fill="#fff"/>
+      <path d="M0 360h800" stroke="#e5e5ea"/>
+    </g>
+    <g id="nav-items" fill="none" stroke="#737378" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <use href="#home-icon" x="84" y="372" color="#737378"/>
+      <use href="#bell-icon" x="284" y="372" color="#737378"/>
+      <use href="#library-icon" x="484" y="372" color="#737378"/>
+      <use href="#settings-icon" x="684" y="372" color="#737378"/>
+    </g>
+    <g id="search-icon" fill="none" stroke="#4d4d52" stroke-width="1.7" stroke-linecap="round">
+      <circle cx="9" cy="9" r="6"/><path d="m14 14 6 6"/>
+    </g>
+    <g id="plus-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+      <path d="M12 4v16M4 12h16"/>
+    </g>
+    <g id="switch-on">
+      <rect width="42" height="24" rx="12" fill="#34c759"/><circle cx="29" cy="12" r="9" fill="#fff"/>
+    </g>
+    <g id="switch-off">
+      <rect width="42" height="24" rx="12" fill="#d1d1d6"/><circle cx="13" cy="12" r="9" fill="#fff"/>
+    </g>
+  </defs>
+
+  <!-- Live rooms -->
+  <g transform="translate(0 0)">
+    <rect width="800" height="432" fill="#f5f5f7"/>
+    <text x="20" y="35" class="title">CastTrace</text>
+    <text x="20" y="53" class="small secondary">直播录制控制台</text>
+    <use href="#search-icon" x="718" y="17"/>
+    <use href="#plus-icon" x="770" y="16" color="#4d4d52"/>
+
+    <text x="20" y="82" class="body" font-weight="650">录制控制</text>
+    <text x="20" y="100" class="tiny secondary">全局自动录制 · 后台持续检测</text>
+    <path d="m778 73 5 5 5-5" fill="none" stroke="#8e8e93" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <text x="20" y="123" class="tiny secondary">状态筛选</text>
+    <rect x="20" y="132" width="42" height="27" rx="14" fill="#e6f1ff"/>
+    <text x="41" y="150" text-anchor="middle" class="tiny blue" font-weight="650">全部</text>
+    <rect x="68" y="132" width="54" height="27" rx="14" fill="none" stroke="#d8d8dd"/>
+    <text x="95" y="150" text-anchor="middle" class="tiny secondary">录制中</text>
+    <rect x="128" y="132" width="54" height="27" rx="14" fill="none" stroke="#d8d8dd"/>
+    <text x="155" y="150" text-anchor="middle" class="tiny secondary">直播中</text>
+    <rect x="188" y="132" width="52" height="27" rx="14" fill="none" stroke="#d8d8dd"/>
+    <text x="214" y="150" text-anchor="middle" class="tiny secondary">未开播</text>
+    <rect x="246" y="132" width="64" height="27" rx="14" fill="none" stroke="#d8d8dd"/>
+    <text x="278" y="150" text-anchor="middle" class="tiny secondary">录制错误</text>
+    <rect x="316" y="132" width="58" height="27" rx="14" fill="none" stroke="#d8d8dd"/>
+    <text x="345" y="150" text-anchor="middle" class="tiny secondary">未监控</text>
+
+    <text x="20" y="184" class="body" font-weight="700">直播间</text>
+    <text x="674" y="184" text-anchor="end" class="tiny secondary">0 个房间</text>
+    <text x="780" y="184" text-anchor="end" class="tiny blue">紧凑视图</text>
+    <rect x="20" y="196" width="760" height="138" rx="10" fill="#fff"/>
+    <text x="36" y="231" class="body" font-weight="650">还没有直播间</text>
+    <text x="36" y="252" class="small secondary">添加直播地址，开始检查开播状态。</text>
+    <text x="36" y="272" class="tiny secondary">全局和房间录制开关都开启后，开播时会自动保存。</text>
+    <rect x="36" y="286" width="126" height="32" rx="7" fill="#007aff"/>
+    <text x="99" y="307" text-anchor="middle" class="small white" font-weight="650">添加直播间</text>
+
+    <use href="#nav-shell"/><use href="#nav-items"/>
+    <use href="#home-icon" x="84" y="372" class="nav-active"/>
+    <text x="300" y="414" text-anchor="middle" class="tiny secondary">提醒</text>
+    <text x="500" y="414" text-anchor="middle" class="tiny secondary">视频库</text>
+    <text x="700" y="414" text-anchor="middle" class="tiny secondary">设置</text>
+    <text x="100" y="414" text-anchor="middle" class="tiny blue" font-weight="650">直播间</text>
+  </g>
+
+  <!-- Reminders -->
+  <g transform="translate(0 432)">
+    <rect width="800" height="432" fill="#f5f5f7"/>
+    <text x="20" y="35" class="page-title">开播提醒</text>
+    <text x="20" y="53" class="small secondary">主播开播时通知你</text>
+    <use href="#plus-icon" x="770" y="16" color="#4d4d52"/>
+
+    <rect x="20" y="67" width="760" height="48" rx="8" fill="#fff"/>
+    <circle cx="39" cy="91" r="5" fill="#c77700"/>
+    <text x="54" y="88" class="small" font-weight="650">通知权限未开启</text>
+    <text x="54" y="104" class="tiny secondary">开启系统通知后，主播开播时会提醒你。</text>
+    <text x="760" y="96" text-anchor="end" class="tiny blue" font-weight="650">去开启</text>
+
+    <text x="20" y="138" class="tiny secondary">状态</text>
+    <rect x="20" y="145" width="392" height="30" rx="8" fill="#e5e5ea"/>
+    <rect x="23" y="148" width="82" height="24" rx="6" fill="#fff"/>
+    <text x="64" y="164" text-anchor="middle" class="tiny" font-weight="650">全部 0</text>
+    <text x="157" y="164" text-anchor="middle" class="tiny secondary">直播中 0</text>
+    <text x="255" y="164" text-anchor="middle" class="tiny secondary">提醒中 0</text>
+    <text x="354" y="164" text-anchor="middle" class="tiny secondary">已暂停 0</text>
+
+    <text x="20" y="199" class="body" font-weight="700">主播</text>
+    <text x="780" y="199" text-anchor="end" class="tiny secondary">0 位</text>
+    <rect x="20" y="210" width="760" height="124" rx="10" fill="#fff"/>
+    <text x="400" y="241" text-anchor="middle" class="body" font-weight="700">还没有添加主播</text>
+    <text x="400" y="261" text-anchor="middle" class="small secondary">添加主播后，即可单独管理开播提醒。</text>
+    <rect x="316" y="272" width="168" height="32" rx="7" fill="#007aff"/>
+    <text x="400" y="293" text-anchor="middle" class="small white" font-weight="650">添加主播</text>
+    <text x="400" y="321" text-anchor="middle" class="tiny blue">从直播间导入</text>
+
+    <use href="#nav-shell"/><use href="#nav-items"/>
+    <use href="#bell-icon" x="284" y="372" class="nav-active"/>
+    <text x="100" y="414" text-anchor="middle" class="tiny secondary">直播间</text>
+    <text x="500" y="414" text-anchor="middle" class="tiny secondary">视频库</text>
+    <text x="700" y="414" text-anchor="middle" class="tiny secondary">设置</text>
+    <text x="300" y="414" text-anchor="middle" class="tiny blue" font-weight="650">提醒</text>
+  </g>
+
+  <!-- Video library -->
+  <g transform="translate(0 864)">
+    <rect width="800" height="432" fill="#f5f5f7"/>
+    <text x="20" y="35" class="page-title">视频库</text>
+    <text x="20" y="53" class="small secondary">0 场录制</text>
+    <text x="780" y="53" text-anchor="end" class="tiny blue" font-weight="650">筛选与排序</text>
+
+    <rect x="20" y="68" width="760" height="34" rx="8" fill="#fff" stroke="#dedee3"/>
+    <use href="#search-icon" x="31" y="75"/>
+    <text x="61" y="90" class="small tertiary">搜索主播、标题、平台或日期</text>
+    <rect x="20" y="114" width="760" height="218" rx="10" fill="#fff"/>
+    <text x="400" y="174" text-anchor="middle" class="body" font-weight="700">还没有录制文件</text>
+    <text x="400" y="197" text-anchor="middle" class="small secondary">完成的直播录制会显示在这里。</text>
+    <text x="400" y="218" text-anchor="middle" class="tiny secondary">开启自动录制，或在直播间手动开始录制。</text>
+    <rect x="316" y="237" width="168" height="34" rx="7" fill="#007aff"/>
+    <text x="400" y="259" text-anchor="middle" class="small white" font-weight="650">前往直播间</text>
+
+    <use href="#nav-shell"/><use href="#nav-items"/>
+    <use href="#library-icon" x="484" y="372" class="nav-active"/>
+    <text x="100" y="414" text-anchor="middle" class="tiny secondary">直播间</text>
+    <text x="300" y="414" text-anchor="middle" class="tiny secondary">提醒</text>
+    <text x="700" y="414" text-anchor="middle" class="tiny secondary">设置</text>
+    <text x="500" y="414" text-anchor="middle" class="tiny blue" font-weight="650">视频库</text>
+  </g>
+
+  <!-- Settings -->
+  <g transform="translate(0 1296)">
+    <rect width="800" height="432" fill="#f5f5f7"/>
+    <text x="20" y="35" class="page-title">设置</text>
+    <text x="20" y="53" class="small secondary">录制偏好和后台运行</text>
+
+    <text x="20" y="82" class="tiny secondary">录制默认值</text>
+    <rect x="20" y="90" width="370" height="236" rx="10" fill="#fff"/>
+    <text x="36" y="119" class="small" font-weight="650">保存目录</text>
+    <text x="36" y="137" class="tiny secondary">Movies/StreamCap</text>
+    <path d="M36 147h338" class="line"/>
+    <text x="36" y="174" class="small" font-weight="650">默认格式</text>
+    <text x="360" y="174" text-anchor="end" class="tiny secondary">MP4</text>
+    <path d="M36 186h338" class="line"/>
+    <text x="36" y="213" class="small" font-weight="650">默认清晰度</text>
+    <text x="360" y="213" text-anchor="end" class="tiny secondary">原画</text>
+    <path d="M36 225h338" class="line"/>
+    <text x="36" y="252" class="small" font-weight="650">录制通知</text>
+    <text x="360" y="252" text-anchor="end" class="tiny orange">未开启</text>
+    <text x="36" y="276" class="tiny blue">开启通知权限</text>
+
+    <text x="410" y="82" class="tiny secondary">后台运行</text>
+    <rect x="410" y="90" width="370" height="236" rx="10" fill="#fff"/>
+    <text x="426" y="119" class="small" font-weight="650">全局自动录制</text>
+    <text x="426" y="136" class="tiny secondary">开播后自动开始录制</text>
+    <use href="#switch-on" x="726" y="103"/>
+    <path d="M426 147h338" class="line"/>
+    <text x="426" y="174" class="small" font-weight="650">后台持续检测</text>
+    <text x="426" y="191" class="tiny secondary">应用关闭后继续检查</text>
+    <use href="#switch-on" x="726" y="158"/>
+    <path d="M426 202h338" class="line"/>
+    <text x="426" y="229" class="small" font-weight="650">电池优化</text>
+    <text x="726" y="229" text-anchor="end" class="tiny orange">未豁免</text>
+    <text x="426" y="255" class="small" font-weight="650">后台启动与自启动</text>
+    <text x="426" y="274" class="tiny secondary">部分厂商需要手动允许</text>
+    <text x="426" y="301" class="tiny secondary">全局和房间开关都开启后，才会自动录制。</text>
+
+    <use href="#nav-shell"/><use href="#nav-items"/>
+    <use href="#settings-icon" x="684" y="372" class="nav-active"/>
+    <text x="100" y="414" text-anchor="middle" class="tiny secondary">直播间</text>
+    <text x="300" y="414" text-anchor="middle" class="tiny secondary">提醒</text>
+    <text x="500" y="414" text-anchor="middle" class="tiny secondary">视频库</text>
+    <text x="700" y="414" text-anchor="middle" class="tiny blue" font-weight="650">设置</text>
+  </g>
+
+  <path d="M0 432h800M0 864h800M0 1296h800" stroke="#d1d1d6" stroke-width="2"/>
+</svg>

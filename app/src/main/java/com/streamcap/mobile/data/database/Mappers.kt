@@ -39,6 +39,7 @@ fun LiveReminderEntity.toDomain() = LiveReminder(
     platform = platform,
     anchorName = anchorName,
     roomTitle = roomTitle,
+    coverUrl = coverUrl,
     enabled = enabled,
     liveStatus = liveStatus,
     notifiedForCurrentLive = notifiedForCurrentLive,

@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">CastTrace 直播间 UI 概念稿</title>
+  <desc id="desc">横屏平板直播录制控制台，突出自动录制条件、后台检测状态和单个直播间的录制状态。</desc>
+  <defs>
+    <style>
+      text { font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #202a2c; }
+      text[fill="#fff"] { fill: #fff; }
+      .muted { fill: #687477; }
+      .faint { fill: #8a9698; }
+      .teal { fill: #167c75; }
+      .red { fill: #c94d4a; }
+      .amber { fill: #a96516; }
+      .small { font-size: 12px; }
+      .tiny { font-size: 10px; }
+      .button-text { font-size: 12px; font-weight: 700; }
+      .icon { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect width="1600" height="1000" fill="#f4f6f5"/>
+  <rect width="104" height="1000" fill="#ffffff"/>
+  <path d="M104 0v1000" stroke="#e1e7e5"/>
+
+  <rect x="31" y="23" width="42" height="42" rx="12" fill="#253637"/>
+  <text x="52" y="50" text-anchor="middle" font-size="15" font-weight="750" fill="#fff">CT</text>
+
+  <g fill="none" stroke="#167c75" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="12" y="82" width="80" height="68" rx="7" fill="#e4f2ef" stroke="none"/>
+    <path d="m38 109 14-12 14 12M41 107v17h9v-9h6v9h9v-17"/>
+  </g>
+  <text x="52" y="139" text-anchor="middle" font-size="12" font-weight="700" fill="#167c75">直播间</text>
+  <g fill="none" stroke="#687477" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M69 173a17 17 0 0 0-34 0c0 9-3 10-4 12h42c-1-2-4-3-4-12M47 195h10"/>
+    <rect x="33" y="235" width="30" height="27" rx="3"/><path d="m45 243 9 6-9 6zM42 231h26v27"/>
+    <circle cx="52" cy="307" r="9"/><circle cx="52" cy="307" r="3"/>
+    <path d="M52 293v4m0 20v4m-14-14h4m20 0h4m-24-10 3 3m14 14 3 3m-20 0 3-3m14-14 3-3"/>
+  </g>
+  <text x="52" y="219" text-anchor="middle" font-size="12" class="muted">开播提醒</text>
+  <text x="52" y="275" text-anchor="middle" font-size="12" class="muted">视频库</text>
+  <text x="52" y="349" text-anchor="middle" font-size="12" class="muted">设置</text>
+  <text x="52" y="972" text-anchor="middle" font-size="10" class="faint">CastTrace 0.2</text>
+
+  <text x="154" y="49" font-size="12" font-weight="700" class="teal">CASTTRACE · 直播录制</text>
+  <text x="154" y="91" font-size="30" font-weight="720">直播间</text>
+  <text x="154" y="119" font-size="14" class="muted">查看开播状态，管理自动录制</text>
+
+  <rect x="1006" y="55" width="272" height="42" rx="6" fill="#fff" stroke="#e1e7e5"/>
+  <g fill="none" stroke="#8a9698" stroke-width="1.8" stroke-linecap="round">
+    <circle cx="1029" cy="75" r="7"/><path d="m1034 80 5 5"/>
+  </g>
+  <text x="1050" y="79" font-size="12" class="faint">搜索主播、平台或标题</text>
+  <rect x="1290" y="55" width="254" height="42" rx="6" fill="#167c75"/>
+  <path d="M1313 76h14m-7-7v14" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <text x="1408" y="80" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">添加直播间</text>
+
+  <rect x="154" y="151" width="1390" height="132" rx="8" fill="#fff" stroke="#e1e7e5"/>
+  <rect x="174" y="171" width="42" height="42" rx="7" fill="#e4f2ef"/>
+  <g fill="none" stroke="#167c75" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M184 200v-16l6 9 6-9v16M201 185h8m-8 7h8m-8 7h8"/>
+  </g>
+  <text x="231" y="184" font-size="16" font-weight="700">自动录制</text>
+  <rect x="322" y="167" width="70" height="23" rx="4" fill="#e6f3ed"/>
+  <circle cx="334" cy="178.5" r="3.5" fill="#146b54"/>
+  <text x="344" y="183" font-size="11" font-weight="700" fill="#146b54">已开启</text>
+  <text x="231" y="208" font-size="13" class="muted">主播开播后自动开始保存。需要同时开启全局开关和对应直播间的开关。</text>
+  <rect x="231" y="224" width="177" height="25" rx="4" fill="#f8fcfa" stroke="#d8e8e3"/>
+  <text x="241" y="241" font-size="11" fill="#31635d">全局自动录制</text>
+  <text x="331" y="241" font-size="11" font-weight="700" class="teal">已开启</text>
+  <text x="416" y="241" font-size="12" fill="#8caaa3">+</text>
+  <rect x="433" y="224" width="188" height="25" rx="4" fill="#f8fcfa" stroke="#d8e8e3"/>
+  <text x="443" y="241" font-size="11" fill="#31635d">房间开关</text>
+  <text x="497" y="241" font-size="11" font-weight="700" class="teal">8 / 12 已开启</text>
+  <path d="M979 170v94" stroke="#e1e7e5"/>
+  <circle cx="1008" cy="207" r="4" fill="#42a17c"/>
+  <text x="1021" y="210" font-size="13" font-weight="700">后台持续检测 · 正常运行</text>
+  <text x="1021" y="232" font-size="11" class="muted">应用关闭后仍会检查开播状态</text>
+  <rect x="1400" y="190" width="112" height="34" rx="5" fill="#fff" stroke="#e1e7e5"/>
+  <text x="1456" y="212" text-anchor="middle" font-size="12" font-weight="700" class="teal">后台设置</text>
+
+  <rect x="154" y="303" width="1390" height="79" rx="7" fill="#fff" stroke="#e1e7e5"/>
+  <path d="M617 303v79M1080 303v79" stroke="#e1e7e5"/>
+  <text x="177" y="339" font-size="24" font-weight="750">12</text>
+  <text x="222" y="333" font-size="12" class="muted">已添加直播间</text>
+  <text x="222" y="353" font-size="10" class="faint">8 个已开启自动录制</text>
+  <text x="641" y="339" font-size="24" font-weight="750" class="red">2</text>
+  <text x="686" y="333" font-size="12" class="muted">正在录制</text>
+  <text x="686" y="353" font-size="10" class="faint">共保存 5 个视频片段</text>
+  <text x="1105" y="339" font-size="24" font-weight="750" class="amber">1</text>
+  <text x="1150" y="333" font-size="12" class="muted">需要设置</text>
+  <text x="1150" y="353" font-size="10" class="faint">有直播间开播但未自动录制</text>
+
+  <text x="154" y="426" font-size="17" font-weight="700">直播间</text>
+  <text x="1452" y="426" text-anchor="end" font-size="12" class="muted">共 12 个</text>
+  <text x="1544" y="426" text-anchor="end" font-size="12" font-weight="700" class="teal">紧凑视图</text>
+
+  <rect x="154" y="444" width="94" height="34" rx="5" fill="#273638"/>
+  <text x="201" y="466" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">全部 <tspan fill="#c8d3d1">12</tspan></text>
+  <rect x="256" y="444" width="102" height="34" rx="5" fill="#fff" stroke="#e1e7e5"/>
+  <text x="307" y="466" text-anchor="middle" font-size="12" font-weight="600" class="muted">录制中 <tspan fill="#8a9698">2</tspan></text>
+  <rect x="366" y="444" width="102" height="34" rx="5" fill="#fff" stroke="#e1e7e5"/>
+  <text x="417" y="466" text-anchor="middle" font-size="12" font-weight="600" class="muted">直播中 <tspan fill="#8a9698">3</tspan></text>
+  <rect x="476" y="444" width="102" height="34" rx="5" fill="#fff" stroke="#e1e7e5"/>
+  <text x="527" y="466" text-anchor="middle" font-size="12" font-weight="600" class="muted">未开播 <tspan fill="#8a9698">8</tspan></text>
+  <rect x="586" y="444" width="112" height="34" rx="5" fill="#fff" stroke="#e1e7e5"/>
+  <text x="642" y="466" text-anchor="middle" font-size="12" font-weight="600" class="muted">录制错误 <tspan fill="#8a9698">0</tspan></text>
+  <rect x="706" y="444" width="102" height="34" rx="5" fill="#fff" stroke="#e1e7e5"/>
+  <text x="757" y="466" text-anchor="middle" font-size="12" font-weight="600" class="muted">未监控 <tspan fill="#8a9698">1</tspan></text>
+  <text x="821" y="465" font-size="11" class="faint">ⓘ 未监控：全局或房间自动录制未开启</text>
+
+  <rect x="154" y="493" width="1390" height="160" rx="7" fill="#fff" stroke="#e1e7e5"/>
+  <rect x="174" y="512" width="40" height="40" rx="6" fill="#e27e42"/>
+  <text x="194" y="538" text-anchor="middle" font-size="12" font-weight="750" fill="#fff">虎</text>
+  <text x="227" y="524" font-size="15" font-weight="700">周星星</text>
+  <text x="289" y="524" font-size="11" class="faint">虎牙直播 · 直播间 660100</text>
+  <rect x="445" y="507" width="75" height="23" rx="4" fill="#fae9e7"/>
+  <circle cx="457" cy="518.5" r="3.5" fill="#c94d4a"/>
+  <text x="467" y="523" font-size="11" font-weight="700" fill="#ad3f3b">录制中</text>
+  <text x="227" y="550" font-size="12" class="muted">巅峰赛冲分中，今天也要赢</text>
+  <text x="227" y="570" font-size="10" class="faint">已录制 23 分钟 · 已保存 2 段</text>
+  <path d="M758 510v126" stroke="#e1e7e5"/>
+  <text x="785" y="529" font-size="15" font-weight="700">00:23:14</text>
+  <text x="870" y="529" font-size="11" class="faint">本场时长</text>
+  <text x="785" y="551" font-size="11" class="muted">录制正常 · 最近保存 8 秒前</text>
+  <g stroke="#c94d4a" stroke-width="2" stroke-linecap="round" opacity=".82">
+    <path d="M786 577v7M792 573v11M798 569v15M804 575v9M810 571v13M816 578v6M822 568v16M828 574v10M834 570v14M840 577v7M846 572v12M852 576v8"/>
+  </g>
+  <text x="1052" y="520" font-size="12" font-weight="700">开播自动录制</text>
+  <rect x="1190" y="506" width="33" height="18" rx="9" fill="#167c75"/>
+  <circle cx="1212" cy="515" r="6" fill="#fff"/>
+  <text x="1232" y="520" font-size="10" class="muted">已开启</text>
+  <rect x="1052" y="547" width="142" height="34" rx="5" fill="#fff" stroke="#e1e7e5"/>
+  <text x="1123" y="569" text-anchor="middle" class="button-text">检查开播状态</text>
+  <rect x="1202" y="547" width="120" height="34" rx="5" fill="#f5fbf9" stroke="#c6dfd9"/>
+  <text x="1262" y="569" text-anchor="middle" class="button-text teal">查看视频</text>
+
+  <rect x="154" y="666" width="1390" height="160" rx="7" fill="#fff" stroke="#e1e7e5"/>
+  <rect x="174" y="685" width="40" height="40" rx="6" fill="#c29b42"/>
+  <text x="194" y="711" text-anchor="middle" font-size="12" font-weight="750" fill="#fff">斗</text>
+  <text x="227" y="697" font-size="15" font-weight="700">yyfyyf</text>
+  <text x="286" y="697" font-size="11" class="faint">斗鱼直播 · 直播间 288016</text>
+  <rect x="445" y="680" width="115" height="23" rx="4" fill="#fbf0dc"/>
+  <circle cx="457" cy="691.5" r="3.5" fill="#a96516"/>
+  <text x="467" y="696" font-size="11" font-weight="700" fill="#a96516">直播中 · 未录制</text>
+  <text x="227" y="723" font-size="12" class="muted">主播已开播，但此房间的自动录制已关闭</text>
+  <text x="227" y="743" font-size="10" class="faint">开播约 8 分钟 · 状态已于 1 分钟前检查</text>
+  <path d="M758 683v126" stroke="#e1e7e5"/>
+  <text x="785" y="702" font-size="14" font-weight="700">本场尚未开始录制</text>
+  <text x="785" y="725" font-size="11" class="muted">打开房间开关可自动录制后续开播</text>
+  <text x="1052" y="693" font-size="12" font-weight="700">开播自动录制</text>
+  <rect x="1190" y="679" width="33" height="18" rx="9" fill="#c8d1ce"/>
+  <circle cx="1200" cy="688" r="6" fill="#fff"/>
+  <text x="1232" y="693" font-size="10" class="muted">已关闭</text>
+  <rect x="1052" y="720" width="142" height="34" rx="5" fill="#fff" stroke="#e1e7e5"/>
+  <text x="1123" y="742" text-anchor="middle" class="button-text">检查开播状态</text>
+  <rect x="1202" y="720" width="120" height="34" rx="5" fill="#167c75"/>
+  <text x="1262" y="742" text-anchor="middle" class="button-text" fill="#fff">开始录制</text>
+
+  <rect x="154" y="840" width="1390" height="43" rx="5" fill="#edf2f1"/>
+  <circle cx="176" cy="861.5" r="8" fill="none" stroke="#167c75" stroke-width="1.5"/>
+  <text x="176" y="866" text-anchor="middle" font-size="11" font-weight="700" class="teal">i</text>
+  <text x="194" y="866" font-size="11" font-weight="700">“检查开播状态”只刷新状态，不会开始录制。</text>
+  <text x="454" y="866" font-size="11" class="muted">想马上录制当前直播，请点击“开始录制”。</text>
+  <text x="154" y="918" font-size="11" class="muted">常用入口</text>
+  <text x="226" y="918" font-size="11" font-weight="700" class="teal">查看全部录制视频</text>
+  <text x="344" y="918" font-size="11" class="faint">·</text>
+  <text x="359" y="918" font-size="11" font-weight="700" class="teal">管理开播提醒</text>
+  <text x="450" y="918" font-size="11" class="faint">·</text>
+  <text x="465" y="918" font-size="11" font-weight="700" class="teal">查看使用说明</text>
+</svg>

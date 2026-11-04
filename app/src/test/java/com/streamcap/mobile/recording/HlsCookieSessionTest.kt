@@ -5,6 +5,7 @@ import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.recording.engine.*
 import com.streamcap.mobile.recording.hls.HlsRecorder
 import com.streamcap.mobile.recording.hls.HlsSourceSelector
+import com.streamcap.mobile.recording.hls.hlsCookieHeader
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import okhttp3.OkHttpClient
@@ -39,6 +40,33 @@ class HlsCookieSessionTest {
             assertEquals("session=account; other=kept", server.takeRequest().getHeader("Cookie"))
             assertEquals("session=cdn", server.takeRequest().getHeader("Cookie"))
             assertNull(server.takeRequest().getHeader("Cookie"))
+        }
+    }
+
+    @Test fun playlistSessionCookieIsAvailableToNativePlayerRequests() = runBlocking {
+        MockWebServer().use { server ->
+            server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.path == "/live.m3u8") return MockResponse()
+                        .addHeader("Set-Cookie", "cdn_session=valid; Path=/media")
+                        .setBody("#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\n/media/first\n#EXT-X-ENDLIST\n")
+                    if (request.path?.startsWith("/media/") == true && request.getHeader("Cookie") == "cdn_session=valid") {
+                        return MockResponse().setBody("MEDIA")
+                    }
+                    return MockResponse().setResponseCode(403)
+                }
+            }
+
+            val source = StreamSource(server.url("/live.m3u8").toString(), StreamType.HLS, "原画")
+            val selection = HlsSourceSelector(OkHttpClient()).selectWithIndex(listOf(source))
+            val playerUrl = server.url("/media/next")
+            val cookie = hlsCookieHeader(selection.sessionCookies, playerUrl)
+            assertEquals("cdn_session=valid", cookie)
+            assertNull(hlsCookieHeader(selection.sessionCookies, server.url("/other")))
+
+            OkHttpClient().newCall(
+                okhttp3.Request.Builder().url(playerUrl).header("Cookie", cookie!!).build(),
+            ).execute().use { response -> assertEquals(200, response.code) }
         }
     }
 

@@ -50,6 +50,7 @@ data class LiveReminderEntity(
     val platform: String,
     val anchorName: String,
     val roomTitle: String? = null,
+    val coverUrl: String? = null,
     val enabled: Boolean = true,
     val liveStatus: LiveStatus = LiveStatus.UNKNOWN,
     val notifiedForCurrentLive: Boolean = false,

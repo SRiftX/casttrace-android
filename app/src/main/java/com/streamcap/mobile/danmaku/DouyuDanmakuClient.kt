@@ -16,6 +16,10 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -25,7 +29,7 @@ class DouyuDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
 
     override suspend fun connect(context: DanmakuConnectContext): Flow<DanmakuFrame> = callbackFlow {
         val roomId = withContext(Dispatchers.IO) { resolveRoomId(context.roomUrl) }
-        val request = Request.Builder().url("wss://danmuproxy.douyu.com:8502/")
+        val request = Request.Builder().url(DANMAKU_SOCKET_URL)
             .header("User-Agent", USER_AGENT)
             .header("Origin", "https://www.douyu.com")
             .apply { context.cookie?.takeIf(String::isNotBlank)?.let { header("Cookie", it) } }
@@ -49,7 +53,8 @@ class DouyuDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { close() }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                close(java.io.IOException("斗鱼弹幕连接失败 HTTP ${response?.code ?: 0}"))
+                val reason = response?.let { "WebSocket 握手 HTTP ${it.code}" } ?: connectionFailureReason(t)
+                close(java.io.IOException("斗鱼弹幕连接失败：$reason", t))
             }
         }
         val ws = httpClient.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build().newWebSocket(request, listener)
@@ -77,6 +82,18 @@ class DouyuDanmakuClient(private val httpClient: OkHttpClient) : DanmakuClient {
 
     companion object {
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
+        private const val DANMAKU_SOCKET_URL = "wss://danmuproxy.douyu.com:8503/"
+
+        private fun connectionFailureReason(error: Throwable): String {
+            val chain = generateSequence(error) { it.cause }.take(8).toList()
+            return when {
+                chain.any { it is UnknownHostException } -> "弹幕服务器域名无法解析"
+                chain.any { it is ConnectException } -> "弹幕服务器拒绝连接"
+                chain.any { it is SocketTimeoutException } -> "连接弹幕服务器超时"
+                chain.any { it is SSLException } -> "安全连接握手失败"
+                else -> "网络连接异常（${chain.firstOrNull()?.javaClass?.simpleName ?: "未知错误"}）"
+            }
+        }
 
         internal fun packet(body: String): ByteString {
             val payload = (body + '\u0000').toByteArray(Charsets.UTF_8)
