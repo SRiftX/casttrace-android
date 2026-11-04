@@ -30,6 +30,8 @@ release workflow (`autoconf`, `automake`, `libtool`, `autopoint`, `gettext`,
 remaining packages in `.github/workflows/release-apk.yml`). Download or install
 the pinned sources only through the tracked build recipe. From the repository root:
 
+For Windows, Linux and Docker Compose setup details, see `docs/BUILDING.md`.
+
 ```bash
 export ANDROID_HOME="$ANDROID_HOME"
 export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/26.2.11394342"

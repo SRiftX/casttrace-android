@@ -16,11 +16,19 @@ class DouyuResolver(private val client: OkHttpClient) : PlatformResolver {
 
     override suspend fun resolveRoom(url: String): LiveRoomInfo {
         val room = roomData(url)
-        return LiveRoomInfo(room.url, "斗鱼直播", room.anchor, room.title)
+        return LiveRoomInfo(room.url, "斗鱼直播", room.anchor, room.title, room.coverUrl)
     }
 
     override suspend fun checkLive(room: LiveRoom, credential: PlatformCredential?) =
         if (roomData(room.normalizedUrl).live) LiveStatus.LIVE else LiveStatus.OFFLINE
+
+    override suspend fun checkRoom(room: LiveRoom, credential: PlatformCredential?): RoomCheckResult {
+        val data = roomData(room.normalizedUrl)
+        return RoomCheckResult(
+            if (data.live) LiveStatus.LIVE else LiveStatus.OFFLINE,
+            LiveRoomInfo(data.url, "斗鱼直播", data.anchor, data.title, data.coverUrl),
+        )
+    }
 
     override suspend fun getStreams(room: LiveRoom, credential: PlatformCredential?): List<StreamSource> {
         val info = roomData(room.normalizedUrl)
@@ -92,6 +100,7 @@ class DouyuResolver(private val client: OkHttpClient) : PlatformResolver {
             anchor = room.optString("nickname").ifBlank { "斗鱼主播 $id" },
             title = if (room.optInt("videoLoop") == 1) "【轮播】$title" else title,
             live = room.optInt("show_status") == 1,
+            coverUrl = room.coverUrl(),
         )
     }
 
@@ -109,13 +118,30 @@ class DouyuResolver(private val client: OkHttpClient) : PlatformResolver {
             anchor = room.optString("nickname").ifBlank { "斗鱼主播 $id" },
             title = room.optString("roomName").ifBlank { "斗鱼直播间 $id" },
             live = room.optInt("isLive") == 1,
+            coverUrl = room.coverUrl(),
         )
     }
 
-    private data class DouyuRoom(val id: String, val url: String, val anchor: String, val title: String, val live: Boolean)
+    private fun JSONObject.coverUrl(): String? = douyuCoverUrl(this)
+
+    private data class DouyuRoom(
+        val id: String,
+        val url: String,
+        val anchor: String,
+        val title: String,
+        val live: Boolean,
+        val coverUrl: String?,
+    )
 
     companion object {
         private const val DID = "10000000000000000000000000001501"
         private val HEADERS = mapOf("User-Agent" to DESKTOP_USER_AGENT, "Referer" to "https://www.douyu.com/")
     }
+}
+
+internal fun douyuCoverUrl(room: JSONObject): String? {
+    val raw = listOf("room_src", "room_pic", "roomSrc", "roomPic", "vertical_src")
+        .firstNotNullOfOrNull { key -> room.optString(key).takeIf { it.startsWith("http", true) || it.startsWith("//") } }
+        ?: return null
+    return secureStreamUrl(if (raw.startsWith("//")) "https:$raw" else raw)
 }

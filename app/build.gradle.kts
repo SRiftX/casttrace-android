@@ -23,8 +23,8 @@ android {
         }
         minSdk = 26
         targetSdk = 35
-        versionCode = 29
-        versionName = "0.2.18"
+        versionCode = 30
+        versionName = "0.2.19"
 
         // The pinned FFmpegKit AAR ships only these ABIs. Do not advertise
         // partial 32-bit support through unrelated AndroidX native libraries.
@@ -180,6 +180,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.5.1")

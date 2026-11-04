@@ -7,12 +7,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Cookie
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
-data class HlsSourceSelection(val sourceIndex: Int, val source: StreamSource)
+data class HlsSourceSelection(
+    val sourceIndex: Int,
+    val source: StreamSource,
+    val sessionCookies: List<Cookie> = emptyList(),
+)
 
 class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis: Long = 30_000L) {
     private val client = client.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
@@ -32,7 +37,13 @@ class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis
             val ordered = if (previousHost == null) indexed else indexed.sortedBy {
                     it.value.url.toHttpUrlOrNull()?.host.equals(previousHost, ignoreCase = true)
             }
-            selectWithinDeadline(ordered, quality, client.newBuilder().addNetworkInterceptor(HlsSessionCookies()).build())
+            val sessionCookies = HlsSessionCookies()
+            selectWithinDeadline(
+                ordered,
+                quality,
+                client.newBuilder().addNetworkInterceptor(sessionCookies).build(),
+                sessionCookies,
+            )
         }
             ?: error("直播线路探测超时，请稍后重试")
 
@@ -40,6 +51,7 @@ class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis
         sources: List<IndexedValue<StreamSource>>,
         quality: String,
         client: OkHttpClient,
+        sessionCookies: HlsSessionCookies,
     ): HlsSourceSelection = withContext(Dispatchers.IO) {
         val failures = linkedSetOf<String>()
         for ((sourceIndex, source) in sources) {
@@ -68,6 +80,7 @@ class HlsSourceSelector(client: OkHttpClient, private val selectionTimeoutMillis
                                 sourceIndex,
                                 selectedSource.copy(url = if (source.separateAudio) source.url
                                     else secureStreamUrl(response.request.url.toString())),
+                                sessionCookies.snapshot(),
                             )
                         }
                         val lines = body.lines().map(String::trim)

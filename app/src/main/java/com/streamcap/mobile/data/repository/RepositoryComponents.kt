@@ -278,8 +278,21 @@ class ReminderRepository(
                 platform = info.platform,
                 anchorName = info.anchorName,
                 roomTitle = info.roomTitle,
+                coverUrl = info.coverUrl,
             ),
         ) != -1L
+    }
+
+    suspend fun refreshPreview(reminderId: Long) {
+        val reminder = reminderDao.getById(reminderId) ?: return
+        val (_, info) = urlResolver.resolve(reminder.normalizedUrl)
+        reminderDao.updateResolvedInfo(
+            id = reminderId,
+            anchorName = info.anchorName,
+            title = info.roomTitle,
+            coverUrl = info.coverUrl,
+            updatedAt = System.currentTimeMillis(),
+        )
     }
 
     suspend fun importRoomAsReminder(roomId: Long): Boolean {
@@ -310,11 +323,11 @@ class ReminderRepository(
         if (!reminder.enabled) return false
         val now = System.currentTimeMillis()
         reminderDao.setChecking(reminderId, now)
-        val result = try {
+        val checked = try {
             val resolver = resolvers.resolverForPlatform(reminder.platform)
             withTimeoutOrNull(LIVE_CHECK_TIMEOUT_MILLIS) {
-                resolver.checkRoom(reminder.toResolverRoom(), credentialStore.get(reminder.platform)).status
-            } ?: LiveStatus.ERROR
+                resolver.checkRoom(reminder.toResolverRoom(), credentialStore.get(reminder.platform))
+            } ?: RoomCheckResult(LiveStatus.ERROR)
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
                 reminderDao.setCheckResult(
@@ -326,9 +339,18 @@ class ReminderRepository(
             }
             throw cancelled
         } catch (_: Exception) {
-            LiveStatus.ERROR
+            RoomCheckResult(LiveStatus.ERROR)
         }
-        return reminderDao.applyCheckResult(reminderId, result, System.currentTimeMillis(), notificationsAllowed)
+        checked.info?.let { info ->
+            reminderDao.updateResolvedInfo(
+                id = reminderId,
+                anchorName = info.anchorName,
+                title = info.roomTitle,
+                coverUrl = info.coverUrl,
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
+        return reminderDao.applyCheckResult(reminderId, checked.status, System.currentTimeMillis(), notificationsAllowed)
     }
 
     private companion object {

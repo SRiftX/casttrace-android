@@ -107,6 +107,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import android.os.SystemClock
 import android.app.Activity
 import android.app.PictureInPictureParams
@@ -138,6 +139,8 @@ private val PlayerAccent = Color(0xFFB4DECD)
 private val PlayerRed = Color(0xFFFF8C83)
 private const val PREVIEW_MIN_ZOOM_SCALE = 0.5f
 private const val PREVIEW_MAX_ZOOM_SCALE = 3f
+private const val PREVIEW_STALL_TIMEOUT_MS = 8_000L
+private const val PREVIEW_BUFFER_TIMEOUT_MS = 18_000L
 
 private enum class PlayerScaleMode(val label: String) {
     FIT("适应"),
@@ -237,20 +240,23 @@ fun LiveReminderPlayerScreen(
     }
 
     val source = sources.getOrNull(sourceIndex)
+    val hlsSessionCookies = state.hlsSessionCookies
     var playbackError by remember(source) { mutableStateOf<String?>(null) }
     var actualVideoSize by remember(source) { mutableStateOf<String?>(null) }
+    var playbackState by remember(source) { mutableIntStateOf(Player.STATE_IDLE) }
+    var renderedFirstFrame by remember(source) { mutableStateOf(false) }
+    var isPlaying by remember(source) { mutableStateOf(false) }
     var zoomScale by rememberSaveable(reminderId) { mutableFloatStateOf(1f) }
     var danmakuVisible by rememberSaveable(reminderId) { mutableStateOf(true) }
     var chatVisible by rememberSaveable(reminderId) { mutableStateOf(false) }
-    val trackSelector = remember(context) { DefaultTrackSelector(context) }
-    LaunchedEffect(trackSelector, selectedQuality) {
-        val (maxWidth, maxHeight) = previewMaxVideoSize(selectedQuality)
-        trackSelector.parameters = trackSelector.buildUponParameters()
-            .setMaxVideoSize(maxWidth, maxHeight)
-            .build()
-    }
-    val player = remember(source, trackSelector) {
+    val player = remember(source, selectedQuality, hlsSessionCookies) {
         source?.let { selected ->
+            val (maxWidth, maxHeight) = previewMaxVideoSize(selectedQuality)
+            val trackSelector = DefaultTrackSelector(context).apply {
+                parameters = buildUponParameters()
+                    .setMaxVideoSize(maxWidth, maxHeight)
+                    .build()
+            }
             val http = DefaultHttpDataSource.Factory()
                 .setDefaultRequestProperties(selected.headers)
                 .setAllowCrossProtocolRedirects(true)
@@ -260,13 +266,42 @@ fun LiveReminderPlayerScreen(
                 if (spec.uri.scheme in setOf("http", "https")) {
                     viewModel.requireNetworkAllowed()
                 }
-                spec
+                val cookieHeader = if (selected.type == StreamType.HLS) {
+                    val explicitCookie = selected.headers.entries
+                        .firstOrNull { it.key.equals("Cookie", ignoreCase = true) }
+                        ?.value
+                    spec.uri.toString().toHttpUrlOrNull()?.let { url ->
+                        com.streamcap.mobile.recording.hls.hlsCookieHeader(
+                            hlsSessionCookies,
+                            url,
+                            explicitCookie,
+                        )
+                    }
+                } else null
+                if (cookieHeader == null) {
+                    spec
+                } else {
+                    val headers = spec.httpRequestHeaders.filterKeys { !it.equals("Cookie", ignoreCase = true) } +
+                        ("Cookie" to cookieHeader)
+                    spec.buildUpon().setHttpRequestHeaders(headers).build()
+                }
             }
             ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
                 .setTrackSelector(trackSelector)
                 .setMediaSourceFactory(DefaultMediaSourceFactory(guarded))
                 .build()
         }
+    }
+    val failCurrentRoute: (String) -> Unit = { reason ->
+        val switched = viewModel.onSourcePlaybackFailed(sourceIndex)
+        val route = source?.let { previewRouteLabel(it, sourceIndex) } ?: "线路 ${sourceIndex + 1}"
+        android.util.Log.w("LiveReminderPlayer", "$route failed: $reason")
+        playbackError = when {
+            switched -> null
+            sources.size > 1 -> "此画质下的线路均无法播放，请降低画质或重新解析"
+            else -> "播放失败：$reason"
+        }
+        player?.pause()
     }
 
     val revealControls: () -> Unit = {
@@ -280,6 +315,18 @@ fun LiveReminderPlayerScreen(
     DisposableEffect(player) {
         if (player == null) return@DisposableEffect onDispose { }
         val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                playbackState = state
+            }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+
+            override fun onRenderedFirstFrame() {
+                renderedFirstFrame = true
+            }
+
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 actualVideoSize = previewResolutionLabel(
                     videoSize.width,
@@ -289,19 +336,65 @@ fun LiveReminderPlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                val switched = viewModel.onSourcePlaybackFailed(sourceIndex)
-                playbackError = if (!switched && sources.size > 1) {
-                    "此画质下的线路均无法播放，请降低画质或重新解析"
-                } else "播放失败：${error.errorCodeName}"
-                player.pause()
+                failCurrentRoute(error.errorCodeName)
             }
         }
         player.addListener(listener)
         onDispose { player.removeListener(listener) }
     }
+    LaunchedEffect(player, source, sourceIndex, playbackState, loading, playbackError) {
+        if (player != null && source != null && !loading && playbackError == null &&
+            playbackState == Player.STATE_BUFFERING
+        ) {
+            kotlinx.coroutines.delay(PREVIEW_BUFFER_TIMEOUT_MS)
+            if (player.playbackState == Player.STATE_BUFFERING) {
+                failCurrentRoute("缓冲超时")
+            }
+        }
+    }
+    LaunchedEffect(player, source, sourceIndex, playbackState, renderedFirstFrame, isPlaying, loading, playbackError) {
+        if (player == null || source == null || loading || playbackError != null ||
+            !previewPlaybackNeedsFallback(playbackState, renderedFirstFrame, isPlaying, player.playWhenReady)
+        ) return@LaunchedEffect
+
+        if (shouldReconnectHuyaFlvAfterEof(
+                platform = reminders?.platform.orEmpty(),
+                sourceType = source.type,
+                playbackState = playbackState,
+                renderedFirstFrame = renderedFirstFrame,
+            )
+        ) {
+            kotlinx.coroutines.delay(800)
+            if (player.playbackState == Player.STATE_ENDED && renderedFirstFrame) {
+                android.util.Log.i("LiveReminderPlayer", "虎牙 FLV 短响应结束，重连当前线路")
+                renderedFirstFrame = false
+                playbackState = Player.STATE_IDLE
+                player.setMediaItem(MediaItem.Builder().setUri(source.url).setMimeType(source.mimeType()).build())
+                player.prepare()
+                player.playWhenReady = true
+            }
+            return@LaunchedEffect
+        }
+
+        if (playbackState != Player.STATE_ENDED) {
+            kotlinx.coroutines.delay(PREVIEW_STALL_TIMEOUT_MS)
+        }
+        if (previewPlaybackNeedsFallback(
+                playbackState = player.playbackState,
+                renderedFirstFrame = renderedFirstFrame,
+                isPlaying = player.isPlaying,
+                playWhenReady = player.playWhenReady,
+            )
+        ) {
+            failCurrentRoute(if (player.playbackState == Player.STATE_ENDED) "直播流已结束" else "播放停滞")
+        }
+    }
     LaunchedEffect(player, source) {
         if (player != null && source != null) {
             playbackError = null
+            playbackState = Player.STATE_IDLE
+            renderedFirstFrame = false
+            isPlaying = false
             player.setMediaItem(
                 MediaItem.Builder().setUri(source.url).setMimeType(source.mimeType()).build(),
             )
@@ -309,6 +402,14 @@ fun LiveReminderPlayerScreen(
             player.playWhenReady = true
         }
     }
+    val playbackStatus = previewPlaybackStatus(
+        loading = loading,
+        source = source,
+        error = playbackError ?: errorMessage,
+        playbackState = playbackState,
+        renderedFirstFrame = renderedFirstFrame,
+        isPlaying = isPlaying,
+    )
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(player, lifecycleOwner) {
         if (player == null) return@DisposableEffect onDispose { }
@@ -519,7 +620,8 @@ fun LiveReminderPlayerScreen(
                         ) {
                             LiveViewerControls(
                                 modifier = Modifier.fillMaxWidth().background(
-                                    Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .88f))),
+                                    Color.Black.copy(alpha = .82f),
+                                    RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
                                 ),
                                 platform = reminders?.platform.orEmpty(),
                                 selectedQuality = selectedQuality,
@@ -558,6 +660,7 @@ fun LiveReminderPlayerScreen(
                         sourceIndex = sourceIndex,
                         sourceCount = sources.size,
                         error = playbackError ?: errorMessage,
+                        playbackStatus = playbackStatus,
                         onChangeSource = if (sources.size > 1) {
                             { viewModel.nextSource() }
                         } else null,
@@ -592,7 +695,8 @@ fun LiveReminderPlayerScreen(
                         ) {
                             LiveViewerControls(
                                 modifier = Modifier.fillMaxWidth().background(
-                                    Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .88f))),
+                                    Color.Black.copy(alpha = .82f),
+                                    RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp),
                                 ),
                                 platform = reminders?.platform.orEmpty(),
                                 selectedQuality = selectedQuality,
@@ -628,6 +732,7 @@ fun LiveReminderPlayerScreen(
                         sourceIndex = sourceIndex,
                         sourceCount = sources.size,
                         error = playbackError ?: errorMessage,
+                        playbackStatus = playbackStatus,
                         onChangeSource = if (sources.size > 1) {
                             { viewModel.nextSource() }
                         } else null,
@@ -777,57 +882,67 @@ private fun LiveViewerControls(
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 TextButton(onClick = { onInteraction(); onOpenQuality() }, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Icon(Icons.Outlined.HighQuality, contentDescription = null, modifier = Modifier.width(18.dp))
+                    Icon(Icons.Outlined.HighQuality, contentDescription = null, modifier = Modifier.width(18.dp),
+                        tint = PlayerAccent)
                     Spacer(Modifier.width(4.dp))
-                    Text(selectedQuality, maxLines = 1)
+                    Text(selectedQuality, maxLines = 1, color = PlayerAccent)
                 }
                 if (sources.size > 1) {
                     TextButton(onClick = { onInteraction(); onOpenRoute() }, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Icon(Icons.Outlined.SwapHoriz, contentDescription = null, modifier = Modifier.width(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("线路 ${sourceIndex + 1}", maxLines = 1)
-                }
+                        Icon(Icons.Outlined.SwapHoriz, contentDescription = null, modifier = Modifier.width(18.dp),
+                            tint = PlayerAccent)
+                        Spacer(Modifier.width(4.dp))
+                        Text("线路 ${sourceIndex + 1}", maxLines = 1, color = PlayerAccent)
+                    }
                 }
                 IconButton(onClick = { onInteraction(); onToggleDanmaku() }) {
                     Icon(
                         Icons.Outlined.ClosedCaption,
                         contentDescription = if (danmakuVisible) "关闭弹幕" else "显示弹幕",
-                        tint = if (danmakuVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (danmakuVisible) PlayerAccent else Color.White,
                     )
                 }
                 IconButton(onClick = { onInteraction(); onToggleChat() }) {
                     Icon(
                         Icons.AutoMirrored.Outlined.Chat,
                         contentDescription = if (chatVisible) "隐藏聊天" else "显示聊天",
-                        tint = if (chatVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (chatVisible) PlayerAccent else Color.White,
                     )
                 }
                 IconButton(onClick = { onInteraction(); onOpenDisplay() }) {
-                    Icon(Icons.Outlined.AspectRatio, contentDescription = "画面设置，当前${scaleMode.label}")
+                    Icon(Icons.Outlined.AspectRatio, contentDescription = "画面设置，当前${scaleMode.label}",
+                        tint = Color.White)
                 }
                 IconButton(onClick = { onInteraction(); onReconnectDanmaku() }) {
-                    Icon(Icons.Outlined.Refresh, contentDescription = "重新连接弹幕")
+                    Icon(Icons.Outlined.Refresh, contentDescription = "重新连接弹幕", tint = Color.White)
                 }
                 IconButton(onClick = { onInteraction(); onOpenDanmakuSettings() }) {
-                    Icon(Icons.Outlined.Tune, contentDescription = "弹幕设置")
+                    Icon(Icons.Outlined.Tune, contentDescription = "弹幕设置", tint = Color.White)
                 }
             }
             if (pictureInPictureSupported) {
                 IconButton(onClick = { onInteraction(); onEnterPictureInPicture() }) {
-                    Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "缩小为小窗播放")
+                    Icon(Icons.Outlined.PictureInPictureAlt, contentDescription = "缩小为小窗播放", tint = Color.White)
                 }
             }
             IconButton(onClick = { onInteraction(); onToggleFullscreen() }) {
                 Icon(
                     if (fullscreen) Icons.Outlined.FullscreenExit else Icons.Outlined.Fullscreen,
                     contentDescription = if (fullscreen) "退出全屏" else "全屏播放",
+                    tint = Color.White,
                 )
             }
         }
         val playbackStatus = listOfNotNull(platform, danmakuStatus, actualResolution).joinToString(" · ")
-        Text(playbackStatus, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp),
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            playbackStatus,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -848,74 +963,95 @@ private fun LivePlaybackSheet(
     onZoomChange: (Float) -> Unit,
     onResetZoom: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = PlayerPanel) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
-            Text(
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = PlayerAccent,
+            onPrimary = PlayerInk,
+            surface = PlayerPanel,
+            onSurface = Color.White,
+            surfaceContainer = PlayerElevatedPanel,
+            onSurfaceVariant = Color(0xFFC5C5C5),
+            outline = Color(0xFF8A8A8A),
+            background = PlayerInk,
+            error = PlayerRed,
+        ),
+        typography = MaterialTheme.typography,
+    ) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            containerColor = PlayerPanel,
+            contentColor = Color.White,
+        ) {
+            Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
+                Text(
+                    when (sheet) {
+                        LivePlayerSheet.QUALITY -> "切换清晰度"
+                        LivePlayerSheet.ROUTE -> "切换线路"
+                        LivePlayerSheet.DISPLAY -> "画面设置"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                )
                 when (sheet) {
-                    LivePlayerSheet.QUALITY -> "切换清晰度"
-                    LivePlayerSheet.ROUTE -> "切换线路"
-                    LivePlayerSheet.DISPLAY -> "画面设置"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-            )
-            when (sheet) {
-                LivePlayerSheet.QUALITY -> Column(
-                    Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
-                ) {
-                    qualityOptions.forEach { quality ->
-                        ListItem(
-                            headlineContent = { Text(quality) },
-                            trailingContent = {
-                                if (quality == selectedQuality) Icon(Icons.Outlined.Check, contentDescription = "已选择")
-                            },
-                            modifier = Modifier.clickable { onSelectQuality(quality) },
-                        )
-                    }
-                }
-                LivePlayerSheet.ROUTE -> Column(
-                    Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
-                ) {
-                    sources.forEachIndexed { index, source ->
-                        ListItem(
-                            headlineContent = { Text("线路 ${index + 1}") },
-                            supportingContent = { Text(previewRouteLabel(source, index)) },
-                            trailingContent = {
-                                if (index == sourceIndex) Icon(Icons.Outlined.Check, contentDescription = "已选择")
-                            },
-                            modifier = Modifier.clickable { onSelectSource(index) },
-                        )
-                    }
-                }
-                LivePlayerSheet.DISPLAY -> Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    PlayerScaleMode.values().forEach { mode ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { onSelectScaleMode(mode) }.padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = mode == scaleMode, onClick = { onSelectScaleMode(mode) })
-                            Text(mode.label, style = MaterialTheme.typography.bodyMedium)
+                    LivePlayerSheet.QUALITY -> Column(
+                        Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+                    ) {
+                        qualityOptions.forEach { quality ->
+                            ListItem(
+                                headlineContent = { Text(quality) },
+                                trailingContent = {
+                                    if (quality == selectedQuality) {
+                                        Icon(Icons.Outlined.Check, contentDescription = "已选择")
+                                    }
+                                },
+                                modifier = Modifier.clickable { onSelectQuality(quality) },
+                            )
                         }
                     }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("缩放 ${(zoomScale * 100).roundToInt()}%", Modifier.weight(1f))
-                        TextButton(onClick = onResetZoom, enabled = zoomScale != 1f) {
-                            Icon(Icons.Outlined.FitScreen, contentDescription = null)
-                            Spacer(Modifier.width(4.dp))
-                            Text("重置")
+                    LivePlayerSheet.ROUTE -> Column(
+                        Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+                    ) {
+                        sources.forEachIndexed { index, source ->
+                            ListItem(
+                                headlineContent = { Text("线路 ${index + 1}") },
+                                supportingContent = { Text(previewRouteLabel(source, index)) },
+                                trailingContent = {
+                                    if (index == sourceIndex) Icon(Icons.Outlined.Check, contentDescription = "已选择")
+                                },
+                                modifier = Modifier.clickable { onSelectSource(index) },
+                            )
                         }
                     }
-                    Slider(
-                        value = zoomScale,
-                        onValueChange = onZoomChange,
-                        valueRange = PREVIEW_MIN_ZOOM_SCALE..PREVIEW_MAX_ZOOM_SCALE,
-                        steps = 9,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
+                    LivePlayerSheet.DISPLAY -> Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        PlayerScaleMode.values().forEach { mode ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { onSelectScaleMode(mode) }.padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = mode == scaleMode, onClick = { onSelectScaleMode(mode) })
+                                Text(mode.label, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("缩放 ${(zoomScale * 100).roundToInt()}%", Modifier.weight(1f))
+                            TextButton(onClick = onResetZoom, enabled = zoomScale != 1f) {
+                                Icon(Icons.Outlined.FitScreen, contentDescription = null)
+                                Spacer(Modifier.width(4.dp))
+                                Text("重置")
+                            }
+                        }
+                        Slider(
+                            value = zoomScale,
+                            onValueChange = onZoomChange,
+                            valueRange = PREVIEW_MIN_ZOOM_SCALE..PREVIEW_MAX_ZOOM_SCALE,
+                            steps = 9,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
                 }
             }
         }
@@ -963,6 +1099,42 @@ internal fun previewRouteLabel(source: StreamSource, index: Int): String {
     }
 }
 
+internal fun previewPlaybackStatus(
+    loading: Boolean,
+    source: StreamSource?,
+    error: String?,
+    playbackState: Int,
+    renderedFirstFrame: Boolean,
+    isPlaying: Boolean,
+): String = when {
+    error != null -> "线路异常"
+    loading -> "正在解析线路"
+    source == null -> "正在连接"
+    playbackState == Player.STATE_ENDED -> "线路已结束"
+    playbackState == Player.STATE_BUFFERING -> "正在缓冲"
+    renderedFirstFrame && isPlaying -> "正在播放"
+    renderedFirstFrame -> "直播已连接"
+    else -> "正在连接"
+}
+
+internal fun shouldReconnectHuyaFlvAfterEof(
+    platform: String,
+    sourceType: StreamType,
+    playbackState: Int,
+    renderedFirstFrame: Boolean,
+): Boolean = playbackState == Player.STATE_ENDED &&
+    renderedFirstFrame &&
+    sourceType == StreamType.FLV &&
+    (platform.equals("huya", ignoreCase = true) || platform.contains("虎牙"))
+
+internal fun previewPlaybackNeedsFallback(
+    playbackState: Int,
+    renderedFirstFrame: Boolean,
+    isPlaying: Boolean,
+    playWhenReady: Boolean,
+): Boolean = playbackState == Player.STATE_ENDED ||
+    (playbackState == Player.STATE_READY && renderedFirstFrame && !isPlaying && playWhenReady)
+
 internal fun clampPreviewZoom(scale: Float): Float = scale.coerceIn(PREVIEW_MIN_ZOOM_SCALE, PREVIEW_MAX_ZOOM_SCALE)
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -978,11 +1150,18 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
-internal fun nextPreviewSourceIndex(sourceCount: Int, failedIndexes: Set<Int>, currentIndex: Int): Int? {
-    if (sourceCount <= 0 || currentIndex !in 0 until sourceCount) return null
-    return (1..sourceCount).asSequence()
-        .map { (currentIndex + it) % sourceCount }
-        .firstOrNull { it !in failedIndexes }
+internal fun nextPreviewSourceIndex(
+    sources: List<StreamSource>,
+    failedIndexes: Set<Int>,
+    currentIndex: Int,
+): Int? {
+    if (sources.isEmpty() || currentIndex !in sources.indices) return null
+    val candidates = (1..sources.size).asSequence()
+        .map { (currentIndex + it) % sources.size }
+        .filter { it !in failedIndexes }
+        .toList()
+    return candidates.firstOrNull { sources[it].type != sources[currentIndex].type }
+        ?: candidates.firstOrNull()
 }
 
 @Composable
@@ -1048,6 +1227,7 @@ private fun LiveRoomDetails(
     sourceIndex: Int,
     sourceCount: Int,
     error: String?,
+    playbackStatus: String,
     onChangeSource: (() -> Unit)?,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -1062,11 +1242,7 @@ private fun LiveRoomDetails(
             Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("播放状态", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(
-                    when {
-                        error != null -> "线路异常"
-                        source != null -> "正在播放"
-                        else -> "连接中"
-                    },
+                    playbackStatus,
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (error == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.SemiBold,

@@ -104,6 +104,7 @@ data class LiveRoomInfo(
     val platform: String,
     val anchorName: String,
     val roomTitle: String?,
+    val coverUrl: String? = null,
 )
 
 data class LiveReminder(
@@ -120,6 +121,7 @@ data class LiveReminder(
     val lastCheckAt: Long?,
     val createdAt: Long,
     val updatedAt: Long,
+    val coverUrl: String? = null,
 )
 
 data class StreamSource(

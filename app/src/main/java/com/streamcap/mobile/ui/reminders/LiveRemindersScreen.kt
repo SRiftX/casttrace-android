@@ -55,6 +55,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,8 +64,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,6 +86,9 @@ import com.streamcap.mobile.ui.common.formatDateTime
 import com.streamcap.mobile.ui.rooms.RoomLinkInput
 import com.streamcap.mobile.ui.theme.LiveTeal
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 
 @Composable
 fun LiveRemindersScreen(
@@ -104,6 +110,13 @@ fun LiveRemindersScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val canNotify = remember(notifications, notificationRefresh) { notifications.canNotify }
+    val missingLivePreviews = remember(reminders) {
+        reminders.filter { it.enabled && it.liveStatus == LiveStatus.LIVE && it.coverUrl.isNullOrBlank() }
+            .map(LiveReminder::id)
+    }
+    LaunchedEffect(missingLivePreviews) {
+        missingLivePreviews.forEach(viewModel::refreshReminderPreview)
+    }
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
     var linkText by rememberSaveable { mutableStateOf("") }
@@ -609,7 +622,8 @@ private fun ReminderRow(
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ReminderAvatar(reminder.anchorName, avatarColor, 48.dp)
+                if (isLive) ReminderPreviewImage(reminder.coverUrl, reminder.anchorName, avatarColor)
+                else ReminderAvatar(reminder.anchorName, avatarColor, 48.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(reminder.anchorName, style = MaterialTheme.typography.titleMedium, maxLines = 1,
@@ -687,6 +701,54 @@ private fun ReminderAvatar(name: String, color: Color, size: androidx.compose.ui
             Text(name.take(1).ifBlank { "播" }, color = color, style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold)
         }
+    }
+}
+
+@Composable
+private fun ReminderPreviewImage(coverUrl: String?, anchorName: String, accent: Color) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        Modifier.size(width = 112.dp, height = 64.dp)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        if (coverUrl.isNullOrBlank()) {
+            ReminderPreviewPlaceholder(anchorName, accent)
+        } else {
+            SubcomposeAsyncImage(
+                model = coverUrl,
+                contentDescription = "$anchorName 直播间预览图",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                if (painter.state is AsyncImagePainter.State.Error) {
+                    ReminderPreviewPlaceholder(anchorName, accent)
+                } else {
+                    SubcomposeAsyncImageContent()
+                }
+            }
+        }
+        Surface(
+            modifier = Modifier.align(Alignment.BottomStart),
+            shape = RoundedCornerShape(topEnd = 5.dp),
+            color = Color(0xCCB3261E),
+        ) {
+            Text("LIVE", modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun ReminderPreviewPlaceholder(anchorName: String, accent: Color) {
+    Column(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(anchorName.take(1).ifBlank { "播" }, color = accent, style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold)
+        Text("暂无封面", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -120,6 +120,9 @@ interface LiveRoomDao {
 
 @Dao
 interface LiveReminderDao {
+    @Query("UPDATE live_reminders SET anchorName = COALESCE(NULLIF(:anchorName, ''), anchorName), roomTitle = COALESCE(:title, roomTitle), coverUrl = COALESCE(:coverUrl, coverUrl), updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateResolvedInfo(id: Long, anchorName: String?, title: String?, coverUrl: String?, updatedAt: Long)
+
     @Query("SELECT * FROM live_reminders ORDER BY createdAt DESC, id DESC")
     fun observeAll(): Flow<List<LiveReminderEntity>>
 

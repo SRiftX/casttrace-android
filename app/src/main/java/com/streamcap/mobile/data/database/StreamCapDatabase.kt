@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RecordingSessionEntity::class,
         TaskLogEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -52,6 +52,11 @@ abstract class StreamCapDatabase : RoomDatabase() {
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE live_reminders ADD COLUMN strongNotificationEnabled INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE live_reminders ADD COLUMN coverUrl TEXT")
             }
         }
     }

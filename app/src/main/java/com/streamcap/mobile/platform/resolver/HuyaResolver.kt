@@ -6,6 +6,7 @@ import com.streamcap.mobile.domain.model.LiveStatus
 import com.streamcap.mobile.domain.model.PlatformCredential
 import com.streamcap.mobile.domain.model.StreamSource
 import com.streamcap.mobile.domain.model.StreamType
+import com.streamcap.mobile.platform.resolver.RoomCheckResult
 import okhttp3.OkHttpClient
 import org.json.JSONObject
 import java.net.URLDecoder
@@ -21,11 +22,19 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
     override suspend fun resolveRoom(url: String): LiveRoomInfo {
         val expanded = client.expandRoomShareUrl(url, "hy.fan", listOf("huya.com"), MOBILE_PAGE_HEADERS)
         val data = load(expanded)
-        return LiveRoomInfo(data.liveUrl, "虎牙直播", data.anchorName, data.title)
+        return LiveRoomInfo(data.liveUrl, "虎牙直播", data.anchorName, data.title, data.coverUrl)
     }
 
     override suspend fun checkLive(room: LiveRoom, credential: PlatformCredential?) =
         if (load(room.normalizedUrl).live) LiveStatus.LIVE else LiveStatus.OFFLINE
+
+    override suspend fun checkRoom(room: LiveRoom, credential: PlatformCredential?): RoomCheckResult {
+        val data = load(room.normalizedUrl)
+        return RoomCheckResult(
+            if (data.live) LiveStatus.LIVE else LiveStatus.OFFLINE,
+            LiveRoomInfo(data.liveUrl, "虎牙直播", data.anchorName, data.title, data.coverUrl),
+        )
+    }
 
     override suspend fun getStreams(room: LiveRoom, credential: PlatformCredential?): List<StreamSource> {
         val data = load(room.normalizedUrl)
@@ -109,6 +118,7 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
             title = liveData?.optString("introduction")?.takeIf(String::isNotBlank),
             live = live,
             sources = sources,
+            coverUrl = huyaCoverUrl(liveData),
         )
     }
 
@@ -172,6 +182,7 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
         val title: String?,
         val live: Boolean,
         val sources: List<StreamSource>,
+        val coverUrl: String?,
     )
 
     internal fun withRatio(url: String, ratio: String?): String = if (ratio.isNullOrBlank()) {
@@ -219,4 +230,11 @@ class HuyaResolver(private val client: OkHttpClient) : PlatformResolver {
             "Accept-Language" to "zh-CN,zh;q=0.9",
         )
     }
+}
+
+internal fun huyaCoverUrl(liveData: JSONObject?): String? {
+    val raw = liveData?.optString("screenshot")
+        ?.takeIf { it.startsWith("http", true) || it.startsWith("//") }
+        ?: return null
+    return secureStreamUrl(if (raw.startsWith("//")) "https:$raw" else raw)
 }
