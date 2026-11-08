@@ -2,4 +2,5 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-files-path name="recordings" path="Movies/StreamCap/" />
     <cache-path name="shared_videos" path="shared/" />
+    <cache-path name="updates" path="updates/" />
 </paths>

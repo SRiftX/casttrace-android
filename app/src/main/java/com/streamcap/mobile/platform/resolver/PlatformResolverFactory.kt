@@ -9,6 +9,7 @@ object PlatformResolverFactory {
         val dedicated = listOf(
             HuyaResolver(httpClient),
             DouyinResolver(httpClient),
+            StripchatGirlsResolver(httpClient),
             BilibiliResolver(httpClient),
             DouyuResolver(httpClient),
             KuaishouResolver(httpClient),

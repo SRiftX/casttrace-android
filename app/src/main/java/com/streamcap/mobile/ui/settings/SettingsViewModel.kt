@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.streamcap.mobile.service.RoomMonitorWorker
 import com.streamcap.mobile.data.preferences.RecordingTemplate
+import com.streamcap.mobile.BuildConfig
+import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 
 @HiltViewModel
@@ -31,6 +33,7 @@ class SettingsViewModel @Inject constructor(
     private val preferences: AppPreferences,
     private val repository: StreamCapRepository,
     private val recordingStorage: RecordingStorage,
+    private val appUpdateManager: AppUpdateManager,
 ) : ViewModel() {
     private val context = context.applicationContext
     val settings: StateFlow<UserSettings> = preferences.settings.stateIn(
@@ -75,6 +78,67 @@ class SettingsViewModel @Inject constructor(
 
     private data class LogFilter(val limit: Int, val level: String?, val roomId: Long?, val keyOnly: Boolean)
     val templates = preferences.templates.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _updateState = MutableStateFlow(UpdateUiState())
+    val updateState = _updateState.asStateFlow()
+
+    fun checkForUpdates() {
+        if (_updateState.value.isBusy) return
+        _updateState.value = UpdateUiState(message = "正在检查更新…", isBusy = true)
+        viewModelScope.launch {
+            runCatching { appUpdateManager.checkLatest(BuildConfig.VERSION_NAME) }
+                .onSuccess { update ->
+                    _updateState.value = if (update == null) {
+                        UpdateUiState(message = "当前已是最新版本")
+                    } else {
+                        UpdateUiState(message = "发现新版本 ${update.versionName}", update = update)
+                    }
+                }
+                .onFailure { error ->
+                    _updateState.value = UpdateUiState(message = error.message ?: "检查更新失败")
+                }
+        }
+    }
+
+    fun downloadAndInstallUpdate() {
+        val update = _updateState.value.update ?: return
+        if (_updateState.value.isBusy) return
+        _updateState.value = _updateState.value.copy(message = "正在下载 ${update.versionName}…", isBusy = true)
+        viewModelScope.launch {
+            runCatching { appUpdateManager.download(update) }
+                .onSuccess { apk ->
+                val prompt = runCatching { appUpdateManager.launchInstaller(apk) }.getOrNull()
+                    _updateState.value = UpdateUiState(
+                        message = when (prompt) {
+                            InstallPrompt.OPENED -> "下载完成，正在打开系统安装程序"
+                            InstallPrompt.PERMISSION_REQUIRED -> "请允许安装未知应用，然后返回并点按安装更新"
+                            null -> "下载完成，点按安装更新继续"
+                        },
+                        update = update,
+                        downloaded = true,
+                    )
+                }
+                .onFailure { error ->
+                    _updateState.value = UpdateUiState(message = error.message ?: "下载更新失败", update = update)
+                }
+        }
+    }
+
+    fun installDownloadedUpdate() {
+        val update = _updateState.value.update ?: return
+        if (!_updateState.value.downloaded || _updateState.value.isBusy) return
+        _updateState.value = _updateState.value.copy(message = "正在打开安装程序…", isBusy = true)
+        viewModelScope.launch {
+            val result = runCatching {
+                val apk = appUpdateManager.findCached(update) ?: appUpdateManager.download(update)
+                appUpdateManager.launchInstaller(apk)
+            }
+            _updateState.value = when (result.getOrNull()) {
+                InstallPrompt.OPENED -> _updateState.value.copy(message = "正在打开系统安装程序", isBusy = false)
+                InstallPrompt.PERMISSION_REQUIRED -> _updateState.value.copy(message = "请允许安装未知应用，然后返回并点按安装更新", isBusy = false)
+                null -> _updateState.value.copy(message = result.exceptionOrNull()?.message ?: "无法打开安装程序", isBusy = false)
+            }
+        }
+    }
 
     fun saveTemplate(template: RecordingTemplate) { viewModelScope.launch { preferences.saveTemplate(template) } }
     fun deleteTemplate(name: String) { viewModelScope.launch { preferences.deleteTemplate(name) } }

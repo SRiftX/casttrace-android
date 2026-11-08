@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Restore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.OutlinedTextField
@@ -41,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -50,6 +52,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -84,6 +87,8 @@ fun SettingsScreen(
     var showTemplateDialog by remember { mutableStateOf(false) }
     var showSupportDialog by remember { mutableStateOf(false) }
     val templates by viewModel.templates.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.checkForUpdates() }
     val lifecycleOwner = LocalLifecycleOwner.current
     var powerUnrestricted by remember { mutableStateOf(false) }
     var notificationsEnabled by remember { mutableStateOf(false) }
@@ -393,6 +398,43 @@ fun SettingsScreen(
                     title = "任务日志",
                     value = "筛选记录、查看保存耗时与导出历史日志",
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
+                )
+            }
+        }
+        item {
+            SettingsSection("应用更新") {
+                SettingsRow(
+                    title = "当前版本 ${BuildConfig.VERSION_NAME}",
+                    value = updateState.message,
+                )
+                if (updateState.isBusy) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp))
+                }
+                Button(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                    enabled = !updateState.isBusy,
+                    onClick = {
+                        when {
+                            updateState.downloaded -> viewModel.installDownloadedUpdate()
+                            updateState.update != null -> viewModel.downloadAndInstallUpdate()
+                            else -> viewModel.checkForUpdates()
+                        }
+                    },
+                ) {
+                    Text(
+                        when {
+                            updateState.isBusy -> "请稍候…"
+                            updateState.downloaded -> "安装更新 ${updateState.update?.versionName.orEmpty()}"
+                            updateState.update != null -> "下载并安装 ${updateState.update?.versionName.orEmpty()}"
+                            else -> "检查更新"
+                        },
+                    )
+                }
+                Text(
+                    "下载后由 Android 系统确认安装；首次安装更新时需允许 CastTrace 安装应用。",
+                    modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

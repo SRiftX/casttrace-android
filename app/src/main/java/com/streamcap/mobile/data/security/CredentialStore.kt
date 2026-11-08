@@ -28,10 +28,12 @@ class CredentialStore(context: Context) {
     }
 
     fun set(platform: String, cookie: String) {
+        val normalizedCookie = normalizeCookie(cookie)
+        require(normalizedCookie.isNotBlank()) { "Cookie 不能为空" }
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {
             init(Cipher.ENCRYPT_MODE, secretKey())
         }
-        val ciphertext = cipher.doFinal(cookie.toByteArray(StandardCharsets.UTF_8))
+        val ciphertext = cipher.doFinal(normalizedCookie.toByteArray(StandardCharsets.UTF_8))
         preferences.edit().putString(
             key(platform),
             Base64.encodeToString(cipher.iv + ciphertext, Base64.NO_WRAP),
@@ -62,3 +64,11 @@ class CredentialStore(context: Context) {
         const val TAG_BITS = 128
     }
 }
+
+internal fun normalizeCookie(value: String): String = value
+    .replace("\r\n", "; ")
+    .replace('\r', ';')
+    .replace('\n', ';')
+    .trim()
+    .replace(Regex("(?i)^cookie\\s*:\\s*"), "")
+    .trim()
