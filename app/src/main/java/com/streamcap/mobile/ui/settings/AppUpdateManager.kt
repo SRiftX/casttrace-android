@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.CancellationException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,6 +22,21 @@ class AppUpdateManager @Inject constructor(
     private val httpClient: OkHttpClient,
 ) {
     suspend fun checkLatest(currentVersion: String): ReleaseUpdate? = withContext(Dispatchers.IO) {
+        try {
+            checkLatestFromApi(currentVersion)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            try {
+                checkLatestFromReleasePage(currentVersion)
+            } catch (fallbackError: Exception) {
+                if (fallbackError is CancellationException) throw fallbackError
+                fallbackError.addSuppressed(error)
+                throw fallbackError
+            }
+        }
+    }
+
+    private fun checkLatestFromApi(currentVersion: String): ReleaseUpdate? {
         val request = Request.Builder()
             .url(LATEST_RELEASE_URL)
             .header("Accept", "application/vnd.github+json")
@@ -28,8 +44,33 @@ class AppUpdateManager @Inject constructor(
             .build()
         httpClient.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "检查更新失败：HTTP ${response.code}" }
-            ReleaseUpdateParser.parseLatestRelease(requireNotNull(response.body).string(), currentVersion)
+            return ReleaseUpdateParser.parseLatestRelease(requireNotNull(response.body).string(), currentVersion)
         }
+    }
+
+    private fun checkLatestFromReleasePage(currentVersion: String): ReleaseUpdate? {
+        val request = Request.Builder()
+            .url(LATEST_RELEASE_PAGE_URL)
+            .header("User-Agent", "CastTrace-Android")
+            .build()
+        val finalUrl = httpClient.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "检查更新失败：HTTP ${response.code}" }
+            response.request.url.toString()
+        }
+        val tag = ReleaseUpdateParser.releaseTagFromPageUrl(finalUrl)
+            ?: error("无法识别 GitHub Release 版本")
+        if (!ReleaseUpdateParser.isNewer(tag.removePrefix("v"), currentVersion)) return null
+
+        val checksumRequest = Request.Builder()
+            .url(LATEST_CHECKSUMS_URL)
+            .header("User-Agent", "CastTrace-Android")
+            .build()
+        val checksums = httpClient.newCall(checksumRequest).execute().use { response ->
+            check(response.isSuccessful) { "获取更新校验清单失败：HTTP ${response.code}" }
+            requireNotNull(response.body).string()
+        }
+        return ReleaseUpdateParser.parseLatestReleasePage(finalUrl, checksums, currentVersion)
+            ?: error("更新校验清单中缺少 APK SHA-256")
     }
 
     suspend fun download(update: ReleaseUpdate): File = withContext(Dispatchers.IO) {
@@ -88,6 +129,10 @@ class AppUpdateManager @Inject constructor(
     companion object {
         private const val LATEST_RELEASE_URL =
             "https://api.github.com/repos/SRiftX/casttrace-android/releases/latest"
+        private const val LATEST_RELEASE_PAGE_URL =
+            "https://github.com/SRiftX/casttrace-android/releases/latest"
+        private const val LATEST_CHECKSUMS_URL =
+            "https://github.com/SRiftX/casttrace-android/releases/latest/download/SHA256SUMS"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
     }
 

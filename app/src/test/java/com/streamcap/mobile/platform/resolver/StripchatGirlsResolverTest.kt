@@ -29,11 +29,14 @@ class StripchatGirlsResolverTest {
     }
 
     @Test
-    fun genericPageResolverFindsPublicHlsMedia() = runBlocking {
+    fun profilePageBuildsHlsCdnMirrorsOnlyWhenTheModelIsOnline() = runBlocking {
         val server = MockWebServer()
-        server.enqueue(MockResponse().setBody(
-            "<title>Example room</title><script>const stream='https://cdn.example/live/master.m3u8?token=abc';</script>",
-        ))
+        repeat(2) {
+            server.enqueue(MockResponse().setBody(
+                "<title>ExampleModel Webcam Show</title><script>" +
+                    "window.data={\"streamName\":\"example_model\",\"isOnline\":true}</script>",
+            ))
+        }
         val certificate = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
         val serverCertificates = HandshakeCertificates.Builder().heldCertificate(certificate).build()
         val clientCertificates = HandshakeCertificates.Builder()
@@ -73,7 +76,51 @@ class StripchatGirlsResolverTest {
                 createdAt = 0,
                 updatedAt = 0,
             )
-            assertTrue(resolver.getStreams(room).single().url.startsWith("https://cdn.example/live/master.m3u8"))
+            val sources = resolver.getStreams(room)
+            assertEquals(3, sources.size)
+            assertTrue(sources.all { it.url.startsWith("https://edge-hls.doppiocdn.") })
+            assertTrue(sources.all { it.url.contains("/hls/example_model/master/example_model_auto.m3u8") })
+            assertTrue(sources.all { it.requiresFfmpeg })
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun offlineProfileDoesNotProducePlayableSources() = runBlocking {
+        val server = MockWebServer()
+        repeat(2) {
+            server.enqueue(MockResponse().setBody(
+                "<title>ExampleModel Webcam Show</title><script>" +
+                    "window.data={\"streamName\":\"example_model\",\"isOnline\":false}</script>",
+            ))
+        }
+        val certificate = HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val serverCertificates = HandshakeCertificates.Builder().heldCertificate(certificate).build()
+        val clientCertificates = HandshakeCertificates.Builder()
+            .addTrustedCertificate(certificate.certificate)
+            .build()
+        server.useHttps(serverCertificates.sslSocketFactory(), false)
+        server.start()
+        try {
+            val resolver = StripchatGirlsResolver(
+                OkHttpClient.Builder()
+                    .sslSocketFactory(clientCertificates.sslSocketFactory(), clientCertificates.trustManager)
+                    .build(),
+            )
+            val url = server.url("/model").newBuilder().host("localhost").build().toString()
+            val room = LiveRoom(
+                id = 1, originalUrl = url, normalizedUrl = url, platform = "stripchatgirls",
+                anchorName = "room", roomTitle = null, enabled = true, autoRecord = false,
+                quality = "原画", mediaType = "视频", outputFormat = "MP4", flvDirectDownload = false,
+                storageDirectoryUri = null, segmentEnabled = true, segmentSeconds = 1800,
+                scheduledMonitoringEnabled = false, notificationsEnabled = true,
+                checkIntervalSeconds = 60, liveStatus = LiveStatus.LIVE, taskStatus = TaskStatus.WAITING,
+                lastCheckAt = null, createdAt = 0, updatedAt = 0,
+            )
+
+            assertEquals(LiveStatus.OFFLINE, resolver.checkLive(room))
+            assertTrue(resolver.getStreams(room).isEmpty())
         } finally {
             server.shutdown()
         }

@@ -1,5 +1,6 @@
 package com.streamcap.mobile.ui.settings
 
+import java.net.URI
 import org.json.JSONObject
 
 data class ReleaseUpdate(
@@ -32,6 +33,32 @@ internal object ReleaseUpdateParser {
             return ReleaseUpdate(tag, url, digest.lowercase())
         }
         return null
+    }
+
+    fun releaseTagFromPageUrl(url: String): String? = runCatching {
+        val page = URI(url)
+        if (page.scheme != "https" || !page.host.equals("github.com", ignoreCase = true)) return null
+        val path = page.path.split('/').filter(String::isNotEmpty)
+        if (path.size != 5 || !path[0].equals("SRiftX", ignoreCase = true) ||
+            !path[1].equals("casttrace-android", ignoreCase = true) || path[2] != "releases" ||
+            path[3] != "tag" || !path[4].matches(Regex("v\\d+(?:\\.\\d+)*"))) return null
+        path[4]
+    }.getOrNull()
+
+    fun parseLatestReleasePage(pageUrl: String, checksums: String, currentVersion: String): ReleaseUpdate? {
+        val tag = releaseTagFromPageUrl(pageUrl) ?: return null
+        val version = tag.removePrefix("v")
+        if (!isNewer(version, currentVersion)) return null
+        val assetName = "casttrace-$version-release.apk"
+        val digestPattern = Regex("^([a-fA-F0-9]{64})\\s+\\*?${Regex.escape(assetName)}\\s*$")
+        val digest = checksums.lineSequence().firstNotNullOfOrNull { line ->
+            digestPattern.matchEntire(line)?.groupValues?.get(1)?.lowercase()
+        } ?: return null
+        return ReleaseUpdate(
+            versionName = version,
+            apkUrl = "https://github.com/SRiftX/casttrace-android/releases/download/$tag/$assetName",
+            sha256 = digest,
+        )
     }
 
     internal fun isNewer(candidate: String, current: String): Boolean {

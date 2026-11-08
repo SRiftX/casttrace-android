@@ -4,9 +4,9 @@
 
 ## 0.2.20 - 2026-11-08
 
-- 设置页加入 GitHub Release 更新检查、APK 下载校验和系统安装流程。
+- 设置页加入 GitHub Release 更新检查、APK 下载校验和系统安装流程；GitHub API 限流时回退到公开 Release 页面和 SHA256SUMS。
 - 修复 Cookie 保存时请求头格式不规范的问题。
-- 新增 StripchatGirls 平台入口和通用网页媒体解析支持；真实房间播放仍待样本验证。
+- 新增 StripchatGirls 专用在线状态和 HLS 多线路解析；真实房间播放仍需用开播样本持续验收。
 
 ## 0.2.19 - 2026-11-04
 
