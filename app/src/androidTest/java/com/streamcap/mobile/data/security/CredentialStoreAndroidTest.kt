@@ -10,21 +10,25 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class CredentialStoreAndroidTest {
     @Test
-    fun fakeDouyinCookieRoundTripsThroughKeystoreAsCiphertext() {
+    fun fakeCookiesForMultiplePlatformsRoundTripThroughKeystoreAsCiphertext() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val store = CredentialStore(context)
-        val fakeCookie = "qa_session_fake=alpha; qa_token_fake=beta"
-        val copiedHeader = "Cookie: qa_session_fake=alpha\r\nqa_token_fake=beta"
+        val fakeCookies = mapOf(
+            "douyin" to "qa_session_fake=alpha; qa_token_fake=beta",
+            "bilibili" to "qa_bili_fake=gamma; qa_sess_fake=delta",
+            "huya" to "qa_huya_fake=epsilon",
+        )
         try {
-            store.set("douyin", copiedHeader)
-
-            assertEquals(fakeCookie, store.get("抖音")?.cookie)
             val persisted = context.getSharedPreferences("platform_credentials", 0)
-                .getString("cookie_douyin", "").orEmpty()
-            assertFalse(persisted.contains("qa_session_fake"))
-            assertFalse(persisted.contains("qa_token_fake"))
+            fakeCookies.forEach { (platform, cookie) ->
+                store.set(platform, cookie)
+                assertEquals(cookie, store.get(platform)?.cookie)
+                assertFalse(persisted.getString("cookie_$platform", "").orEmpty().contains("qa_"))
+            }
+            store.set("抖音", "Cookie: qa_session_fake=alpha\r\nqa_token_fake=beta")
+            assertEquals(fakeCookies.getValue("douyin"), store.get("douyin")?.cookie)
         } finally {
-            store.clear("douyin")
+            fakeCookies.keys.forEach(store::clear)
         }
     }
 }

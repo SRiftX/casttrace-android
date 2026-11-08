@@ -15,7 +15,10 @@ class ReleaseUpdateLiveSmokeTest {
     @Test
     fun checksAndDownloadsLatestPublishedApk() = runBlocking {
         val arguments = InstrumentationRegistry.getArguments()
-        assumeTrue("Pass liveReleaseUpdate=true to run the network smoke test", arguments.getBoolean("liveReleaseUpdate"))
+        assumeTrue(
+            "Pass liveReleaseUpdate=true to run the network smoke test",
+            arguments.getString("liveReleaseUpdate")?.toBooleanStrictOrNull() == true,
+        )
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         val manager = AppUpdateManager(context, OkHttpClient())
 

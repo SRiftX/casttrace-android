@@ -20,7 +20,10 @@ class StripchatGirlsLiveSmokeTest {
     @Test
     fun resolvesLiveProfileAndFetchesHlsPlaylist() = runBlocking {
         val arguments = InstrumentationRegistry.getArguments()
-        assumeTrue("Pass stripchatGirlsLive=true to run the public room smoke test", arguments.getBoolean("stripchatGirlsLive"))
+        assumeTrue(
+            "Pass stripchatGirlsLive=true to run the public room smoke test",
+            arguments.getString("stripchatGirlsLive")?.toBooleanStrictOrNull() == true,
+        )
         val url = "https://stripchatgirls.com/BARBIEsexyCOUPLE"
         val http = OkHttpClient()
         val resolver = StripchatGirlsResolver(http)

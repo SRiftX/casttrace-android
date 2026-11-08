@@ -2,6 +2,8 @@ package com.streamcap.mobile.data.security
 
 import android.content.Context
 import android.util.Base64
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import com.streamcap.mobile.domain.model.PlatformCredential
 import com.streamcap.mobile.platform.PlatformCatalog
 import java.nio.charset.StandardCharsets
@@ -52,7 +54,16 @@ class CredentialStore(context: Context) {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
         return KeyGenerator.getInstance("AES", KEYSTORE).apply {
-            init(256)
+            init(
+                KeyGenParameterSpec.Builder(
+                    KEY_ALIAS,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setKeySize(256)
+                    .build(),
+            )
         }.generateKey()
     }
 
