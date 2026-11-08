@@ -17,7 +17,7 @@ import java.security.MessageDigest
 import javax.inject.Inject
 
 class AppUpdateManager @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @param:ApplicationContext private val context: Context,
     private val httpClient: OkHttpClient,
 ) {
     suspend fun checkLatest(currentVersion: String): ReleaseUpdate? = withContext(Dispatchers.IO) {
