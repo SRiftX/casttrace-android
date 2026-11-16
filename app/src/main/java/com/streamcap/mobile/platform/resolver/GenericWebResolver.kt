@@ -21,6 +21,17 @@ class GenericWebResolver(
     override suspend fun checkLive(room: LiveRoom, credential: PlatformCredential?) =
         if (load(room.normalizedUrl, credential).sources.isEmpty()) LiveStatus.UNKNOWN else LiveStatus.LIVE
 
+    override suspend fun checkRoom(room: LiveRoom, credential: PlatformCredential?): RoomCheckResult {
+        val result = load(room.normalizedUrl, credential)
+        return RoomCheckResult(
+            status = if (result.sources.isEmpty()) LiveStatus.UNKNOWN else LiveStatus.LIVE,
+            info = LiveRoomInfo(room.normalizedUrl, platformId, result.anchor, result.title),
+            diagnostic = if (result.sources.isEmpty()) {
+                "页面请求成功，但没有找到可识别的 HLS/FLV 线路；可能是主播未播、需要登录或平台页面结构已变化"
+            } else null,
+        )
+    }
+
     override suspend fun getStreams(room: LiveRoom, credential: PlatformCredential?) =
         load(room.normalizedUrl, credential).sources.selectQuality(room.quality)
 

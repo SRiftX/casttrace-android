@@ -4,6 +4,7 @@ import android.content.Context
 import com.streamcap.mobile.data.preferences.AppPreferences
 import com.streamcap.mobile.data.repository.StreamCapRepository
 import com.streamcap.mobile.data.security.CredentialStore
+import com.streamcap.mobile.diagnostics.DiagnosticFailure
 import com.streamcap.mobile.danmaku.DanmakuConnectContext
 import com.streamcap.mobile.danmaku.DanmakuController
 import com.streamcap.mobile.danmaku.DanmakuEventStore
@@ -307,7 +308,13 @@ class RecordingStartupCoordinator @Inject constructor(
                     room.liveStatus.takeIf { it != LiveStatus.UNKNOWN && it != LiveStatus.CHECKING } ?: LiveStatus.ERROR,
                     TaskStatus.FAILED,
                 )
-                repository.log(roomId, null, "ERROR", "RECORDING_START_FAILED", errorMessage)
+                repository.log(
+                    roomId,
+                    createdSessionId,
+                    "ERROR",
+                    "RECORDING_START_FAILED",
+                    "平台=${room.platform} 画质=${room.quality} 输出=${room.outputFormat}；${DiagnosticFailure.describe(error)}",
+                )
                 if (room.notificationsEnabled) {
                     notifications.notifyRoom(
                         roomId,

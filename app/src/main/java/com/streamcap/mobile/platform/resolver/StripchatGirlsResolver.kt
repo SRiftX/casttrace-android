@@ -35,7 +35,11 @@ class StripchatGirlsResolver(private val client: OkHttpClient) : PlatformResolve
             false -> LiveStatus.OFFLINE
             null -> LiveStatus.UNKNOWN
         }
-        return RoomCheckResult(status, LiveRoomInfo(room.normalizedUrl, platformId, page.anchor, page.title))
+        return RoomCheckResult(
+            status,
+            LiveRoomInfo(room.normalizedUrl, platformId, page.anchor, page.title),
+            diagnostic = if (page.online == null) "页面没有提供可识别的在线状态字段" else null,
+        )
     }
 
     override suspend fun getStreams(room: LiveRoom, credential: PlatformCredential?): List<StreamSource> {

@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
 import com.streamcap.mobile.data.preferences.AppPreferences
 import com.streamcap.mobile.data.repository.StreamCapRepository
+import com.streamcap.mobile.diagnostics.DiagnosticFailure
 import com.streamcap.mobile.domain.model.LiveStatus
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.domain.model.TaskStatus
@@ -276,7 +277,7 @@ class RecordingService : Service() {
                     if (status == LiveStatus.LIVE) startRecording(room.id, null)
                 }
                 .onFailure { error ->
-                    repository.log(room.id, null, "ERROR", "STARTUP_SCAN_FAILED", error.message ?: "启动扫描失败")
+                    repository.log(room.id, null, "ERROR", "STARTUP_SCAN_FAILED", DiagnosticFailure.describe(error))
                 }
         }
     }
@@ -300,8 +301,14 @@ class RecordingService : Service() {
         recording.timerJob?.cancel()
         val danmakuStats = runCatching {
             withContext(Dispatchers.IO) { recording.danmakuController?.stop("media-ended") }
-        }.onFailure {
-            repository.log(recording.roomId, recording.sessionId, "WARN", "DANMAKU_SAVE_FAILED", "弹幕保存失败，继续保存视频")
+        }.onFailure { error ->
+            repository.log(
+                recording.roomId,
+                recording.sessionId,
+                "WARN",
+                "DANMAKU_SAVE_FAILED",
+                "弹幕保存失败，继续保存视频；${DiagnosticFailure.describe(error)}",
+            )
         }.getOrNull()
         danmakuStats?.let { stats ->
             repository.session(recording.sessionId)?.let { entity ->
@@ -540,6 +547,13 @@ class RecordingService : Service() {
                 ),
             )
             repository.setRoomTaskStatus(recording.roomId, LiveStatus.LIVE, roomTaskStatus(recording.roomId))
+            repository.log(
+                recording.roomId,
+                recording.sessionId,
+                "ERROR",
+                "RECORDING_PUBLICATION_FAILED",
+                "已写入 ${terminal.bytesWritten} 字节、录制 ${terminal.durationSeconds} 秒，但发布文件失败；${DiagnosticFailure.describe(error)}",
+            )
             if (recording.notificationsEnabled) {
                 notifications.notifyRoom(
                     recording.roomId,
@@ -567,7 +581,7 @@ class RecordingService : Service() {
                         DanmakuSegmentArchive.seal(File(danmakuPath), recording.sessionId, mediaUris, durations)
                     }.onFailure { error ->
                         repository.log(recording.roomId, recording.sessionId, "WARN", "DANMAKU_SEGMENT_DEFERRED",
-                            "弹幕分段封存失败，可从原始文件重建：${error.message}")
+                            "弹幕分段封存失败，可从原始文件重建；${DiagnosticFailure.describe(error)}")
                     }
                 }
             }
