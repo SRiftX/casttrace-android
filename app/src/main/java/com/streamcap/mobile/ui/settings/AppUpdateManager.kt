@@ -73,7 +73,10 @@ class AppUpdateManager @Inject constructor(
             ?: error("更新校验清单中缺少 APK SHA-256")
     }
 
-    suspend fun download(update: ReleaseUpdate): File = withContext(Dispatchers.IO) {
+    suspend fun download(
+        update: ReleaseUpdate,
+        onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit = { _, _ -> },
+    ): File = withContext(Dispatchers.IO) {
         val directory = File(context.cacheDir, "updates").apply { mkdirs() }
         val destination = File(directory, "casttrace-v${update.versionName}.apk")
         val temporary = File(directory, "${destination.name}.part")
@@ -82,18 +85,26 @@ class AppUpdateManager @Inject constructor(
             check(response.isSuccessful) { "下载更新失败：HTTP ${response.code}" }
             val body = requireNotNull(response.body)
             check(body.contentLength() <= MAX_APK_BYTES) { "更新文件大小异常" }
+            val expectedBytes = body.contentLength().takeIf { it > 0 }
+            onProgress(0, expectedBytes)
             body.byteStream().use { input ->
                 temporary.outputStream().buffered().use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var total = 0L
+                    var lastReportedBytes = 0L
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count
                         check(total <= MAX_APK_BYTES) { "更新文件大小异常" }
                         output.write(buffer, 0, count)
+                        if (total - lastReportedBytes >= PROGRESS_UPDATE_INTERVAL_BYTES) {
+                            onProgress(total, expectedBytes)
+                            lastReportedBytes = total
+                        }
                     }
                     check(total > 0) { "更新文件为空" }
+                    onProgress(total, expectedBytes)
                 }
             }
         }
@@ -134,6 +145,7 @@ class AppUpdateManager @Inject constructor(
         private const val LATEST_CHECKSUMS_URL =
             "https://github.com/SRiftX/casttrace-android/releases/latest/download/SHA256SUMS"
         private const val MAX_APK_BYTES = 200L * 1024 * 1024
+        private const val PROGRESS_UPDATE_INTERVAL_BYTES = 256L * 1024
     }
 
     private fun sha256(file: File): String {

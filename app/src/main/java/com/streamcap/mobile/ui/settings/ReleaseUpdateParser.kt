@@ -14,6 +14,8 @@ data class UpdateUiState(
     val update: ReleaseUpdate? = null,
     val isBusy: Boolean = false,
     val downloaded: Boolean = false,
+    val downloadedBytes: Long = 0,
+    val totalBytes: Long? = null,
 )
 
 internal object ReleaseUpdateParser {

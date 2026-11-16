@@ -102,9 +102,21 @@ class SettingsViewModel @Inject constructor(
     fun downloadAndInstallUpdate() {
         val update = _updateState.value.update ?: return
         if (_updateState.value.isBusy) return
-        _updateState.value = _updateState.value.copy(message = "正在下载 ${update.versionName}…", isBusy = true)
+        _updateState.value = _updateState.value.copy(
+            message = "正在下载 ${update.versionName}…",
+            isBusy = true,
+            downloadedBytes = 0,
+            totalBytes = null,
+        )
         viewModelScope.launch {
-            runCatching { appUpdateManager.download(update) }
+            runCatching {
+                appUpdateManager.download(update) { downloadedBytes, totalBytes ->
+                    _updateState.value = _updateState.value.copy(
+                        downloadedBytes = downloadedBytes,
+                        totalBytes = totalBytes,
+                    )
+                }
+            }
                 .onSuccess { apk ->
                 val prompt = runCatching { appUpdateManager.launchInstaller(apk) }.getOrNull()
                     _updateState.value = UpdateUiState(

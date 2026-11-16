@@ -408,7 +408,30 @@ fun SettingsScreen(
                     value = updateState.message,
                 )
                 if (updateState.isBusy) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp))
+                    val totalBytes = updateState.totalBytes
+                    if (totalBytes != null) {
+                        val progress = (updateState.downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp))
+                    }
+                    if (updateState.downloadedBytes > 0) {
+                        val received = android.text.format.Formatter.formatFileSize(context, updateState.downloadedBytes)
+                        val progressText = totalBytes?.let {
+                            val total = android.text.format.Formatter.formatFileSize(context, it)
+                            val percent = (updateState.downloadedBytes * 100 / it).toInt().coerceIn(0, 100)
+                            "$received / $total · $percent%"
+                        } ?: "已下载 $received"
+                        Text(
+                            text = progressText,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 Button(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
