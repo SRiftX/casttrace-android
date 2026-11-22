@@ -1,6 +1,7 @@
 package com.streamcap.mobile.service
 
 import com.streamcap.mobile.data.repository.StreamCapRepository
+import com.streamcap.mobile.diagnostics.DiagnosticFailure
 import com.streamcap.mobile.domain.model.TaskStatus
 import dagger.hilt.android.scopes.ServiceScoped
 import javax.inject.Inject
@@ -32,7 +33,7 @@ class RecordingRecoveryCoordinator @Inject constructor(
                     repository.updateSession(latest.copy(
                         status = TaskStatus.FAILED,
                         endedAt = System.currentTimeMillis(),
-                        errorMessage = "应用进程中断，恢复失败：${failure.message}",
+                        errorMessage = "应用进程中断，恢复失败：${DiagnosticFailure.describe(failure)}",
                     ))
                     false
                 }
@@ -50,7 +51,8 @@ class RecordingRecoveryCoordinator @Inject constructor(
                 session.id,
                 if (recovered) "WARN" else "ERROR",
                 "INTERRUPTED_RECORDING_RECOVERED",
-                if (recovered) "应用进程中断，已自动封装并保存已录内容" else "应用进程中断，未发现可恢复的媒体文件",
+                if (recovered) "应用进程中断，已自动封装并保存已录内容"
+                else "应用进程中断，恢复失败；${repository.session(session.id)?.errorMessage ?: "未发现可恢复的媒体文件"}",
             )
             val remainingStopAt = session.stopAtMillis?.takeIf { it > System.currentTimeMillis() }
             val room = repository.room(session.roomId)

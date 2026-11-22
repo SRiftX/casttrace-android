@@ -63,6 +63,9 @@ import com.streamcap.mobile.ui.settings.SettingsScreen
 import com.streamcap.mobile.ui.settings.SupportDialog
 import com.streamcap.mobile.ui.settings.StorageScreen
 import com.streamcap.mobile.ui.settings.BackupScreen
+import com.streamcap.mobile.ui.settings.SetupWizardScreen
+import com.streamcap.mobile.ui.settings.ReleaseNotesScreen
+import com.streamcap.mobile.ui.settings.ReleaseNotesDialog
 import com.streamcap.mobile.ui.common.MotionTokens
 import com.streamcap.mobile.ui.common.FeatureTourAnchor
 import com.streamcap.mobile.ui.common.FeatureTourOverlay
@@ -70,6 +73,7 @@ import com.streamcap.mobile.ui.common.featureTourAnchor
 import com.streamcap.mobile.ui.common.featureTourSteps
 import com.streamcap.mobile.ui.common.rememberMotionScale
 import com.streamcap.mobile.ui.common.scaledDuration
+import com.streamcap.mobile.BuildConfig
 
 private object Routes {
     const val HOME = "home"
@@ -77,9 +81,11 @@ private object Routes {
     const val SETTINGS = "settings"
     const val REMINDERS = "reminders"
     const val ADD_ROOM = "add-room"
+    const val SETUP_WIZARD = "setup-wizard"
     const val ROOM_DETAIL = "room/{roomId}"
     const val LOGS = "logs"
     const val PLATFORMS = "platforms"
+    const val RELEASE_NOTES = "release-notes"
     const val PLAYER = "player/{recordingId}"
     const val LIVE_REMINDER_PLAYER = "live-reminder-player/{reminderId}"
 
@@ -97,11 +103,17 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     }
     var showWelcome by remember { mutableStateOf(!welcomePreferences.getBoolean("shown", false)) }
     var showWelcomeQr by remember { mutableStateOf(false) }
+    val wasWelcomeShownBeforeLaunch = remember(welcomePreferences) {
+        welcomePreferences.getBoolean("shown", false)
+    }
+    var showReleaseNotes by remember { mutableStateOf(false) }
+    var setupWizardStep by rememberSaveable { mutableStateOf(0) }
+    var showSetupWizard by remember(welcomePreferences) { mutableStateOf(false) }
     var showFeatureTour by remember(welcomePreferences) {
         mutableStateOf(
             !welcomePreferences.getBoolean("feature_tour_shown", false) &&
-                (!welcomePreferences.getBoolean("shown", false) ||
-                    welcomePreferences.getBoolean("feature_tour_pending", false)),
+                (welcomePreferences.getBoolean("feature_tour_pending", false) ||
+                    welcomePreferences.getBoolean("shown", false)),
         )
     }
     var featureTourStep by rememberSaveable { mutableStateOf(0) }
@@ -116,13 +128,31 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     val topLevelRoutes = setOf(Routes.HOME, Routes.REMINDERS, Routes.RECORDINGS, Routes.SETTINGS)
     val motionScale = rememberMotionScale()
 
-    LaunchedEffect(showFeatureTour, featureTourStep) {
-        if (showFeatureTour) {
+    LaunchedEffect(showWelcome, showWelcomeQr, showFeatureTour, showSetupWizard) {
+        if (showWelcome || showWelcomeQr || showFeatureTour || showSetupWizard) return@LaunchedEffect
+        val seenVersion = welcomePreferences.getString("release_notes_seen_version", null)
+        if (seenVersion == null && !wasWelcomeShownBeforeLaunch) {
+            welcomePreferences.edit().putString("release_notes_seen_version", BuildConfig.VERSION_NAME).apply()
+        } else if (seenVersion != BuildConfig.VERSION_NAME) {
+            showReleaseNotes = true
+        }
+    }
+
+    LaunchedEffect(showSetupWizard, showWelcome, showWelcomeQr) {
+        if (showSetupWizard && !showWelcome && !showWelcomeQr) {
+            navController.navigate(Routes.SETUP_WIZARD) {
+                launchSingleTop = true
+            }
+        }
+    }
+
+    LaunchedEffect(showFeatureTour, featureTourStep, showSetupWizard, showWelcome, showWelcomeQr) {
+        if (showFeatureTour && !showSetupWizard && !showWelcome && !showWelcomeQr) {
             val route = when (featureTourSteps[featureTourStep].anchor) {
                 FeatureTourAnchor.HOME, FeatureTourAnchor.ADD_ROOM -> Routes.HOME
                 FeatureTourAnchor.REMINDERS -> Routes.REMINDERS
                 FeatureTourAnchor.RECORDINGS -> Routes.RECORDINGS
-                FeatureTourAnchor.SETTINGS -> Routes.SETTINGS
+                else -> Routes.SETTINGS
             }
             navController.navigate(route) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -138,6 +168,18 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
             .apply()
         showFeatureTour = false
         featureTourStep = 0
+    }
+    val finishSetupWizard = {
+        welcomePreferences.edit()
+            .putBoolean("setup_wizard_completed", true)
+            .putBoolean("setup_wizard_pending", false)
+            .putBoolean("feature_tour_pending", false)
+            .apply()
+        showSetupWizard = false
+        showFeatureTour = false
+        setupWizardStep = 0
+        navController.popBackStack(Routes.HOME, false)
+        Unit
     }
 
     LaunchedEffect(sharedUrl, launchToken) {
@@ -232,13 +274,25 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                     onOpenBackup = { navController.navigate("backup") },
                     onOpenLicenses = { navController.navigate("licenses") },
                     onOpenUserGuide = { navController.navigate("user-guide") },
+                    onOpenReleaseNotes = { navController.navigate(Routes.RELEASE_NOTES) },
                     onOpenFeatureTour = {
                         featureTourStep = 0
                         welcomePreferences.edit().putBoolean("feature_tour_pending", true).apply()
                         showFeatureTour = true
                     },
+                    onOpenSetupWizard = {
+                        setupWizardStep = 0
+                        welcomePreferences.edit()
+                            .putBoolean("setup_wizard_completed", false)
+                            .putBoolean("setup_wizard_pending", true)
+                            .apply()
+                        showSetupWizard = true
+                    },
                     onOpenLogs = { navController.navigate(Routes.LOGS) },
                     onOpenPlatforms = { navController.navigate(Routes.PLATFORMS) },
+                    tourAnchor = featureTourSteps.getOrNull(featureTourStep)?.anchor
+                        ?.takeIf { it in settingsTourAnchors },
+                    onTourTarget = updateFeatureTourTarget,
                 )
             }
             composable(Routes.ADD_ROOM) {
@@ -247,10 +301,27 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                     onBack = navController::popBackStack,
                     onOpenBackup = { navController.navigate("backup") },
                     onSaved = { roomId ->
-                        navController.navigate(Routes.roomDetail(roomId)) {
-                            popUpTo(Routes.ADD_ROOM) { inclusive = true }
+                        if (showSetupWizard) {
+                            setupWizardStep = 2
+                            navController.navigate(Routes.SETUP_WIZARD) {
+                                popUpTo(Routes.SETUP_WIZARD) { inclusive = false }
+                                launchSingleTop = true
+                            }
+                        } else {
+                            navController.navigate(Routes.roomDetail(roomId)) {
+                                popUpTo(Routes.ADD_ROOM) { inclusive = true }
+                            }
                         }
                     },
+                )
+            }
+            composable(Routes.SETUP_WIZARD) {
+                SetupWizardScreen(
+                    step = setupWizardStep,
+                    onStepChange = { setupWizardStep = it },
+                    onAddRoom = { navController.navigate(Routes.ADD_ROOM) },
+                    onOpenLogs = { navController.navigate(Routes.LOGS) },
+                    onFinish = finishSetupWizard,
                 )
             }
             composable(
@@ -266,6 +337,7 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
             composable("backup") { BackupScreen(navController::popBackStack) }
             composable("licenses") { com.streamcap.mobile.ui.settings.OpenSourceScreen(navController::popBackStack) }
             composable("user-guide") { com.streamcap.mobile.ui.settings.UserGuideScreen(navController::popBackStack) }
+            composable(Routes.RELEASE_NOTES) { ReleaseNotesScreen(navController::popBackStack) }
             composable(Routes.LOGS) {
                 LogsScreen(onBack = navController::popBackStack)
             }
@@ -344,7 +416,7 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
                 }
                 }
             }
-            if (showFeatureTour && !showWelcome && !showWelcomeQr) {
+            if (showFeatureTour && !showSetupWizard && !showWelcome && !showWelcomeQr) {
                 val step = featureTourSteps[featureTourStep]
                 FeatureTourOverlay(
                     stepIndex = featureTourStep,
@@ -362,16 +434,27 @@ fun StreamCapApp(sharedUrl: String?, notificationRoomId: Long? = null, launchTok
     if (showWelcome) SupportDialog(
         firstLaunch = true,
         onDismiss = {
-            val editor = welcomePreferences.edit().putBoolean("shown", true)
-            if (!welcomePreferences.getBoolean("feature_tour_shown", false)) {
-                editor.putBoolean("feature_tour_pending", true)
-            }
-            editor.apply()
+            welcomePreferences.edit()
+                .putBoolean("shown", true)
+                .putBoolean("feature_tour_pending", !welcomePreferences.getBoolean("feature_tour_shown", false))
+                .apply()
             showWelcome = false
+            showFeatureTour = !welcomePreferences.getBoolean("feature_tour_shown", false)
         },
         onShowQr = { showWelcomeQr = true },
     )
     if (showWelcomeQr) SupportDialog(firstLaunch = false, onDismiss = { showWelcomeQr = false })
+    if (showReleaseNotes) ReleaseNotesDialog(
+        onOpenDetails = {
+            welcomePreferences.edit().putString("release_notes_seen_version", BuildConfig.VERSION_NAME).apply()
+            showReleaseNotes = false
+            navController.navigate(Routes.RELEASE_NOTES)
+        },
+        onDismiss = {
+            welcomePreferences.edit().putString("release_notes_seen_version", BuildConfig.VERSION_NAME).apply()
+            showReleaseNotes = false
+        },
+    )
     }
 
 private fun tourAnchorForRoute(route: String): FeatureTourAnchor = when (route) {
@@ -380,3 +463,12 @@ private fun tourAnchorForRoute(route: String): FeatureTourAnchor = when (route) 
     Routes.RECORDINGS -> FeatureTourAnchor.RECORDINGS
     else -> FeatureTourAnchor.SETTINGS
 }
+
+private val settingsTourAnchors = setOf(
+    FeatureTourAnchor.STORAGE_LOCATION,
+    FeatureTourAnchor.BACKGROUND_MONITORING,
+    FeatureTourAnchor.BATTERY_OPTIMIZATION,
+    FeatureTourAnchor.LOG_EXPORT,
+    FeatureTourAnchor.PLATFORM_SUPPORT,
+    FeatureTourAnchor.AUTOMATIC_UPDATES,
+)

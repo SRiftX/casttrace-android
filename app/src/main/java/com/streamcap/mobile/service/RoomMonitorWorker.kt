@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.streamcap.mobile.domain.model.LiveStatus
 import com.streamcap.mobile.data.repository.StreamCapRepository
+import com.streamcap.mobile.diagnostics.DiagnosticFailure
 import com.streamcap.mobile.notification.LiveReminderNotifications
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -34,7 +35,16 @@ class RoomMonitorWorker @AssistedInject constructor(
     private val preferences: AppPreferences,
     private val repository: StreamCapRepository,
 ) : CoroutineWorker(appContext, params) {
-    override suspend fun doWork(): Result {
+    override suspend fun doWork(): Result = try {
+        performWork()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        repository.log(null, null, "ERROR", "BACKGROUND_WORKER_FAILED", DiagnosticFailure.describe(error))
+        Result.retry()
+    }
+
+    private suspend fun performWork(): Result {
         val settings = preferences.settings.first()
         val scheduledBoot = applicationContext.getSharedPreferences(RECOVERY_POLICY, Context.MODE_PRIVATE)
             .getInt("scheduledBoot", -1)
@@ -52,10 +62,10 @@ class RoomMonitorWorker @AssistedInject constructor(
             throw cancelled
         } catch (restricted: IllegalStateException) {
             BackgroundMonitorStatus.blocked(applicationContext, restricted.message ?: "后台启动被系统限制")
-            repository.log(null, null, "WARN", "BACKGROUND_START_BLOCKED", "系统限制了后台启动录制服务；请允许应用启动和后台活动，当前将继续检查开播状态")
+            repository.log(null, null, "WARN", "BACKGROUND_START_BLOCKED", "系统限制了后台启动录制服务；当前将继续检查开播状态；${DiagnosticFailure.describe(restricted)}")
         } catch (restricted: SecurityException) {
             BackgroundMonitorStatus.blocked(applicationContext, restricted.message ?: "后台启动被系统拒绝")
-            repository.log(null, null, "WARN", "BACKGROUND_START_BLOCKED", "系统拒绝启动后台服务；请检查应用启动管理")
+            repository.log(null, null, "WARN", "BACKGROUND_START_BLOCKED", "系统拒绝启动后台服务；${DiagnosticFailure.describe(restricted)}")
         }
         val semaphore = Semaphore(4)
         val reminderNotifications = LiveReminderNotifications(applicationContext)
@@ -77,7 +87,7 @@ class RoomMonitorWorker @AssistedInject constructor(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
-                        repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", error.message ?: "自动检查开播失败")
+                        repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", DiagnosticFailure.describe(error))
                         return@withPermit
                     }
                     if (status != LiveStatus.LIVE) return@withPermit
@@ -85,12 +95,12 @@ class RoomMonitorWorker @AssistedInject constructor(
                         RecordingService.start(applicationContext, room.id)
                     } catch (restricted: IllegalStateException) {
                         BackgroundMonitorStatus.blocked(applicationContext, restricted.message ?: "后台录制启动被限制")
-                        repository.log(room.id, null, "WARN", "BACKGROUND_START_BLOCKED", "已检测到开播，但系统限制后台启动，请允许应用自动启动和后台活动")
+                        repository.log(room.id, null, "WARN", "BACKGROUND_START_BLOCKED", "已检测到开播，但系统限制后台启动；${DiagnosticFailure.describe(restricted)}")
                     } catch (restricted: SecurityException) {
                         BackgroundMonitorStatus.blocked(applicationContext, restricted.message ?: "后台录制启动被拒绝")
-                        repository.log(room.id, null, "WARN", "BACKGROUND_START_BLOCKED", "已检测到开播，但系统拒绝启动录制服务")
+                        repository.log(room.id, null, "WARN", "BACKGROUND_START_BLOCKED", "已检测到开播，但系统拒绝启动录制服务；${DiagnosticFailure.describe(restricted)}")
                     } catch (error: Exception) {
-                        repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", error.message ?: "自动检查开播失败")
+                        repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", DiagnosticFailure.describe(error))
                     }
                 }
             } }
@@ -98,6 +108,16 @@ class RoomMonitorWorker @AssistedInject constructor(
                 semaphore.withPermit {
                     if (repository.checkReminder(reminder.id, reminderNotifications.canNotify(reminder.strongNotificationEnabled))) {
                         runCatching { reminderNotifications.notifyOpened(reminder, reminder.strongNotificationEnabled) }
+                            .onFailure { error ->
+                                repository.logIfDue(
+                                    null,
+                                    null,
+                                    "WARN",
+                                    "REMINDER_NOTIFICATION_FAILED_${reminder.id}",
+                                    "主播提醒 #${reminder.id} ${reminder.anchorName} 已检测到开播，但通知发送失败；${DiagnosticFailure.describe(error)}",
+                                    REMINDER_FAILURE_LOG_INTERVAL_MILLIS,
+                                )
+                            }
                     }
                 }
             } }
@@ -107,6 +127,7 @@ class RoomMonitorWorker @AssistedInject constructor(
     }
 
     companion object {
+        private const val REMINDER_FAILURE_LOG_INTERVAL_MILLIS = 5 * 60_000L
         private const val PERIODIC_NAME = "streamcap-room-monitor"
         private const val IMMEDIATE_NAME = "streamcap-room-monitor-now"
         private const val RECOVERY_POLICY = "background-recovery-policy"

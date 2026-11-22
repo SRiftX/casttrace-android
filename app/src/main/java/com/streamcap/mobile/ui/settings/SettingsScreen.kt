@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -65,6 +66,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.streamcap.mobile.BuildConfig
 import com.streamcap.mobile.data.preferences.RecordingTemplate
 import com.streamcap.mobile.ui.theme.ThemePalette
+import com.streamcap.mobile.ui.common.FeatureTourAnchor
+import com.streamcap.mobile.ui.common.featureTourAnchor
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -75,8 +78,12 @@ fun SettingsScreen(
     onOpenBackup: () -> Unit,
     onOpenLicenses: () -> Unit,
     onOpenUserGuide: () -> Unit,
+    onOpenReleaseNotes: () -> Unit,
     onOpenFeatureTour: () -> Unit,
+    onOpenSetupWizard: () -> Unit,
     onOpenPlatforms: () -> Unit,
+    tourAnchor: FeatureTourAnchor? = null,
+    onTourTarget: (FeatureTourAnchor, androidx.compose.ui.geometry.Rect) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val viewModel: SettingsViewModel = hiltViewModel()
@@ -88,7 +95,12 @@ fun SettingsScreen(
     var showSupportDialog by remember { mutableStateOf(false) }
     val templates by viewModel.templates.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { viewModel.checkForUpdates() }
+    var automaticUpdatesEnabled by remember(context) {
+        mutableStateOf(
+            context.getSharedPreferences(AutoUpdateChecker.PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+                .getBoolean(AutoUpdateChecker.ENABLED_KEY, false),
+        )
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     var powerUnrestricted by remember { mutableStateOf(false) }
     var notificationsEnabled by remember { mutableStateOf(false) }
@@ -116,7 +128,21 @@ fun SettingsScreen(
         viewModel.setStorageDirectoryUri(uri.toString())
     }
 
+    val listState = rememberLazyListState()
+    LaunchedEffect(tourAnchor) {
+        val itemIndex = when (tourAnchor) {
+            FeatureTourAnchor.STORAGE_LOCATION -> 4
+            FeatureTourAnchor.BACKGROUND_MONITORING, FeatureTourAnchor.BATTERY_OPTIMIZATION -> 5
+            FeatureTourAnchor.PLATFORM_SUPPORT -> 6
+            FeatureTourAnchor.LOG_EXPORT -> 10
+            FeatureTourAnchor.AUTOMATIC_UPDATES -> 11
+            else -> null
+        }
+        if (itemIndex != null) listState.animateScrollToItem(itemIndex)
+    }
+
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .widthIn(max = 1120.dp)
@@ -194,7 +220,9 @@ fun SettingsScreen(
                     icon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
                     title = "保存目录",
                     value = settings.storageDirectoryUri?.let { "已选择自定义目录" } ?: "Movies/StreamCap · 未指定房间目录时使用",
-                    modifier = Modifier.clickable { directoryPicker.launch(null) },
+                    modifier = Modifier
+                        .clickable { directoryPicker.launch(null) }
+                        .featureTourAnchor(FeatureTourAnchor.STORAGE_LOCATION, onTourTarget),
                     trailing = settings.storageDirectoryUri?.let {
                         {
                             androidx.compose.material3.IconButton(
@@ -294,6 +322,7 @@ fun SettingsScreen(
                 SettingsRow(
                     title = "后台持续检测",
                     value = if (settings.backgroundMonitoringEnabled) "应用关闭后继续检查" else "只在打开应用时检查",
+                    modifier = Modifier.featureTourAnchor(FeatureTourAnchor.BACKGROUND_MONITORING, onTourTarget),
                     trailing = {
                         Switch(
                             checked = settings.backgroundMonitoringEnabled,
@@ -314,14 +343,16 @@ fun SettingsScreen(
                 SettingsRow(
                     title = "电池优化",
                     value = if (powerUnrestricted) "已豁免电池优化" else "未豁免，可能被系统暂停",
-                    modifier = Modifier.clickable {
+                    modifier = Modifier
+                        .clickable {
                         val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                             data = android.net.Uri.parse("package:${context.packageName}")
                         }
                         runCatching { context.startActivity(request) }.onFailure {
                             context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                         }
-                    },
+                    }
+                        .featureTourAnchor(FeatureTourAnchor.BATTERY_OPTIMIZATION, onTourTarget),
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = "打开电池设置") },
                 )
                 HorizontalDivider()
@@ -348,9 +379,11 @@ fun SettingsScreen(
         item {
             SettingsSection("平台与弹幕") {
                 SettingsRow(
-                    modifier = Modifier.clickable(onClick = onOpenPlatforms),
+                    modifier = Modifier
+                        .clickable(onClick = onOpenPlatforms)
+                        .featureTourAnchor(FeatureTourAnchor.PLATFORM_SUPPORT, onTourTarget),
                     title = "平台适配",
-                    value = "查看解析状态、设备实测结果和弹幕能力",
+                    value = "${com.streamcap.mobile.platform.PlatformCatalog.entries.size} 个平台 · ${com.streamcap.mobile.platform.PlatformCatalog.entriesWithEvidence.size} 个有设备实测 · 更新于 ${com.streamcap.mobile.platform.PlatformCatalog.LAST_UPDATED}",
                     trailing = { Icon(Icons.Outlined.ChevronRight, contentDescription = null) },
                 )
             }
@@ -393,7 +426,9 @@ fun SettingsScreen(
         item {
             SettingsSection("诊断") {
                 SettingsRow(
-                    modifier = Modifier.clickable(onClick = onOpenLogs),
+                    modifier = Modifier
+                        .clickable(onClick = onOpenLogs)
+                        .featureTourAnchor(FeatureTourAnchor.LOG_EXPORT, onTourTarget),
                     icon = { Icon(Icons.Outlined.History, contentDescription = null) },
                     title = "任务日志",
                     value = "筛选记录、查看保存耗时与导出历史日志",
@@ -407,8 +442,46 @@ fun SettingsScreen(
                     title = "当前版本 ${BuildConfig.VERSION_NAME}",
                     value = updateState.message,
                 )
+                SettingsRow(
+                    title = "自动检查并更新",
+                    value = if (automaticUpdatesEnabled) "每天打开应用时检查；发现新版后下载并请求系统确认安装"
+                        else "关闭",
+                    trailing = {
+                        Switch(
+                            checked = automaticUpdatesEnabled,
+                            onCheckedChange = { enabled ->
+                                automaticUpdatesEnabled = enabled
+                                viewModel.setAutomaticUpdatesEnabled(enabled)
+                            },
+                        )
+                    },
+                    modifier = Modifier.featureTourAnchor(FeatureTourAnchor.AUTOMATIC_UPDATES, onTourTarget),
+                )
                 if (updateState.isBusy) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp))
+                    val totalBytes = updateState.totalBytes
+                    if (totalBytes != null) {
+                        val progress = (updateState.downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp))
+                    }
+                    if (updateState.downloadedBytes > 0) {
+                        val received = android.text.format.Formatter.formatFileSize(context, updateState.downloadedBytes)
+                        val progressText = totalBytes?.let {
+                            val total = android.text.format.Formatter.formatFileSize(context, it)
+                            val percent = (updateState.downloadedBytes * 100 / it).toInt().coerceIn(0, 100)
+                            "$received / $total · $percent%"
+                        } ?: "已下载 $received"
+                        Text(
+                            text = progressText,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 Button(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -444,8 +517,16 @@ fun SettingsScreen(
                     modifier = Modifier.clickable { showSupportDialog = true },
                     trailing = { Icon(Icons.Outlined.ChevronRight, null) })
                 HorizontalDivider()
-                SettingsRow(title = "功能导览", value = "重新查看 5 步新手指引",
+                SettingsRow(title = "功能导览", value = "重新查看 11 步新手指引",
                     modifier = Modifier.clickable(onClick = onOpenFeatureTour),
+                    trailing = { Icon(Icons.Outlined.ChevronRight, null) })
+                HorizontalDivider()
+                SettingsRow(title = "更新说明", value = "CastTrace ${BuildConfig.VERSION_NAME} · 查看本版本变更",
+                    modifier = Modifier.clickable(onClick = onOpenReleaseNotes),
+                    trailing = { Icon(Icons.Outlined.ChevronRight, null) })
+                HorizontalDivider()
+                SettingsRow(title = "新手设置向导", value = "添加直播间、后台运行、电池与日志导出",
+                    modifier = Modifier.clickable(onClick = onOpenSetupWizard),
                     trailing = { Icon(Icons.Outlined.ChevronRight, null) })
                 HorizontalDivider()
                 SettingsRow(title = "使用说明", value = "第一次使用的操作步骤和故障排查",

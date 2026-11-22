@@ -53,7 +53,7 @@ fun PlatformsScreen(onBack: () -> Unit) {
     val available = entries.count { it.status in setOf(AndroidSupportStatus.AVAILABLE, AndroidSupportStatus.FIRST_BATCH) }
     val needsReview = entries.count { it.resolverId in resolverIds && it.status == AndroidSupportStatus.NEEDS_REVIEW }
     val passedRecordingSamples = PlatformCatalog.entriesWithPassingRecordingSamples.size
-    var showAllPlatforms by remember { mutableStateOf(false) }
+    var showAllPlatforms by remember { mutableStateOf(true) }
     val visibleEntries = remember(showAllPlatforms, entries, evidenceEntries) {
         if (showAllPlatforms) evidenceEntries + entries.filter { it.verification == null } else evidenceEntries
     }
@@ -78,7 +78,7 @@ fun PlatformsScreen(onBack: () -> Unit) {
         ) {
             item {
                 Text(
-                    "解析器标记可用 $available 个、待复核 $needsReview 个；有设备实测记录 ${evidenceEntries.size} 个，其中 $passedRecordingSamples 个有录制通过样本。实测对应具体房间和时段，弹幕能力单独核对。",
+                    "平台目录更新于 ${PlatformCatalog.LAST_UPDATED}。当前 $available 个解析器标记可用、$needsReview 个待复核；${evidenceEntries.size} 个平台有设备实测记录，其中 $passedRecordingSamples 个有录制通过样本。各条实测日期单独列出，弹幕能力单独核对。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
@@ -89,7 +89,7 @@ fun PlatformsScreen(onBack: () -> Unit) {
                     FilterChip(
                         selected = !showAllPlatforms,
                         onClick = { showAllPlatforms = false },
-                        label = { Text("实测记录 ${evidenceEntries.size}") },
+                        label = { Text("仅看实测 ${evidenceEntries.size}") },
                     )
                     FilterChip(
                         selected = showAllPlatforms,
@@ -120,7 +120,7 @@ private fun PlatformRow(viewModel: PlatformsViewModel, entry: PlatformCatalogEnt
     val verificationColor = when {
         verification?.level?.hasPassingRecordingSample == true -> LiveTeal
         verification?.level == null -> MaterialTheme.colorScheme.onSurfaceVariant
-        verification?.level == com.streamcap.mobile.platform.PlatformEvidenceLevel.PREFLIGHT -> WarningAmber
+        verification.level == com.streamcap.mobile.platform.PlatformEvidenceLevel.PREFLIGHT -> WarningAmber
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(

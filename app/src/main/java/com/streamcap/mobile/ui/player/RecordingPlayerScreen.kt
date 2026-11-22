@@ -238,6 +238,7 @@ private fun Playback(recording: RecordingSession, viewModel: RecordingPlayerView
     BackHandler(fullscreen) { fullscreen = false }
     var requestedProgress by remember { mutableStateOf<PlaybackProgress?>(null) }
     var retry by remember { mutableIntStateOf(0) }
+    var preferSoftwareDecoder by remember(recording.id) { mutableStateOf(false) }
     var items by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var knownDurations by remember { mutableStateOf<List<Long>>(emptyList()) }
     var headers by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -369,8 +370,9 @@ private fun Playback(recording: RecordingSession, viewModel: RecordingPlayerView
         if (loading) {
             CircularProgressIndicator(Modifier.align(Alignment.Center))
         } else if (items.isNotEmpty()) {
-            key(items, retry) {
+            key(items, retry, preferSoftwareDecoder) {
                 VideoSurface(items, headers, live, knownDurations, viewModel.networkPolicy, Modifier.fillMaxSize(),
+                    preferSoftwareDecoder = preferSoftwareDecoder,
                     danmakuEvents = if (showDanmaku) danmakuEvents else emptyList(),
                     danmakuAppearance = danmakuAppearance,
                     title = recording.roomName, fullscreen = fullscreen,
@@ -419,6 +421,13 @@ private fun Playback(recording: RecordingSession, viewModel: RecordingPlayerView
                         danmakuWindow = (progress.positionMs.coerceAtLeast(0L) / 120_000L) * 120_000L
                         requestedProgress?.let { progress = it; progressStore.write(recording.id, it); requestedProgress = null }
                         seekRequest = null
+                    }, onSoftwareDecoderFallback = { snapshot ->
+                        if (!preferSoftwareDecoder) {
+                            requestedProgress = snapshot
+                            preferSoftwareDecoder = true
+                        } else {
+                            error = "软件解码也无法播放该视频"
+                        }
                     }) { error = it }
             }
         }
@@ -467,7 +476,7 @@ private fun Playback(recording: RecordingSession, viewModel: RecordingPlayerView
 @Composable
 private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, live: Boolean, knownDurations: List<Long>,
                          networkPolicy: com.streamcap.mobile.network.RecordingNetworkPolicy,
-                         modifier: Modifier, danmakuEvents: List<DanmakuEvent>, danmakuAppearance: DanmakuAppearance,
+                         modifier: Modifier, preferSoftwareDecoder: Boolean, danmakuEvents: List<DanmakuEvent>, danmakuAppearance: DanmakuAppearance,
                          title: String, fullscreen: Boolean, activeRecording: Boolean,
                          onBack: () -> Unit, onFullscreen: () -> Unit, onRotate: () -> Unit,
                          hasDanmaku: Boolean, showDanmaku: Boolean, onDanmakuToggle: () -> Unit,
@@ -477,10 +486,11 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
                          seekRequest: Long?, onSwitchSource: () -> Unit,
                          onRefresh: () -> Unit, hasNewParts: Boolean,
                          pageIndex: Int, pageCount: Int, onSelectPage: (Int) -> Unit,
-                         initialProgress: PlaybackProgress, onProgress: (PlaybackProgress) -> Unit, onReady: () -> Unit, onError: (String) -> Unit) {
+                         initialProgress: PlaybackProgress, onProgress: (PlaybackProgress) -> Unit, onReady: () -> Unit,
+                         onSoftwareDecoderFallback: (PlaybackProgress) -> Unit, onError: (String) -> Unit) {
     val context = LocalContext.current
     // Recreate the data source when a live retry returns different request headers.
-    val player = remember(headers) {
+    val player = remember(headers, preferSoftwareDecoder) {
         val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(headers)
             .setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15000).setReadTimeoutMs(20000)
         val guarded = androidx.media3.datasource.ResolvingDataSource.Factory(DefaultDataSource.Factory(context, http)) { spec ->
@@ -489,7 +499,15 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             }
             spec
         }
-        ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
+        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        if (preferSoftwareDecoder) {
+            renderers.setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT
+                    .getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
+                    .sortedByDescending { it.softwareOnly }
+            }
+        }
+        ExoPlayer.Builder(context, renderers)
             .setMediaSourceFactory(DefaultMediaSourceFactory(guarded))
             .setSeekBackIncrementMs(10000).setSeekForwardIncrementMs(10000).build()
     }
@@ -528,7 +546,10 @@ private fun VideoSurface(items: List<MediaItem>, headers: Map<String, String>, l
             }
             override fun onPlayerError(error: PlaybackException) {
                 android.util.Log.e("StreamCapPlayer", "Playback failed", error)
-                if (!live && player.hasNextMediaItem()) {
+                if (RecordingDecoderFallbackPolicy.shouldTrySoftware(error.errorCode, live, preferSoftwareDecoder)) {
+                    android.util.Log.w("StreamCapPlayer", "硬件解码失败，切换软件解码并从当前位置重试")
+                    onSoftwareDecoderFallback(snapshot())
+                } else if (!live && player.hasNextMediaItem()) {
                     android.util.Log.w("StreamCapPlayer", "当前分段失败，自动切换下一段")
                     player.seekToNextMediaItem()
                     player.prepare()

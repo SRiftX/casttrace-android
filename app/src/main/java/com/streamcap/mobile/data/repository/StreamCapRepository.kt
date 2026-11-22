@@ -32,7 +32,7 @@ class StreamCapRepository(
     private val urlResolver: RoomUrlResolver = RoomUrlResolver(shareLinks, resolvers, credentialStore),
     private val roomRepository: RoomRepository = RoomRepository(roomDao, urlResolver, taskLogRepository),
     private val reminderRepository: ReminderRepository = ReminderRepository(
-        reminderDao, roomDao, urlResolver, resolvers, credentialStore,
+        reminderDao, roomDao, urlResolver, resolvers, credentialStore, taskLogRepository,
     ),
     private val recordingsRepository: RecordingRepository = RecordingRepository(roomDao, sessionDao),
     private val liveStatusChecker: LiveStatusChecker = LiveStatusChecker(
@@ -53,6 +53,14 @@ class StreamCapRepository(
         taskLogRepository.observeLogCount(level, roomId, keyOnly)
 
     suspend fun logsForExport(): List<TaskLogEntity> = taskLogRepository.logsForExport()
+    suspend fun logIfDue(
+        roomId: Long?,
+        sessionId: Long?,
+        level: String,
+        eventType: String,
+        message: String,
+        minimumIntervalMillis: Long,
+    ): Boolean = taskLogRepository.logIfDue(roomId, sessionId, level, eventType, message, minimumIntervalMillis)
     fun observeLatestErrorForRoom(roomId: Long): Flow<TaskLogEntity?> = taskLogRepository.observeLatestErrorForRoom(roomId)
     fun observeRecording(id: Long): Flow<RecordingSession?> = recordingsRepository.observeRecording(id)
     fun observeRoom(id: Long): Flow<LiveRoom?> = roomRepository.observeRoom(id)

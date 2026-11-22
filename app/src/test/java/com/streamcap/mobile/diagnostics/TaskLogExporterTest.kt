@@ -6,6 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TaskLogExporterTest {
+    @Test fun errorReportIncludesRoomMonitoringContextAndIndeterminateWarnings() {
+        val report = TaskLogExporter.buildErrorReport(
+            listOf(
+                TaskLogEntity(level = "WARN", eventType = "LIVE_CHECK_INDETERMINATE", roomId = 7, message = "platform=sample status unknown"),
+                TaskLogEntity(level = "WARN", eventType = "REMINDER_CHECK_INDETERMINATE_12", message = "主播提醒 #12 主播无法确认状态"),
+                TaskLogEntity(level = "ERROR", eventType = "LIVE_CHECK_TIMEOUT", roomId = 7, message = "request exceeded timeout"),
+            ),
+            "test",
+            "device",
+        )
+
+        assertTrue(report.contains("LIVE_CHECK_TIMEOUT"))
+        assertTrue(report.contains("LIVE_CHECK_INDETERMINATE"))
+        assertTrue(report.contains("REMINDER_CHECK_INDETERMINATE_12"))
+        assertTrue(report.contains("roomId=7"))
+    }
+
     @Test fun exportIncludesNormalLiveEndWithoutCountingItAsAnError() {
         val report = TaskLogExporter.buildErrorReport(listOf(
             TaskLogEntity(level = "INFO", eventType = "LIVE_ENDED", roomId = 3, sessionId = 9, message = "主播已下播"),
@@ -30,7 +47,7 @@ class TaskLogExporterTest {
         assertTrue(result.contains("room=1"))
     }
     @Test
-    fun exportsOnlyErrorLogsAndRedactsSecrets() {
+    fun errorReportIncludesMonitoringContextAndRedactsSecrets() {
         val report = TaskLogExporter.buildErrorReport(
             logs = listOf(
                 TaskLogEntity(
@@ -55,7 +72,7 @@ class TaskLogExporterTest {
         assertTrue(report.contains("ROOM_ADD_FAILED"))
         assertTrue(report.contains("token=[REDACTED]"))
         assertTrue(report.contains("sign=[REDACTED]"))
-        assertFalse(report.contains("普通检查信息"))
+        assertTrue(report.contains("普通检查信息"))
         assertFalse(report.contains("secret"))
         assertFalse(report.contains("private"))
     }

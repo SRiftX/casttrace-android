@@ -34,7 +34,9 @@ object TaskLogExporter {
 
         val errors = logs.filter { it.level.equals("ERROR", ignoreCase = true) }
         val recordingContext = logs.filter { log ->
-            log.sessionId != null || log.eventType in RECORDING_CONTEXT_EVENTS || log.eventType.startsWith("BACKGROUND_")
+            log.sessionId != null || log.eventType in RECORDING_CONTEXT_EVENTS ||
+                log.eventType in MONITOR_CONTEXT_EVENTS || log.eventType.startsWith("BACKGROUND_") ||
+                log.eventType.startsWith("REMINDER_") || log.eventType.startsWith("RECORDING_LIVE_CHECK_")
         }.filterNot { it.level.equals("ERROR", ignoreCase = true) }.sortedByDescending { it.createdAt }.take(200)
         if (errors.isEmpty()) {
             appendLine("暂无错误日志")
@@ -82,6 +84,22 @@ object TaskLogExporter {
         "(?i)\\b(cookie|authorization|password|passwd|token|access_token|refresh_token|sign|signature|wsSecret|wsTime)\\s*[:=]\\s*([^\\s,;&]+)",
     )
     private val RECORDING_CONTEXT_EVENTS = setOf("LIVE_ENDED", "STREAM_REFRESH_REQUESTED", "RECONNECT_WAIT", "RECORDING_RETRY", "TIMER_STOP")
+    private val MONITOR_CONTEXT_EVENTS = setOf(
+        "BACKGROUND_CHECK",
+        "BACKGROUND_LIVE_DETECTED",
+        "BACKGROUND_MONITOR_STARTED",
+        "BACKGROUND_MONITOR_RESTORE",
+        "BACKGROUND_MONITOR_NETWORK_BLOCKED",
+        "BACKGROUND_MONITOR_NETWORK_RESTORED",
+        "BACKGROUND_START_BLOCKED",
+        "LIVE_CHECK",
+        "LIVE_CHECK_ERROR",
+        "LIVE_CHECK_INDETERMINATE",
+        "LIVE_CHECK_STALE_RECOVERED",
+        "LIVE_STATUS_CHANGED",
+        "REMINDER_CHECK_INDETERMINATE",
+        "REMINDER_STATUS_CHANGED",
+    )
     private val SENSITIVE_HEADER = Regex("(?im)\\b(cookie|set-cookie|authorization)\\s*:\\s*[^\\r\\n]+")
     private val SENSITIVE_JSON = Regex("(?i)\"(cookie|authorization|password|passwd|token|access_token|refresh_token|sign|signature|wsSecret)\"\\s*:\\s*\"(?:\\\\.|[^\"\\\\])*\"")
     private val SENSITIVE_QUERY = Regex(

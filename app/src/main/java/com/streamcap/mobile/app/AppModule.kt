@@ -129,7 +129,15 @@ object AppModule {
         urlResolver: RoomUrlResolver,
         resolvers: ResolverRegistry,
         credentialStore: CredentialStore,
-    ) = ReminderRepository(database.liveReminderDao(), database.liveRoomDao(), urlResolver, resolvers, credentialStore)
+        taskLogRepository: TaskLogRepository,
+    ) = ReminderRepository(
+        database.liveReminderDao(),
+        database.liveRoomDao(),
+        urlResolver,
+        resolvers,
+        credentialStore,
+        taskLogRepository,
+    )
 
     @Provides
     @Singleton

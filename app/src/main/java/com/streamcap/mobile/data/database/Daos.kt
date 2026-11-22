@@ -216,13 +216,13 @@ interface RecordingSessionDao {
 
 @Dao
 interface TaskLogDao {
-    @Query("SELECT * FROM task_logs WHERE eventType IN ('INTERRUPTED_RECORDING_RECOVERED', 'STREAM_REFRESH_REQUESTED', 'RECORDING_PARTIAL_SAVED', 'RECORDING_RETRY', 'RECONNECT_WAIT', 'LIVE_ENDED', 'RECORDING_COMPLETED', 'QUALITY_SELECTED', 'QUALITY_FALLBACK') ORDER BY createdAt DESC")
+    @Query("SELECT * FROM task_logs WHERE eventType IN ('INTERRUPTED_RECORDING_RECOVERED', 'STREAM_REFRESH_REQUESTED', 'RECORDING_PARTIAL_SAVED', 'RECORDING_RETRY', 'RECONNECT_WAIT', 'LIVE_ENDED', 'RECORDING_COMPLETED', 'QUALITY_SELECTED', 'QUALITY_FALLBACK', 'LIVE_STATUS_CHANGED') ORDER BY createdAt DESC")
     fun observeRecordingEvents(): Flow<List<TaskLogEntity>>
 
-    @Query("SELECT * FROM task_logs WHERE (:level IS NULL OR level = :level) AND (:roomId IS NULL OR roomId = :roomId) AND (:keyOnly = 0 OR level != 'INFO' OR eventType IN ('RECORDING_START', 'RECORDING_STOP_REASON', 'RECORDING_PAUSED', 'RECORDING_COMPLETED', 'RECORDING_CHECKPOINT_SAVED', 'RECORDING_PART_SAVED', 'RECORDING_SAVE_TIMING', 'LIVE_ENDED', 'RECORDING_FAILED')) ORDER BY createdAt DESC, id DESC LIMIT :limit")
+    @Query("SELECT * FROM task_logs WHERE (:level IS NULL OR level = :level) AND (:roomId IS NULL OR roomId = :roomId) AND (:keyOnly = 0 OR level != 'INFO' OR eventType IN ('RECORDING_START', 'RECORDING_STOP_REASON', 'RECORDING_PAUSED', 'RECORDING_COMPLETED', 'RECORDING_CHECKPOINT_SAVED', 'RECORDING_PART_SAVED', 'RECORDING_SAVE_TIMING', 'LIVE_ENDED', 'RECORDING_FAILED', 'LIVE_STATUS_CHANGED', 'BACKGROUND_MONITOR_STARTED', 'BACKGROUND_MONITOR_RESTORE', 'BACKGROUND_MONITOR_NETWORK_RESTORED', 'BACKGROUND_LIVE_DETECTED')) ORDER BY createdAt DESC, id DESC LIMIT :limit")
     fun observeRecent(limit: Int = 500, level: String? = null, roomId: Long? = null, keyOnly: Boolean = false): Flow<List<TaskLogEntity>>
 
-    @Query("SELECT COUNT(*) FROM task_logs WHERE (:level IS NULL OR level = :level) AND (:roomId IS NULL OR roomId = :roomId) AND (:keyOnly = 0 OR level != 'INFO' OR eventType IN ('RECORDING_START', 'RECORDING_STOP_REASON', 'RECORDING_PAUSED', 'RECORDING_COMPLETED', 'RECORDING_CHECKPOINT_SAVED', 'RECORDING_PART_SAVED', 'RECORDING_SAVE_TIMING', 'LIVE_ENDED', 'RECORDING_FAILED'))")
+    @Query("SELECT COUNT(*) FROM task_logs WHERE (:level IS NULL OR level = :level) AND (:roomId IS NULL OR roomId = :roomId) AND (:keyOnly = 0 OR level != 'INFO' OR eventType IN ('RECORDING_START', 'RECORDING_STOP_REASON', 'RECORDING_PAUSED', 'RECORDING_COMPLETED', 'RECORDING_CHECKPOINT_SAVED', 'RECORDING_PART_SAVED', 'RECORDING_SAVE_TIMING', 'LIVE_ENDED', 'RECORDING_FAILED', 'LIVE_STATUS_CHANGED', 'BACKGROUND_MONITOR_STARTED', 'BACKGROUND_MONITOR_RESTORE', 'BACKGROUND_MONITOR_NETWORK_RESTORED', 'BACKGROUND_LIVE_DETECTED'))")
     fun observeCount(level: String? = null, roomId: Long? = null, keyOnly: Boolean = false): Flow<Int>
 
     @Query("SELECT * FROM task_logs ORDER BY createdAt DESC, id DESC LIMIT :limit")
@@ -230,6 +230,9 @@ interface TaskLogDao {
 
     @Query("SELECT * FROM task_logs WHERE roomId = :roomId AND level = 'ERROR' ORDER BY createdAt DESC LIMIT 1")
     fun observeLatestErrorForRoom(roomId: Long): Flow<TaskLogEntity?>
+
+    @Query("SELECT createdAt FROM task_logs WHERE roomId IS :roomId AND eventType = :eventType ORDER BY createdAt DESC, id DESC LIMIT 1")
+    suspend fun latestEventTime(roomId: Long?, eventType: String): Long?
 
     @Insert
     suspend fun insert(log: TaskLogEntity)

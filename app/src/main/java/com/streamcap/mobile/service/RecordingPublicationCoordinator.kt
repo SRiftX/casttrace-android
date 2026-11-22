@@ -3,6 +3,7 @@ package com.streamcap.mobile.service
 import com.streamcap.mobile.data.database.RecordingSessionEntity
 import com.streamcap.mobile.data.preferences.AppPreferences
 import com.streamcap.mobile.data.repository.StreamCapRepository
+import com.streamcap.mobile.diagnostics.DiagnosticFailure
 import com.streamcap.mobile.domain.model.StreamType
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.recording.engine.RecordingProgress
@@ -114,7 +115,7 @@ class RecordingPublicationCoordinator @Inject constructor(
                                 recording.sessionId,
                                 "WARN",
                                 "FFMPEG_MP4_MUX_FAILED",
-                                "FFmpeg 封装失败，已切换系统封装器：${ffmpegError.message}",
+                                "FFmpeg 封装失败，已切换系统封装器；${DiagnosticFailure.describe(ffmpegError)}",
                             )
                         }
                         muxedDurationSeconds += tracks.durationSeconds
@@ -284,7 +285,7 @@ class RecordingPublicationCoordinator @Inject constructor(
                         recording.sessionId,
                         "WARN",
                         "RECORDING_CHECKPOINT_FAILED",
-                        "分段暂未发布，将在录制结束或恢复时重试：${failure.message}",
+                        "分段暂未发布，将在录制结束或恢复时重试；${DiagnosticFailure.describe(failure)}",
                     )
                     return@withPermit
                 }

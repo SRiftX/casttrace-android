@@ -17,6 +17,8 @@ import com.streamcap.mobile.ui.StreamCapApp
 import com.streamcap.mobile.ui.theme.StreamCapTheme
 import com.streamcap.mobile.ui.theme.ThemePalette
 import com.streamcap.mobile.data.preferences.UserSettings
+import com.streamcap.mobile.ui.settings.AppUpdateManager
+import com.streamcap.mobile.ui.settings.AutoUpdateChecker
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.streamcap.mobile.service.RecordingService
 import kotlinx.coroutines.flow.first
@@ -28,6 +30,7 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
     @Inject lateinit var preferences: AppPreferences
     @Inject lateinit var repository: StreamCapRepository
+    @Inject lateinit var appUpdateManager: AppUpdateManager
 
     private val appPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -88,6 +91,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        lifecycleScope.launch {
+            runCatching { AutoUpdateChecker.checkIfDue(this@MainActivity, appUpdateManager) }
+        }
         lifecycleScope.launch {
             val settings = preferences.settings.first()
             if (settings.globalAutoRecordEnabled || repository.hasEnabledReminders()) {

@@ -9,6 +9,7 @@ import com.streamcap.mobile.data.database.RecordingSessionEntity
 import com.streamcap.mobile.data.database.TaskLogDao
 import com.streamcap.mobile.data.database.TaskLogEntity
 import com.streamcap.mobile.data.database.toDomain
+import com.streamcap.mobile.diagnostics.DiagnosticFailure
 import com.streamcap.mobile.data.security.CredentialStore
 import com.streamcap.mobile.domain.model.LiveRoom
 import com.streamcap.mobile.domain.model.LiveReminder
@@ -62,6 +63,21 @@ class TaskLogRepository(private val logDao: TaskLogDao) {
                 message = com.streamcap.mobile.diagnostics.TaskLogExporter.sanitize(message),
             ),
         )
+    }
+
+    suspend fun logIfDue(
+        roomId: Long?,
+        sessionId: Long?,
+        level: String,
+        eventType: String,
+        message: String,
+        minimumIntervalMillis: Long,
+        now: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val lastLoggedAt = logDao.latestEventTime(roomId, eventType)
+        if (lastLoggedAt != null && now - lastLoggedAt < minimumIntervalMillis) return false
+        log(roomId, sessionId, level, eventType, message)
+        return true
     }
 }
 
@@ -263,6 +279,7 @@ class ReminderRepository(
     private val urlResolver: RoomUrlResolver,
     private val resolvers: ResolverRegistry,
     private val credentialStore: CredentialStore,
+    private val taskLogs: TaskLogRepository,
 ) {
     val reminders: Flow<List<LiveReminder>> = reminderDao.observeAll().map { reminders -> reminders.map { it.toDomain() } }
 
@@ -322,12 +339,28 @@ class ReminderRepository(
         val reminder = reminderDao.getById(reminderId) ?: return false
         if (!reminder.enabled) return false
         val now = System.currentTimeMillis()
+        val checkStartedAt = android.os.SystemClock.elapsedRealtime()
+        val previousStatus = reminder.liveStatus
         reminderDao.setChecking(reminderId, now)
+        var resolverId = "unavailable"
+        var failureDetailsLogged = false
         val checked = try {
             val resolver = resolvers.resolverForPlatform(reminder.platform)
+            resolverId = resolver.platformId
             withTimeoutOrNull(LIVE_CHECK_TIMEOUT_MILLIS) {
                 resolver.checkRoom(reminder.toResolverRoom(), credentialStore.get(reminder.platform))
-            } ?: RoomCheckResult(LiveStatus.ERROR)
+            } ?: run {
+                failureDetailsLogged = true
+                taskLogs.logIfDue(
+                    null,
+                    null,
+                    "ERROR",
+                    "REMINDER_CHECK_TIMEOUT_$reminderId",
+                    "主播提醒 #$reminderId ${reminder.anchorName} 平台=${reminder.platform} resolver=$resolverId 超时=${LIVE_CHECK_TIMEOUT_MILLIS}ms",
+                    FAILURE_LOG_INTERVAL_MILLIS,
+                )
+                RoomCheckResult(LiveStatus.ERROR)
+            }
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
                 reminderDao.setCheckResult(
@@ -338,7 +371,16 @@ class ReminderRepository(
                 )
             }
             throw cancelled
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            failureDetailsLogged = true
+            taskLogs.logIfDue(
+                null,
+                null,
+                "ERROR",
+                "REMINDER_CHECK_FAILED_$reminderId",
+                "主播提醒 #$reminderId ${reminder.anchorName} 平台=${reminder.platform} resolver=$resolverId elapsed=${android.os.SystemClock.elapsedRealtime() - checkStartedAt}ms；${com.streamcap.mobile.diagnostics.DiagnosticFailure.describe(error)}",
+                FAILURE_LOG_INTERVAL_MILLIS,
+            )
             RoomCheckResult(LiveStatus.ERROR)
         }
         checked.info?.let { info ->
@@ -350,11 +392,54 @@ class ReminderRepository(
                 updatedAt = System.currentTimeMillis(),
             )
         }
-        return reminderDao.applyCheckResult(reminderId, checked.status, System.currentTimeMillis(), notificationsAllowed)
+        val shouldNotify = reminderDao.applyCheckResult(
+            reminderId,
+            checked.status,
+            System.currentTimeMillis(),
+            notificationsAllowed,
+        )
+        if (checked.status == LiveStatus.ERROR && !failureDetailsLogged) {
+            taskLogs.logIfDue(
+                null,
+                null,
+                "ERROR",
+                "REMINDER_CHECK_ERROR_$reminderId",
+                "主播提醒 #$reminderId ${reminder.anchorName} 平台=${reminder.platform} resolver=$resolverId 结果=${checked.status} elapsed=${android.os.SystemClock.elapsedRealtime() - checkStartedAt}ms；${checked.diagnostic.orEmpty()}",
+                FAILURE_LOG_INTERVAL_MILLIS,
+            )
+        } else if (checked.status == LiveStatus.UNKNOWN) {
+            taskLogs.logIfDue(
+                null,
+                null,
+                "WARN",
+                "REMINDER_CHECK_INDETERMINATE_$reminderId",
+                "主播提醒 #$reminderId ${reminder.anchorName} 平台=${reminder.platform} resolver=$resolverId 无法确认开播或下播；${checked.diagnostic ?: "请检查平台页面状态或解析支持"}",
+                FAILURE_LOG_INTERVAL_MILLIS,
+            )
+        } else if (checked.status == LiveStatus.LIVE && !notificationsAllowed && !reminder.notifiedForCurrentLive) {
+            taskLogs.logIfDue(
+                null,
+                null,
+                "WARN",
+                "REMINDER_NOTIFICATION_BLOCKED_$reminderId",
+                "主播提醒 #$reminderId ${reminder.anchorName} 已检测到开播，但 Android 通知权限或通知渠道已关闭；系统未发送提醒",
+                FAILURE_LOG_INTERVAL_MILLIS,
+            )
+        } else if (previousStatus != checked.status) {
+            taskLogs.log(
+                null,
+                null,
+                "INFO",
+                "REMINDER_STATUS_CHANGED",
+                "主播提醒 #$reminderId ${reminder.anchorName} 状态 $previousStatus -> ${checked.status}；通知触发=$shouldNotify",
+            )
+        }
+        return shouldNotify
     }
 
     private companion object {
         const val LIVE_CHECK_TIMEOUT_MILLIS = 15_000L
+        const val FAILURE_LOG_INTERVAL_MILLIS = 5 * 60_000L
     }
 }
 
@@ -365,12 +450,28 @@ class LiveStatusChecker(
     private val credentialStore: CredentialStore,
     private val taskLogs: TaskLogRepository,
 ) {
-    suspend fun resetStaleChecks(now: Long = System.currentTimeMillis()): Int =
-        roomDao.resetStaleChecks(now - CHECK_STALE_MILLIS, now)
+    suspend fun resetStaleChecks(now: Long = System.currentTimeMillis()): Int {
+        val reset = roomDao.resetStaleChecks(now - CHECK_STALE_MILLIS, now)
+        if (reset > 0) {
+            taskLogs.log(
+                null,
+                null,
+                "WARN",
+                "LIVE_CHECK_STALE_RECOVERED",
+                "$reset 个直播间检查在进程中断或请求卡住后超时回收；状态已恢复为待检查",
+            )
+        }
+        return reset
+    }
 
     suspend fun refresh(roomId: Long): LiveStatus {
-        val room = roomDao.getById(roomId)?.toDomain() ?: return LiveStatus.ERROR
+        val room = roomDao.getById(roomId)?.toDomain() ?: run {
+            taskLogs.log(null, null, "ERROR", "LIVE_CHECK_ROOM_MISSING", "检查时直播间 #$roomId 已不存在")
+            return LiveStatus.ERROR
+        }
         val now = System.currentTimeMillis()
+        val checkStartedAt = android.os.SystemClock.elapsedRealtime()
+        val previousStatus = room.liveStatus
         val paused = room.taskStatus == TaskStatus.PAUSED
         roomDao.setCheckStatus(
             roomId,
@@ -378,12 +479,23 @@ class LiveStatusChecker(
             if (paused) TaskStatus.PAUSED else TaskStatus.CHECKING,
             now,
         )
-        val resolver = resolvers.resolverForPlatform(room.platform)
+        var resolverId = "unavailable"
+        var failureDetailsLogged = false
         val checked = try {
+            val resolver = resolvers.resolverForPlatform(room.platform)
+            resolverId = resolver.platformId
             withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
                 resolver.checkRoom(room, credentialStore.get(room.platform))
             } ?: run {
-                taskLogs.log(roomId, null, "ERROR", "LIVE_CHECK_TIMEOUT", "检查直播状态超时（${CHECK_TIMEOUT_MILLIS / 1_000} 秒）")
+                failureDetailsLogged = true
+                taskLogs.logIfDue(
+                    roomId,
+                    null,
+                    "ERROR",
+                    "LIVE_CHECK_TIMEOUT",
+                    "平台=${room.platform} resolver=$resolverId 检查直播状态超时（${CHECK_TIMEOUT_MILLIS / 1_000} 秒）",
+                    FAILURE_LOG_INTERVAL_MILLIS,
+                )
                 RoomCheckResult(LiveStatus.ERROR)
             }
         } catch (error: CancellationException) {
@@ -397,7 +509,15 @@ class LiveStatusChecker(
             }
             throw error
         } catch (error: Throwable) {
-            taskLogs.log(roomId, null, "ERROR", "LIVE_CHECK_FAILED", error.message ?: "检查开播状态失败")
+            failureDetailsLogged = true
+            taskLogs.logIfDue(
+                roomId,
+                null,
+                "ERROR",
+                "LIVE_CHECK_FAILED",
+                "平台=${room.platform} resolver=$resolverId elapsed=${android.os.SystemClock.elapsedRealtime() - checkStartedAt}ms；${DiagnosticFailure.describe(error)}",
+                FAILURE_LOG_INTERVAL_MILLIS,
+            )
             RoomCheckResult(LiveStatus.ERROR)
         }
         val result = checked.status
@@ -415,7 +535,51 @@ class LiveStatusChecker(
             },
             System.currentTimeMillis(),
         )
-        taskLogs.log(roomId, null, if (result == LiveStatus.ERROR) "ERROR" else "INFO", "LIVE_CHECK", "检查结果：$result")
+        val elapsed = android.os.SystemClock.elapsedRealtime() - checkStartedAt
+        if (result == LiveStatus.ERROR && !failureDetailsLogged) {
+            taskLogs.logIfDue(
+                roomId,
+                null,
+                "ERROR",
+                "LIVE_CHECK_ERROR",
+                "平台=${room.platform} resolver=$resolverId 返回错误状态；耗时=${elapsed}ms；${checked.diagnostic.orEmpty()}",
+                FAILURE_LOG_INTERVAL_MILLIS,
+            )
+        } else if (result == LiveStatus.UNKNOWN && previousStatus != LiveStatus.UNKNOWN) {
+            taskLogs.log(
+                roomId,
+                null,
+                "WARN",
+                "LIVE_CHECK_INDETERMINATE",
+                "平台=${room.platform} resolver=$resolverId 未提供足够信息确认开播或下播；${checked.diagnostic ?: "请检查平台页面状态或解析支持"}",
+            )
+        } else if (result != previousStatus) {
+            taskLogs.log(
+                roomId,
+                null,
+                "INFO",
+                "LIVE_STATUS_CHANGED",
+                "平台=${room.platform} resolver=$resolverId 状态 $previousStatus -> $result；检查耗时=${elapsed}ms",
+            )
+        } else if (result == LiveStatus.UNKNOWN) {
+            taskLogs.logIfDue(
+                roomId,
+                null,
+                "WARN",
+                "LIVE_CHECK_INDETERMINATE",
+                "平台=${room.platform} resolver=$resolverId 持续无法确认开播或下播；检查耗时=${elapsed}ms",
+                MONITOR_RESULT_LOG_INTERVAL_MILLIS,
+            )
+        } else {
+            taskLogs.logIfDue(
+                roomId,
+                null,
+                "INFO",
+                "LIVE_CHECK",
+                "平台=${room.platform} resolver=$resolverId 结果=$result；检查耗时=${elapsed}ms",
+                MONITOR_RESULT_LOG_INTERVAL_MILLIS,
+            )
+        }
         return result
     }
 
@@ -433,14 +597,58 @@ class LiveStatusChecker(
 
     // Recording checks must not replace RECORDING/FINALIZING with monitor task states.
     suspend fun recordingLiveStatus(roomId: Long): LiveStatus {
-        val room = roomDao.getById(roomId)?.toDomain() ?: return LiveStatus.UNKNOWN
+        val room = roomDao.getById(roomId)?.toDomain() ?: run {
+            taskLogs.logIfDue(
+                roomId,
+                null,
+                "WARN",
+                "RECORDING_LIVE_CHECK_ROOM_MISSING",
+                "录制结束判定时直播间记录 #$roomId 已不存在",
+                FAILURE_LOG_INTERVAL_MILLIS,
+            )
+            return LiveStatus.UNKNOWN
+        }
+        var resolverId = "unavailable"
         return try {
-            withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
-                resolvers.resolverForPlatform(room.platform).checkLive(room, credentialStore.get(room.platform))
-            } ?: LiveStatus.UNKNOWN
+            val checked = withTimeoutOrNull(CHECK_TIMEOUT_MILLIS) {
+                val resolver = resolvers.resolverForPlatform(room.platform)
+                resolverId = resolver.platformId
+                resolver.checkRoom(room, credentialStore.get(room.platform))
+            }
+            if (checked == null) {
+                taskLogs.logIfDue(
+                    roomId,
+                    null,
+                    "WARN",
+                    "RECORDING_LIVE_CHECK_TIMEOUT",
+                    "录制结束判定时检查下播状态超时；平台=${room.platform} resolver=$resolverId",
+                    FAILURE_LOG_INTERVAL_MILLIS,
+                )
+                LiveStatus.UNKNOWN
+            } else {
+                if (checked.status == LiveStatus.UNKNOWN) {
+                    taskLogs.logIfDue(
+                        roomId,
+                        null,
+                        "WARN",
+                        "RECORDING_LIVE_CHECK_INDETERMINATE",
+                        "录制结束判定时无法确认直播状态；平台=${room.platform} resolver=$resolverId；${checked.diagnostic ?: "请检查平台页面状态或解析支持"}",
+                        FAILURE_LOG_INTERVAL_MILLIS,
+                    )
+                }
+                checked.status
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            taskLogs.logIfDue(
+                roomId,
+                null,
+                "WARN",
+                "RECORDING_LIVE_CHECK_FAILED",
+                "录制结束判定时检查下播状态失败；平台=${room.platform} resolver=$resolverId；${DiagnosticFailure.describe(error)}",
+                FAILURE_LOG_INTERVAL_MILLIS,
+            )
             LiveStatus.UNKNOWN
         }
     }
@@ -449,6 +657,8 @@ class LiveStatusChecker(
         const val CHECK_TIMEOUT_MILLIS = 15_000L
         const val CHECK_STALE_MILLIS = 45_000L
         const val STREAM_LOOKUP_TIMEOUT_MILLIS = 45_000L
+        const val FAILURE_LOG_INTERVAL_MILLIS = 5 * 60_000L
+        const val MONITOR_RESULT_LOG_INTERVAL_MILLIS = 15 * 60_000L
     }
 }
 

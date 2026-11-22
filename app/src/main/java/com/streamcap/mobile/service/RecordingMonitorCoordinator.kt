@@ -5,6 +5,7 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.streamcap.mobile.data.preferences.AppPreferences
 import com.streamcap.mobile.data.repository.StreamCapRepository
+import com.streamcap.mobile.diagnostics.DiagnosticFailure
 import com.streamcap.mobile.domain.model.LiveStatus
 import com.streamcap.mobile.domain.model.TaskStatus
 import com.streamcap.mobile.network.RecordingNetworkPolicy
@@ -49,7 +50,14 @@ class RecordingMonitorCoordinator @Inject constructor(
                 repository.repairPausedRoomSettings()
                 runtimeState.powerSavingMonitoring = preferences.settings.first().powerSavingMonitoring
                 if (!runtimeState.powerSavingMonitoring) acquireWakeLock()
-                repository.log(null, null, "INFO", "BACKGROUND_MONITOR_STARTED", "后台持续检测已启动，熄屏时继续等待开播")
+                repository.log(
+                    null,
+                    null,
+                    "INFO",
+                    "BACKGROUND_MONITOR_STARTED",
+                    "后台持续检测已启动；省电模式=${runtimeState.powerSavingMonitoring}；熄屏时继续等待开播",
+                )
+                var networkBlocked: Boolean? = null
                 while (runtimeState.isMonitorGenerationCurrent(generation)) {
                     runtimeState.powerSavingMonitoring = preferences.settings.first().powerSavingMonitoring
                     BackgroundMonitorStatus.running(context)
@@ -59,9 +67,23 @@ class RecordingMonitorCoordinator @Inject constructor(
                         acquireWakeLock()
                     }
                     if (!networkPolicy.allowsRequests()) {
+                        if (networkBlocked != true) {
+                            repository.log(
+                                null,
+                                null,
+                                "WARN",
+                                "BACKGROUND_MONITOR_NETWORK_BLOCKED",
+                                "当前网络策略禁止请求，监控轮询已暂停；网络条件恢复后会自动继续",
+                            )
+                        }
+                        networkBlocked = true
                         delay(pollIntervalMillis())
                         continue
                     }
+                    if (networkBlocked == true) {
+                        repository.log(null, null, "INFO", "BACKGROUND_MONITOR_NETWORK_RESTORED", "网络策略已允许请求，恢复直播间检查")
+                    }
+                    networkBlocked = false
                     repository.resetStaleChecks()
                     val settings = preferences.settings.first()
                     val rooms = if (settings.globalAutoRecordEnabled && settings.backgroundMonitoringEnabled) {
@@ -95,12 +117,13 @@ class RecordingMonitorCoordinator @Inject constructor(
                         val checkIntervalMillis = room.checkIntervalSeconds.coerceAtLeast(MIN_MONITOR_INTERVAL_SECONDS) * 1_000L
                         val checkDue = room.lastCheckAt?.let { System.currentTimeMillis() - it >= checkIntervalMillis } ?: true
                         if (!checkDue) return@forEach
-                        repository.log(
+                        repository.logIfDue(
                             room.id,
                             null,
                             "INFO",
                             "BACKGROUND_CHECK",
-                            "后台检查开播状态，房间自动录制已启用，检查间隔 ${room.checkIntervalSeconds} 秒",
+                            "后台监控仍在运行；平台=${room.platform}；检查间隔=${room.checkIntervalSeconds} 秒",
+                            BACKGROUND_HEARTBEAT_LOG_INTERVAL_MILLIS,
                         )
                         runCatching { repository.refresh(room.id) }
                             .onSuccess { status ->
@@ -111,7 +134,7 @@ class RecordingMonitorCoordinator @Inject constructor(
                                 }
                             }
                             .onFailure { error ->
-                                repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", error.message ?: "自动检查开播失败")
+                                repository.log(room.id, null, "ERROR", "AUTO_MONITOR_FAILED", DiagnosticFailure.describe(error))
                             }
                     }
                     val reminderInterval = settings.checkIntervalSeconds.coerceIn(
@@ -125,13 +148,23 @@ class RecordingMonitorCoordinator @Inject constructor(
                         if (!checkDue) return@forEach
                         if (repository.checkReminder(reminder.id, reminderNotifications.canNotify(reminder.strongNotificationEnabled))) {
                             runCatching { reminderNotifications.notifyOpened(reminder, reminder.strongNotificationEnabled) }
+                                .onFailure { error ->
+                                    repository.logIfDue(
+                                        null,
+                                        null,
+                                        "WARN",
+                                        "REMINDER_NOTIFICATION_FAILED_${reminder.id}",
+                                        "主播提醒 #${reminder.id} ${reminder.anchorName} 已检测到开播，但通知发送失败；${com.streamcap.mobile.diagnostics.DiagnosticFailure.describe(error)}",
+                                        REMINDER_FAILURE_LOG_INTERVAL_MILLIS,
+                                    )
+                                }
                         }
                     }
                     delay(pollIntervalMillis())
                 }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
-                repository.log(null, null, "ERROR", "MONITOR_LOOP_FAILED", error.message ?: "监控循环异常")
+                repository.log(null, null, "ERROR", "MONITOR_LOOP_FAILED", DiagnosticFailure.describe(error))
                 restartScheduled = true
                 scope.launch {
                     delay(MONITOR_POLL_MILLIS)
@@ -176,5 +209,7 @@ class RecordingMonitorCoordinator @Inject constructor(
         const val MONITOR_POLL_MILLIS = 15_000L
         const val POWER_SAVING_POLL_MILLIS = 60_000L
         const val MIN_MONITOR_INTERVAL_SECONDS = 15
+        const val BACKGROUND_HEARTBEAT_LOG_INTERVAL_MILLIS = 30 * 60_000L
+        const val REMINDER_FAILURE_LOG_INTERVAL_MILLIS = 5 * 60_000L
     }
 }

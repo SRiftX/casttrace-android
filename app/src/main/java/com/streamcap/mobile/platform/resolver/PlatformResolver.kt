@@ -8,7 +8,11 @@ import com.streamcap.mobile.domain.model.StreamSource
 import com.streamcap.mobile.platform.AndroidSupportStatus
 import com.streamcap.mobile.platform.PlatformCatalog
 
-data class RoomCheckResult(val status: LiveStatus, val info: LiveRoomInfo? = null)
+data class RoomCheckResult(
+    val status: LiveStatus,
+    val info: LiveRoomInfo? = null,
+    val diagnostic: String? = null,
+)
 
 interface PlatformResolver {
     val platformId: String
@@ -25,8 +29,17 @@ interface PlatformResolver {
         credential: PlatformCredential? = null,
     ): LiveStatus
 
-    suspend fun checkRoom(room: LiveRoom, credential: PlatformCredential? = null): RoomCheckResult =
-        RoomCheckResult(checkLive(room, credential))
+    suspend fun checkRoom(room: LiveRoom, credential: PlatformCredential? = null): RoomCheckResult {
+        val status = checkLive(room, credential)
+        return RoomCheckResult(
+            status = status,
+            diagnostic = when (status) {
+                LiveStatus.UNKNOWN -> "平台解析器无法确认在线状态，且没有提供更具体的原因"
+                LiveStatus.ERROR -> "平台解析器返回错误状态，且没有提供更具体的原因"
+                else -> null
+            },
+        )
+    }
 
     suspend fun getStreams(
         room: LiveRoom,
