@@ -99,6 +99,35 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setAutomaticUpdatesEnabled(enabled: Boolean) {
+        val updatePreferences = context.getSharedPreferences(AutoUpdateChecker.PREFERENCES_NAME, Context.MODE_PRIVATE)
+        updatePreferences.edit()
+            .putBoolean(AutoUpdateChecker.ENABLED_KEY, enabled)
+            .apply {
+                if (enabled) putLong(AutoUpdateChecker.LAST_CHECK_KEY, 0L)
+            }
+            .apply()
+        if (!enabled) return
+
+        if (_updateState.value.isBusy) return
+        _updateState.value = UpdateUiState(message = "正在检查并准备更新…", isBusy = true)
+        viewModelScope.launch {
+            runCatching { AutoUpdateChecker.checkIfDue(context, appUpdateManager, force = true) }
+                .onSuccess { result ->
+                    _updateState.value = when (result) {
+                        AutoUpdateCheckResult.UpToDate -> UpdateUiState(message = "当前已是最新版本")
+                        is AutoUpdateCheckResult.UpdateReady -> UpdateUiState(
+                            message = "已下载 ${result.versionName}，请在系统安装界面确认",
+                        )
+                        null -> UpdateUiState(message = "自动更新未启用")
+                    }
+                }
+                .onFailure { error ->
+                    _updateState.value = UpdateUiState(message = error.message ?: "自动更新检查失败")
+                }
+        }
+    }
+
     fun downloadAndInstallUpdate() {
         val update = _updateState.value.update ?: return
         if (_updateState.value.isBusy) return

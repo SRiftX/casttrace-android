@@ -39,6 +39,8 @@ data class PlatformCatalogEntry(
 )
 
 object PlatformCatalog {
+    const val LAST_UPDATED = "2026-11-23"
+
     val entries = listOf(
         PlatformCatalogEntry("custom", "HLS / FLV 直链", listOf(".m3u8", ".flv"), AndroidSupportStatus.AVAILABLE, resolverId = "direct"),
         PlatformCatalogEntry("huya", "虎牙直播", listOf("huya.com", "hy.fan"), AndroidSupportStatus.AVAILABLE, verification = PlatformVerificationEvidence("2026-10-27", PlatformEvidenceLevel.SHORT_PASS, "281014 成品 116 秒通过媒体检查，正常录制收到 2 条真实弹幕。")),

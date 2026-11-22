@@ -10,7 +10,7 @@ data class ReleaseUpdate(
 )
 
 data class UpdateUiState(
-    val message: String = "正在检查更新…",
+    val message: String = "尚未检查更新",
     val update: ReleaseUpdate? = null,
     val isBusy: Boolean = false,
     val downloaded: Boolean = false,

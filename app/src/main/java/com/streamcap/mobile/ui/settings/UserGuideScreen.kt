@@ -71,6 +71,43 @@ fun UserGuideScreen(onBack: () -> Unit) {
                     }
                 }
             }
+            item { GuideSectionTitle("后台运行与电池优化") }
+            item {
+                GuideStep(
+                    number = 1,
+                    title = "打开后台持续检测",
+                    body = "设置 → 自动录制与开播监控 → 后台持续检测。开启后离开应用仍会检查开播状态。全局自动录制、房间监控和房间自动录制开关共同决定是否开始录制。",
+                )
+            }
+            item {
+                GuideStep(
+                    number = 2,
+                    title = "允许系统后台运行",
+                    body = "在同一设置区域打开电池优化，选择不受限制。部分手机还需要允许应用自启动、关联启动和后台活动；设置 → 后台启动与自启动会尝试打开厂商对应页面。",
+                )
+            }
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("电池豁免与后台持续检测是两个独立设置。", fontWeight = FontWeight.Medium)
+                        Text("电池豁免减少系统暂停应用的机会，但不保证厂商系统一定允许后台任务。", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            item { GuideSectionTitle("平台适配与日志导出") }
+            item {
+                Text(
+                    "设置 → 平台适配默认显示完整平台目录。每个平台标明解析状态；有设备实测的条目会显示测试日期和结果，解析器可用不代表每个房间、网络和弹幕都已通过验收。遇到无法检查、下载或录制时，打开设置 → 任务日志，筛选相关直播间并导出诊断报告。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            item { GuideSectionTitle("自动更新") }
+            item {
+                Text(
+                    "设置 → 应用更新 → 自动检查并更新。开启后每天进入应用时检查 GitHub Release。发现新版会下载并请求 Android 系统确认安装，系统不会允许应用静默安装。设置 → 关于 → 更新说明可以随时查看本版本变更。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             item { GuideSectionTitle("遇到问题时") }
             itemsIndexed(troubleshooting) { _, item ->
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -96,13 +133,14 @@ private val quickStartSteps = listOf(
     "添加直播间" to "回到主页点加号，粘贴直播地址。主播名称（可选）可以留空，然后点击确认主播并添加。",
     "确认平台和主播" to "检查解析出的平台、主播名称和地址；不正确时返回修改后重新确认。",
     "开启房间监控" to "进入房间详情，确认任务启用并打开开播自动录制。添加页的同类选项叫定时监控开播。",
-    "开启全局自动录制" to "在设置 → 后台运行打开全局自动录制。关闭时只保留手动录制。",
+    "开启全局自动录制" to "在设置 → 自动录制与开播监控打开全局自动录制。关闭时只保留手动录制。",
     "选择后台检测" to "按需打开后台持续检测。开启后应用关闭仍检查；关闭后只在打开应用时检查。",
+    "检查电池优化" to "在设置 → 自动录制与开播监控打开电池优化，按需允许不受限制；部分厂商还需要允许自启动和后台活动。",
 )
 
 private val troubleshooting = listOf(
     "没有自动录制" to "检查全局自动录制、房间开播自动录制、任务启用和暂停状态；再点立即检查并等待下一次检查。",
-    "检查失败" to "检查直播地址、网络和平台状态；必要时重新添加直播间。",
+    "检查失败" to "检查直播地址、网络和平台状态；到设置 → 平台适配查看解析状态和最近设备实测；必要时重新添加直播间。",
     "空间不足" to "暂停并保存，清理视频或更换保存目录。导出也需要额外空间。",
     "保存失败" to "重新选择并授权保存目录，确认目录可写后重试；已有片段先到视频库检查。",
 )

@@ -1,11 +1,15 @@
 package com.streamcap.mobile.platform.resolver
 
 import com.streamcap.mobile.domain.model.PlatformCredential
+import com.streamcap.mobile.domain.model.LiveRoom
+import com.streamcap.mobile.domain.model.LiveStatus
+import com.streamcap.mobile.domain.model.TaskStatus
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -16,6 +20,38 @@ class CredentialAndRoomRegressionTest {
             Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200)
                 .message("fixture").body(body(request).toResponseBody()).build()
         }.build()
+
+    @Test fun douyinCookieReachesRoomRequestAndReturnedPlaybackSources() = runBlocking {
+        val cookies = mutableListOf<String?>()
+        val roomInfo = JSONObject().put("room", JSONObject()
+            .put("idStr", "123")
+            .put("title", "Fixture live")
+            .put("status", 2)
+            .put("owner", JSONObject().put("nickname", "Fixture anchor"))
+            .put("stream_url", JSONObject().put("origin", JSONObject().put("hls", "https://cdn.example/live.m3u8"))))
+        val resolver = DouyinResolver(client {
+            cookies += it.header("Cookie")
+            "<script type='application/json'>${JSONObject().put("roomInfo", roomInfo)}</script>"
+        })
+        val credential = PlatformCredential("douyin", "sessionid=fake; ttwid=fake")
+        val url = "https://live.douyin.com/123"
+        val info = resolver.resolveRoom(url, credential)
+        val room = LiveRoom(
+            id = 1, originalUrl = url, normalizedUrl = url, platform = "douyin",
+            anchorName = info.anchorName, roomTitle = info.roomTitle, enabled = true, autoRecord = false,
+            quality = "原画", mediaType = "视频", outputFormat = "MP4", flvDirectDownload = false,
+            storageDirectoryUri = null, segmentEnabled = true, segmentSeconds = 1800,
+            scheduledMonitoringEnabled = false, notificationsEnabled = true, checkIntervalSeconds = 60,
+            liveStatus = LiveStatus.LIVE, taskStatus = TaskStatus.WAITING, lastCheckAt = null,
+            createdAt = 0, updatedAt = 0,
+        )
+
+        val stream = resolver.getStreams(room, credential).single()
+
+        assertEquals(listOf("sessionid=fake; ttwid=fake", "sessionid=fake; ttwid=fake"), cookies)
+        assertEquals("sessionid=fake; ttwid=fake", stream.headers["Cookie"])
+        assertEquals("https://live.douyin.com/123", info.normalizedUrl)
+    }
 
     @Test fun domesticMetadataReceivesCookie() = runBlocking {
         var requests = 0

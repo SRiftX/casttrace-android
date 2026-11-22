@@ -41,15 +41,26 @@ class StripchatGirlsLiveSmokeTest {
         val streams = resolver.getStreams(room)
         assertEquals(3, streams.size)
 
+        val diagnostics = mutableListOf<String>()
         val playable = streams.firstNotNullOfOrNull { stream ->
-            http.newCall(Request.Builder().url(stream.url).headers(okhttp3.Headers.headersOf(
-                "User-Agent", stream.headers["User-Agent"].orEmpty(),
-                "Referer", stream.headers["Referer"].orEmpty(),
-            )).build()).execute().use { response ->
-                response.takeIf { it.isSuccessful && it.body?.string()?.startsWith("#EXTM3U") == true }
-            }
+            runCatching {
+                http.newCall(Request.Builder().url(stream.url).headers(okhttp3.Headers.headersOf(
+                    "User-Agent", stream.headers["User-Agent"].orEmpty(),
+                    "Referer", stream.headers["Referer"].orEmpty(),
+                )).build()).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    if (response.isSuccessful && body.startsWith("#EXTM3U")) stream
+                    else {
+                        diagnostics += "${stream.url.substringAfter("edge-hls.").substringBefore('/')}: " +
+                            "HTTP ${response.code}, ${response.header("Content-Type")}, " +
+                            body.take(120).replace('\n', ' ')
+                        null
+                    }
+                }
+            }.onFailure { error -> diagnostics += "${stream.url}: ${error.javaClass.simpleName}: ${error.message}" }
+                .getOrNull()
         }
-        assertNotNull("No CDN returned a valid HLS playlist", playable)
+        assertNotNull("No CDN returned a valid HLS playlist: ${diagnostics.joinToString(" | ")}", playable)
         assertTrue(info.anchorName.isNotBlank())
     }
 }

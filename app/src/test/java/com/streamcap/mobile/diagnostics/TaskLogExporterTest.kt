@@ -47,7 +47,7 @@ class TaskLogExporterTest {
         assertTrue(result.contains("room=1"))
     }
     @Test
-    fun exportsOnlyErrorLogsAndRedactsSecrets() {
+    fun errorReportIncludesMonitoringContextAndRedactsSecrets() {
         val report = TaskLogExporter.buildErrorReport(
             logs = listOf(
                 TaskLogEntity(
@@ -72,7 +72,7 @@ class TaskLogExporterTest {
         assertTrue(report.contains("ROOM_ADD_FAILED"))
         assertTrue(report.contains("token=[REDACTED]"))
         assertTrue(report.contains("sign=[REDACTED]"))
-        assertFalse(report.contains("普通检查信息"))
+        assertTrue(report.contains("普通检查信息"))
         assertFalse(report.contains("secret"))
         assertFalse(report.contains("private"))
     }
