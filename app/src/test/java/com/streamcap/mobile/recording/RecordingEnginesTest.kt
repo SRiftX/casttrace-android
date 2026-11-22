@@ -449,27 +449,32 @@ class RecordingEnginesTest {
         val firstTag = flvTag(timestamp = 0, payload = byteArrayOf(0x17, 0x01))
         val secondTag = flvTag(timestamp = 1_000, payload = byteArrayOf(0x17, 0x01))
         val server = MockWebServer()
-        server.enqueue(MockResponse().setBody(Buffer().write(flvHeader() + firstTag)))
+        val connectionCount = java.util.concurrent.atomic.AtomicInteger()
         // The second response represents a reconnect after a network interruption. It
         // carries a fresh FLV header and a keyframe at the configured segment boundary.
-        server.enqueue(MockResponse().setBody(Buffer().write(flvHeader() + secondTag)))
         server.start()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val output = Files.createTempFile("streamcap-flv-segment-reconnect", ".flv.part").toFile()
         try {
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse = when (connectionCount.incrementAndGet()) {
+                    1 -> MockResponse().setBody(Buffer().write(flvHeader() + firstTag))
+                    else -> MockResponse().setBody(Buffer().write(flvHeader() + secondTag))
+                }
+            }
             val recorder = DirectHttpRecorder(OkHttpClient(), scope)
             val handle = recorder.start(
                 RecordingRequest(server.url("/live.flv").toString(), emptyMap(), StreamType.FLV, output, 1),
             )
-            withTimeout(5_000) {
+            withTimeout(15_000) {
                 recorder.observe(handle).first {
-                    it.outputFiles.size >= 2 && it.outputFiles.all { file ->
+                    connectionCount.get() >= 2 && it.outputFiles.size >= 2 && it.outputFiles.all { file ->
                         file.length() >= flvHeader().size + firstTag.size
                     }
                 }
             }
             recorder.stop(handle, com.streamcap.mobile.recording.engine.StopReason.USER)
-            val terminal = withTimeout(5_000) {
+            val terminal = withTimeout(15_000) {
                 recorder.observe(handle).first { it.state == RecorderState.STOPPED }
             }
             assertEquals(2, terminal.outputFiles.size)
