@@ -164,7 +164,7 @@ dependencies {
     implementation(files(compatibleFfmpegArtifact).builtBy(prepareCompatibleFfmpeg))
     // 本地 AAR 不会自动解析其 POM 中的传递依赖；FFmpegKit 初始化和错误回调会直接使用该类库。
     implementation("com.arthenica:smart-exception-java:0.2.1")
-    val composeBom = platform("androidx.compose:compose-bom:2025.06.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     val roomVersion = "2.8.5"
 
     implementation(composeBom)
